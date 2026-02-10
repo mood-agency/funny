@@ -51,7 +51,7 @@ export function AskQuestionCard({ parsed, onRespond }: { parsed: Record<string, 
 
   const activeQ = questions[activeTab];
   const activeSelections = selections.get(activeTab) || new Set<number>();
-  const hasAnySelection = Array.from(selections.values()).some((s) => s.size > 0);
+  const allAnswered = questions.every((_, i) => (selections.get(i)?.size ?? 0) > 0);
 
   return (
     <div className="rounded-md border border-border/60 bg-muted/30 text-sm max-w-full overflow-hidden">
@@ -142,10 +142,10 @@ export function AskQuestionCard({ parsed, onRespond }: { parsed: Record<string, 
             <div className="flex justify-end pt-1">
               <button
                 onClick={handleSubmit}
-                disabled={!hasAnySelection}
+                disabled={!allAnswered}
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-medium transition-colors',
-                  hasAnySelection
+                  allAnswered
                     ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                     : 'bg-muted text-muted-foreground cursor-not-allowed'
                 )}
