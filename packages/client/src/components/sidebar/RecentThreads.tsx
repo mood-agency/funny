@@ -22,7 +22,12 @@ interface FinishedThread extends Thread {
   projectPath: string;
 }
 
-export function RecentThreads() {
+interface RecentThreadsProps {
+  onArchiveThread: (threadId: string, projectId: string, title: string, isWorktree: boolean) => void;
+  onDeleteThread: (threadId: string, projectId: string, title: string, isWorktree: boolean) => void;
+}
+
+export function RecentThreads({ onArchiveThread, onDeleteThread }: RecentThreadsProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const threadsByProject = useThreadStore(s => s.threadsByProject);
@@ -93,6 +98,8 @@ export function RecentThreads() {
                 }
                 navigate(`/projects/${thread.projectId}/threads/${thread.id}`);
               }}
+              onArchive={() => onArchiveThread(thread.id, thread.projectId, thread.title, thread.mode === 'worktree' && !!thread.branch)}
+              onDelete={() => onDeleteThread(thread.id, thread.projectId, thread.title, thread.mode === 'worktree' && !!thread.branch)}
             />
           ))}
         </div>

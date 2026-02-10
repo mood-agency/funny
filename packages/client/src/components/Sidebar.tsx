@@ -95,7 +95,14 @@ export function Sidebar() {
         <AutomationInboxButton />
         <h2 className="px-2 pt-2 pb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('sidebar.threadsTitle')}</h2>
         <RunningThreads />
-        <RecentThreads />
+        <RecentThreads
+          onArchiveThread={(threadId, projectId, title, isWorktree) => {
+            setArchiveConfirm({ threadId, projectId, title, isWorktree });
+          }}
+          onDeleteThread={(threadId, projectId, title, isWorktree) => {
+            setDeleteThreadConfirm({ threadId, projectId, title, isWorktree });
+          }}
+        />
         {projects.map((project) => (
           <ProjectItem
             key={project.id}
