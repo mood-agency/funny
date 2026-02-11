@@ -25,16 +25,21 @@ const BASE = isTauri ? `http://localhost:${serverPort}/api` : '/api';
 let authToken: string | null = null;
 
 /** Fetch the auth token from the server. Call once at app startup. */
-export async function initAuth(): Promise<void> {
-  try {
-    const res = await fetch(`${BASE}/auth/token`);
-    if (res.ok) {
-      const data = await res.json();
-      authToken = data.token;
+let _initAuthPromise: Promise<void> | null = null;
+export function initAuth(): Promise<void> {
+  if (_initAuthPromise) return _initAuthPromise;
+  _initAuthPromise = (async () => {
+    try {
+      const res = await fetch(`${BASE}/auth/token`);
+      if (res.ok) {
+        const data = await res.json();
+        authToken = data.token;
+      }
+    } catch (e) {
+      console.error('[auth] Failed to fetch auth token:', e);
     }
-  } catch (e) {
-    console.error('[auth] Failed to fetch auth token:', e);
-  }
+  })();
+  return _initAuthPromise;
 }
 
 /** Get the current auth token (for WebSocket connections). */
@@ -203,6 +208,11 @@ export const api = {
     request<{ authUrl: string }>('/mcp/oauth/start', {
       method: 'POST',
       body: JSON.stringify({ serverName, projectPath }),
+    }),
+  setMcpToken: (serverName: string, projectPath: string, token: string) =>
+    request<{ ok: boolean }>('/mcp/oauth/token', {
+      method: 'POST',
+      body: JSON.stringify({ serverName, projectPath, token }),
     }),
 
   // Worktrees

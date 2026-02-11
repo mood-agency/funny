@@ -131,6 +131,10 @@ export function ReviewPane() {
   const hasUncommittedChanges = diffs.length > 0;
   const hasStagedFiles = diffs.some(d => d.staged);
 
+  const gitStatus = useGitStatusStore(s => threadId ? s.statusByThread[threadId] : undefined);
+  const hasCommitsToPush = (gitStatus?.unpushedCommitCount ?? 0) > 0;
+  const isWorktree = activeThread?.mode === 'worktree' && !!activeThread?.branch && !!mergeTarget;
+
   const refresh = async () => {
     if (!threadId) return;
     setLoading(true);
@@ -391,7 +395,7 @@ export function ReviewPane() {
             }}
             disabled={!hasStagedFiles}
           />
-          <div className="flex gap-1.5 justify-end">
+          <div className="flex gap-1 justify-end">
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
@@ -425,108 +429,87 @@ export function ReviewPane() {
                 {generatingMsg ? t('review.generatingCommitMsg') : t('review.generateCommitMsg')}
               </TooltipContent>
             </Tooltip>
-          </div>
-        </div>
 
-        {/* Push & PR */}
-        <div className="flex gap-1.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full h-8 text-xs"
-                  onClick={handlePush}
-                  disabled={pushing || hasUncommittedChanges}
-                >
-                  <Upload className={cn('h-3 w-3 mr-1', pushing && 'animate-spin')} />
-                  {pushing ? t('review.pushing') : t('review.push')}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {hasUncommittedChanges
-                ? t('review.commitFirst')
-                : t('review.pushTooltip', { branch: activeThread?.branch?.replace(/^[^/]+\//, '') ?? '' })}
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full h-8 text-xs"
-                  onClick={() => { setPrTitle(''); setPrDialog(true); }}
-                  disabled={hasUncommittedChanges}
-                >
-                  <GitPullRequest className="h-3 w-3 mr-1" />
-                  {t('review.createPR')}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {hasUncommittedChanges
-                ? t('review.commitFirst')
-                : t('review.createPRTooltip', {
-                  branch: activeThread?.branch?.replace(/^[^/]+\//, '') ?? '',
-                  target: mergeTarget ?? 'default',
-                })}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+            <div className="w-px bg-border mx-0.5" />
 
-        {/* Merge (worktree only) */}
-        {activeThread?.mode === 'worktree' && activeThread?.branch && mergeTarget && (
-          <div className="flex gap-1.5">
+            {/* Push */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="flex-1">
+                <span>
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full h-8 text-xs"
-                    onClick={() => setMergeConfirm({})}
-                    disabled={merging || hasUncommittedChanges}
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={handlePush}
+                    disabled={pushing || hasUncommittedChanges || !hasCommitsToPush}
                   >
-                    <GitMerge className="h-3 w-3 mr-1" />
-                    {merging ? t('review.merging') : t('review.merge')}
+                    <Upload className={cn('h-3.5 w-3.5', pushing && 'animate-spin')} />
                   </Button>
                 </span>
               </TooltipTrigger>
               <TooltipContent>
                 {hasUncommittedChanges
                   ? t('review.commitFirst')
-                  : t('review.mergeTooltip', {
-                    branch: activeThread.branch.replace(/^[^/]+\//, ''),
-                    target: mergeTarget,
-                  })}
+                  : !hasCommitsToPush
+                    ? t('review.nothingToPush')
+                    : t('review.pushTooltip', { branch: activeThread?.branch?.replace(/^[^/]+\//, '') ?? '' })}
               </TooltipContent>
             </Tooltip>
+
+            {/* Create PR */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="flex-1">
+                <span>
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full h-8 text-xs"
-                    onClick={() => setMergeConfirm({ push: true, cleanup: true })}
-                    disabled={merging || hasUncommittedChanges}
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => { setPrTitle(''); setPrDialog(true); }}
+                    disabled={hasUncommittedChanges || !hasCommitsToPush}
                   >
-                    <GitMerge className="h-3 w-3 mr-1" />
-                    {t('review.mergeAndCleanup')}
+                    <GitPullRequest className="h-3.5 w-3.5" />
                   </Button>
                 </span>
               </TooltipTrigger>
               <TooltipContent>
                 {hasUncommittedChanges
                   ? t('review.commitFirst')
-                  : t('review.mergeAndCleanupTooltip', { target: mergeTarget })}
+                  : !hasCommitsToPush
+                    ? t('review.nothingToPush')
+                    : t('review.createPRTooltip', {
+                      branch: activeThread?.branch?.replace(/^[^/]+\//, '') ?? '',
+                      target: mergeTarget ?? 'default',
+                    })}
               </TooltipContent>
             </Tooltip>
+
+            {/* Merge (worktree only) */}
+            {isWorktree && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setMergeConfirm({})}
+                      disabled={merging || hasUncommittedChanges || !hasCommitsToPush}
+                    >
+                      <GitMerge className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {hasUncommittedChanges
+                    ? t('review.commitFirst')
+                    : !hasCommitsToPush
+                      ? t('review.nothingToPush')
+                      : t('review.mergeTooltip', {
+                        branch: activeThread!.branch!.replace(/^[^/]+\//, ''),
+                        target: mergeTarget!,
+                      })}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Revert confirmation dialog */}

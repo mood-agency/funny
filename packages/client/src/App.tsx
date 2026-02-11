@@ -101,13 +101,13 @@ export function App() {
 
         {/* Review pane */}
         {reviewPaneOpen && !settingsOpen && (
-          <aside className="w-[420px] flex-shrink-0 border-l border-border overflow-hidden">
+          <aside className="w-[clamp(420px,40vw,960px)] flex-shrink-0 border-l border-border overflow-hidden">
             <ReviewPane />
           </aside>
         )}
       </div>
 
-      <Toaster position="bottom-right" theme="dark" closeButton />
+      <Toaster position="bottom-right" theme="dark" />
       <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
     </TooltipProvider>
   );

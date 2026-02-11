@@ -518,7 +518,7 @@ export function PromptInput({
 
   return (
     <div className="pb-3 border-border md:flex md:justify-center">
-      <div className="w-full md:w-1/2 md:min-w-[320px]">
+      <div className="w-full md:max-w-3xl md:min-w-[320px] mx-auto">
         {/* Image previews */}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
