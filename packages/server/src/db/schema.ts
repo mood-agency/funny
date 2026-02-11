@@ -24,6 +24,7 @@ export const threads = sqliteTable('threads', {
   sessionId: text('session_id'),
   cost: real('cost').notNull().default(0),
   archived: integer('archived').notNull().default(0),
+  pinned: integer('pinned').notNull().default(0),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 });

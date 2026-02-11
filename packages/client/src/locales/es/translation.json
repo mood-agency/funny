@@ -14,6 +14,8 @@
     "noThreads": "No hay hilos aún",
     "viewAll": "Ver todos",
     "archive": "Archivar",
+    "pin": "Fijar",
+    "unpin": "Desfijar",
     "delete": "Eliminar",
     "projectName": "Nombre del proyecto",
     "absolutePath": "Ruta absoluta",

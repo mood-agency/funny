@@ -32,7 +32,7 @@ export function listThreads(opts: {
   }
 
   const condition = filters.length > 0 ? and(...filters) : undefined;
-  return db.select().from(schema.threads).where(condition).orderBy(desc(schema.threads.createdAt)).all();
+  return db.select().from(schema.threads).where(condition).orderBy(desc(schema.threads.pinned), desc(schema.threads.createdAt)).all();
 }
 
 /** List archived threads with pagination and search */
@@ -130,6 +130,7 @@ export function updateThread(
     cost: number;
     completedAt: string | null;
     archived: number;
+    pinned: number;
     branch: string | null;
     baseBranch: string | null;
     worktreePath: string | null;

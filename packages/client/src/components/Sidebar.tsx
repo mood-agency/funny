@@ -34,6 +34,7 @@ export function Sidebar() {
   const loadProjects = useAppStore(s => s.loadProjects);
   const startNewThread = useAppStore(s => s.startNewThread);
   const archiveThread = useAppStore(s => s.archiveThread);
+  const pinThread = useAppStore(s => s.pinThread);
   const deleteThread = useAppStore(s => s.deleteThread);
   const renameProject = useAppStore(s => s.renameProject);
   const deleteProject = useAppStore(s => s.deleteProject);
@@ -175,6 +176,9 @@ export function Sidebar() {
               const threads = threadsByProject[project.id] ?? [];
               const th = threads.find(t => t.id === threadId);
               setArchiveConfirm({ threadId, projectId: project.id, title, isWorktree: th?.mode === 'worktree' && !!th?.branch });
+            }}
+            onPinThread={(threadId, pinned) => {
+              pinThread(threadId, project.id, pinned);
             }}
             onDeleteThread={(threadId, title) => {
               const threads = threadsByProject[project.id] ?? [];

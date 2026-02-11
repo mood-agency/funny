@@ -36,6 +36,7 @@ interface ProjectItemProps {
   onDeleteProject: () => void;
   onSelectThread: (threadId: string) => void;
   onArchiveThread: (threadId: string, title: string) => void;
+  onPinThread: (threadId: string, pinned: boolean) => void;
   onDeleteThread: (threadId: string, title: string) => void;
   onShowAllThreads: () => void;
 }
@@ -51,6 +52,7 @@ export function ProjectItem({
   onDeleteProject,
   onSelectThread,
   onArchiveThread,
+  onPinThread,
   onDeleteThread,
   onShowAllThreads,
 }: ProjectItemProps) {
@@ -210,7 +212,14 @@ export function ProjectItem({
               {t('sidebar.noThreads')}
             </p>
           )}
-          {threads.slice(0, 5).map((th) => (
+          {[...threads]
+            .sort((a, b) => {
+              if (a.pinned && !b.pinned) return -1;
+              if (!a.pinned && b.pinned) return 1;
+              return 0;
+            })
+            .slice(0, 5)
+            .map((th) => (
             <ThreadItem
               key={th.id}
               thread={th}
@@ -218,6 +227,7 @@ export function ProjectItem({
               isSelected={selectedThreadId === th.id}
               onSelect={() => onSelectThread(th.id)}
               onArchive={() => onArchiveThread(th.id, th.title)}
+              onPin={() => onPinThread(th.id, !th.pinned)}
               onDelete={() => onDeleteThread(th.id, th.title)}
               gitStatus={th.mode === 'worktree' ? gitStatusByThread[th.id] : undefined}
             />

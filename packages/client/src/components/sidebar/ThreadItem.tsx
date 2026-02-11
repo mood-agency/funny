@@ -15,6 +15,8 @@ import {
   FolderOpenDot,
   Terminal,
   Square,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import { statusConfig, gitSyncStateConfig, timeAgo } from '@/lib/thread-utils';
 import type { Thread, ThreadStatus, GitStatusInfo } from '@a-parallel/shared';
@@ -36,11 +38,12 @@ interface ThreadItemProps {
   subtitle?: string;
   timeValue?: string;
   onArchive?: () => void;
+  onPin?: () => void;
   onDelete?: () => void;
   gitStatus?: GitStatusInfo;
 }
 
-export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle, timeValue, onArchive, onDelete, gitStatus }: ThreadItemProps) {
+export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle, timeValue, onArchive, onPin, onDelete, gitStatus }: ThreadItemProps) {
   const { t } = useTranslation();
   const [openDropdown, setOpenDropdown] = useState(false);
 
@@ -92,7 +95,12 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
           <Icon className={cn('h-3 w-3 flex-shrink-0', s.className)} />
         )}
         <div className="flex flex-col gap-0 min-w-0 flex-1">
-          <span className="text-[11px] leading-tight truncate">{thread.title}</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] leading-tight truncate">{thread.title}</span>
+            {!!thread.pinned && (
+              <Pin className="h-2.5 w-2.5 flex-shrink-0 text-muted-foreground" />
+            )}
+          </div>
           {subtitle && (
             <span className="text-[10px] text-muted-foreground font-mono truncate">{subtitle}</span>
           )}
@@ -176,6 +184,26 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
                 </>
               ) : (
                 <>
+                  {onPin && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPin();
+                      }}
+                    >
+                      {thread.pinned ? (
+                        <>
+                          <PinOff className="h-3.5 w-3.5" />
+                          {t('sidebar.unpin')}
+                        </>
+                      ) : (
+                        <>
+                          <Pin className="h-3.5 w-3.5" />
+                          {t('sidebar.pin')}
+                        </>
+                      )}
+                    </DropdownMenuItem>
+                  )}
                   {onArchive && (
                     <DropdownMenuItem
                       onClick={(e) => {

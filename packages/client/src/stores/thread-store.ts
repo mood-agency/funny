@@ -52,6 +52,7 @@ export interface ThreadState {
   loadThreadsForProject: (projectId: string) => Promise<void>;
   selectThread: (threadId: string | null) => Promise<void>;
   archiveThread: (threadId: string, projectId: string) => Promise<void>;
+  pinThread: (threadId: string, projectId: string, pinned: boolean) => Promise<void>;
   deleteThread: (threadId: string, projectId: string) => Promise<void>;
   appendOptimisticMessage: (threadId: string, content: string, images?: any[]) => void;
   refreshActiveThread: () => Promise<void>;
@@ -191,6 +192,22 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       set({ selectedThreadId: null, activeThread: null });
       useProjectStore.setState({ selectedProjectId: null });
     }
+  },
+
+  pinThread: async (threadId, projectId, pinned) => {
+    const result = await api.pinThread(threadId, pinned);
+    if (result.isErr()) return;
+    const { threadsByProject, activeThread } = get();
+    const projectThreads = threadsByProject[projectId] ?? [];
+    set({
+      threadsByProject: {
+        ...threadsByProject,
+        [projectId]: projectThreads.map((t) =>
+          t.id === threadId ? { ...t, pinned } : t
+        ),
+      },
+      activeThread: activeThread?.id === threadId ? { ...activeThread, pinned } : activeThread,
+    });
   },
 
   deleteThread: async (threadId, projectId) => {

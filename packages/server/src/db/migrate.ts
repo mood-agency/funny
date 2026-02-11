@@ -182,5 +182,12 @@ export function autoMigrate() {
     // Column already exists
   }
 
+  // Add pinned column to threads
+  try {
+    db.run(sql`ALTER TABLE threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists
+  }
+
   console.log('[db] Tables ready');
 }

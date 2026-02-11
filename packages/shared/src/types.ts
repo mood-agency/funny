@@ -56,6 +56,7 @@ export interface Thread {
   sessionId?: string;
   cost: number;
   archived?: boolean;
+  pinned?: boolean;
   automationId?: string;
   createdAt: string;
   completedAt?: string;

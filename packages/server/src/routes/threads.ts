@@ -151,6 +151,9 @@ threadRoutes.patch('/:id', async (c) => {
   if (parsed.value.archived !== undefined) {
     updates.archived = parsed.value.archived ? 1 : 0;
   }
+  if (parsed.value.pinned !== undefined) {
+    updates.pinned = parsed.value.pinned ? 1 : 0;
+  }
 
   // Cleanup worktree + branch when archiving
   if (parsed.value.archived && thread.worktreePath) {

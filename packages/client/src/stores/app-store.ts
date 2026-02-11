@@ -36,7 +36,7 @@ useAppStore.getState = (): CombinedState => ({
 // setState support for tests
 useAppStore.setState = (partial: Partial<CombinedState>) => {
   const projectKeys = ['projects', 'expandedProjects', 'selectedProjectId', 'initialized', 'loadProjects', 'toggleProject', 'selectProject', 'deleteProject'];
-  const threadKeys = ['threadsByProject', 'selectedThreadId', 'activeThread', 'loadThreadsForProject', 'selectThread', 'archiveThread', 'deleteThread', 'appendOptimisticMessage', 'refreshActiveThread', 'refreshAllLoadedThreads', 'clearProjectThreads', 'handleWSInit', 'handleWSMessage', 'handleWSToolCall', 'handleWSToolOutput', 'handleWSStatus', 'handleWSResult'];
+  const threadKeys = ['threadsByProject', 'selectedThreadId', 'activeThread', 'loadThreadsForProject', 'selectThread', 'archiveThread', 'pinThread', 'deleteThread', 'appendOptimisticMessage', 'refreshActiveThread', 'refreshAllLoadedThreads', 'clearProjectThreads', 'handleWSInit', 'handleWSMessage', 'handleWSToolCall', 'handleWSToolOutput', 'handleWSStatus', 'handleWSResult'];
 
   const projectPartial: Record<string, any> = {};
   const threadPartial: Record<string, any> = {};

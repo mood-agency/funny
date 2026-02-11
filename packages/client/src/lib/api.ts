@@ -151,6 +151,11 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ archived }),
     }),
+  pinThread: (threadId: string, pinned: boolean) =>
+    request<Thread>(`/threads/${threadId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ pinned }),
+    }),
   listArchivedThreads: (params?: { page?: number; limit?: number; search?: string }) => {
     const p = new URLSearchParams();
     if (params?.page) p.set('page', String(params.page));

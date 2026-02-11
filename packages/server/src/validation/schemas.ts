@@ -50,6 +50,7 @@ export const sendMessageSchema = z.object({
 
 export const updateThreadSchema = z.object({
   archived: z.boolean().optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const stageFilesSchema = z.object({

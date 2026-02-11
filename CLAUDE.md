@@ -82,6 +82,49 @@ npm run db:studio
 
 **Path alias:** `@/` maps to `packages/client/src/` (configured in both vite.config.ts and tsconfig.json).
 
+## Authentication
+
+The app supports two authentication modes controlled by the `AUTH_MODE` environment variable.
+
+### Local Mode (default)
+
+Single-user mode. No login page. A bearer token is auto-generated and stored at `~/.a-parallel/auth-token`. This is the default when `AUTH_MODE` is not set.
+
+```bash
+# Just start normally — no configuration needed
+npm run dev
+```
+
+### Multi-User Mode
+
+Multiple users with login page, per-user data isolation, and admin-managed accounts. Uses [Better Auth](https://www.better-auth.com/) with cookie-based sessions stored in the same SQLite database.
+
+```bash
+# Set the environment variable before starting the server
+AUTH_MODE=multi npm run dev
+```
+
+On first startup in multi mode, a default admin account is created automatically:
+- **Username:** `admin`
+- **Password:** `admin`
+
+The admin can create additional users from **Settings > Users** in the UI. Self-registration is disabled.
+
+**Key details:**
+- Sessions expire after 7 days
+- Auth secret is auto-generated and stored at `~/.a-parallel/auth-secret`
+- Each user only sees their own projects, threads, and automations
+- WebSocket events are filtered per user
+- Legacy data (created in local mode) is reassigned to the first admin on login
+
+### Auth Architecture
+
+- `packages/server/src/lib/auth-mode.ts` — Reads `AUTH_MODE` env var
+- `packages/server/src/lib/auth.ts` — Better Auth instance (only loaded in multi mode)
+- `packages/server/src/middleware/auth.ts` — Dual-mode middleware (bearer token vs session cookie)
+- `packages/client/src/stores/auth-store.ts` — Client auth state (mode detection, login, logout)
+- `packages/client/src/lib/auth-client.ts` — Better Auth client with username + admin plugins
+
 ## Key Patterns
 
 - Thread modes: `local` runs the agent in the project directory; `worktree` creates a git worktree with an isolated branch
