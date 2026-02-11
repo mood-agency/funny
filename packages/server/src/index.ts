@@ -19,11 +19,14 @@ import skillsRoutes from './routes/skills.js';
 import pluginRoutes from './routes/plugins.js';
 import { worktreeRoutes } from './routes/worktrees.js';
 import { automationRoutes } from './routes/automations.js';
+import { profileRoutes } from './routes/profile.js';
 import { wsBroker } from './services/ws-broker.js';
 import { startScheduler, stopScheduler } from './services/automation-scheduler.js';
 
 const port = Number(process.env.PORT) || 3001;
+const host = process.env.HOST || '127.0.0.1';
 const clientPort = Number(process.env.CLIENT_PORT) || 5173;
+const corsOrigin = process.env.CORS_ORIGIN;
 const authMode = getAuthMode();
 
 const app = new Hono();
@@ -37,12 +40,14 @@ app.use('*', secureHeaders());
 app.use(
   '*',
   cors({
-    origin: [
-      `http://localhost:${clientPort}`,
-      `http://127.0.0.1:${clientPort}`,
-      'tauri://localhost',
-      'https://tauri.localhost',
-    ],
+    origin: corsOrigin
+      ? corsOrigin.split(',').map((o) => o.trim())
+      : [
+          `http://localhost:${clientPort}`,
+          `http://127.0.0.1:${clientPort}`,
+          'tauri://localhost',
+          'https://tauri.localhost',
+        ],
     credentials: true,
   })
 );
@@ -80,6 +85,7 @@ app.route('/api/skills', skillsRoutes);
 app.route('/api/plugins', pluginRoutes);
 app.route('/api/worktrees', worktreeRoutes);
 app.route('/api/automations', automationRoutes);
+app.route('/api/profile', profileRoutes);
 
 // Auto-create tables on startup, then start server
 autoMigrate();
@@ -98,7 +104,7 @@ console.log(`[server] Auth mode: ${authMode}`);
 
 const server = Bun.serve({
   port,
-  hostname: '127.0.0.1',
+  hostname: host,
   reusePort: true,
   async fetch(req: Request, server: any) {
     // Handle WebSocket upgrade

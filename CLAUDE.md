@@ -117,6 +117,23 @@ The admin can create additional users from **Settings > Users** in the UI. Self-
 - WebSocket events are filtered per user
 - Legacy data (created in local mode) is reassigned to the first admin on login
 
+### Per-User Git Identity (Multi-User Only)
+
+In multi-user mode, each user can configure their own git identity and GitHub credentials from **Settings > Profile**:
+
+- **Git Name / Email** — Used as `--author` on commits and merges
+- **GitHub Personal Access Token** — Used as `GH_TOKEN` for push and PR operations
+
+Tokens are encrypted at rest using **AES-256-GCM**. The encryption key is auto-generated on first use and stored at:
+
+```
+~/.a-parallel/encryption.key
+```
+
+> **Important:** If this file is deleted, any previously saved GitHub tokens become unrecoverable. Back it up if needed. The file is created with restricted permissions (`0600`).
+
+In local mode, this feature is inactive — git operations use the machine's default git config.
+
 ### Auth Architecture
 
 - `packages/server/src/lib/auth-mode.ts` — Reads `AUTH_MODE` env var

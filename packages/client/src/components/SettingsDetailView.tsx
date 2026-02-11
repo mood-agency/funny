@@ -27,6 +27,7 @@ import { StartupCommandsSettings } from './StartupCommandsSettings';
 import { AutomationSettings } from './AutomationSettings';
 import { ArchivedThreadsSettings } from './ArchivedThreadsSettings';
 import { UserManagement } from './settings/UserManagement';
+import { ProfileSettings } from './settings/ProfileSettings';
 
 function getLanguageName(code: string): string {
   try {
@@ -256,6 +257,8 @@ export function SettingsDetailView() {
             <AutomationSettings />
           ) : page === 'archived-threads' ? (
             <ArchivedThreadsSettings />
+          ) : page === 'profile' ? (
+            <ProfileSettings />
           ) : page === 'users' ? (
             <UserManagement />
           ) : (

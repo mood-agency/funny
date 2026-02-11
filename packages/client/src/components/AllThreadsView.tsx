@@ -205,8 +205,11 @@ export function AllThreadsView() {
           variant="ghost"
           size="icon-xs"
           onClick={() => {
-            useAppStore.getState().closeAllThreads();
-            if (!isGlobalSearch) navigate(`/projects/${allThreadsProjectId}`);
+            if (isGlobalSearch) {
+              navigate('/');
+            } else {
+              navigate(`/projects/${allThreadsProjectId}`);
+            }
           }}
           className="text-muted-foreground hover:text-foreground"
         >
@@ -343,7 +346,7 @@ export function AllThreadsView() {
                     {projectNameById[thread.projectId]}
                   </span>
                 )}
-                {thread.archived && (
+                {!!thread.archived && (
                   <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
                     <Archive className="h-2.5 w-2.5" />
                     {t('allThreads.archived')}

@@ -23,6 +23,24 @@ export interface UpdateUserRequest {
   password?: string;
 }
 
+// ─── User Profile (Git Identity) ─────────────────────────
+
+export interface UserProfile {
+  id: string;
+  userId: string;
+  gitName: string | null;
+  gitEmail: string | null;
+  hasGithubToken: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateProfileRequest {
+  gitName?: string;
+  gitEmail?: string;
+  githubToken?: string | null;
+}
+
 // ─── Projects ────────────────────────────────────────────
 
 export interface Project {

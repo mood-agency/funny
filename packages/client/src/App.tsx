@@ -65,7 +65,7 @@ export function App() {
       if (e.ctrlKey && e.shiftKey && e.key === 'F') {
         e.preventDefault();
         e.stopPropagation();
-        useUIStore.getState().showGlobalSearch();
+        navigate('/search');
         return;
       }
 

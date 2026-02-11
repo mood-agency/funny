@@ -15,6 +15,7 @@ import {
   Timer,
   Archive,
   Users,
+  User,
 } from 'lucide-react';
 
 const baseSettingsItems = [
@@ -28,7 +29,7 @@ const baseSettingsItems = [
 ] as const;
 
 export const settingsItems = baseSettingsItems;
-export type SettingsItemId = (typeof baseSettingsItems)[number]['id'] | 'users';
+export type SettingsItemId = (typeof baseSettingsItems)[number]['id'] | 'users' | 'profile';
 
 export const settingsLabelKeys: Record<string, string> = {
   general: 'settings.general',
@@ -39,6 +40,7 @@ export const settingsLabelKeys: Record<string, string> = {
   automations: 'settings.automations',
   'archived-threads': 'settings.archivedThreads',
   users: 'users.title',
+  profile: 'profile.title',
 };
 
 export function SettingsPanel() {
@@ -50,10 +52,13 @@ export function SettingsPanel() {
   const authMode = useAuthStore(s => s.mode);
   const authUser = useAuthStore(s => s.user);
 
-  // Build items list dynamically (add Users for admin in multi mode)
+  // Build items list dynamically (add Profile and Users in multi mode)
   const items: Array<{ id: string; label: string; icon: typeof Settings }> = [...baseSettingsItems];
-  if (authMode === 'multi' && authUser?.role === 'admin') {
-    items.push({ id: 'users', label: 'Users', icon: Users });
+  if (authMode === 'multi') {
+    items.push({ id: 'profile', label: 'Profile', icon: User });
+    if (authUser?.role === 'admin') {
+      items.push({ id: 'users', label: 'Users', icon: Users });
+    }
   }
 
   const settingsPath = (pageId: string) =>

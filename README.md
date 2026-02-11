@@ -62,6 +62,12 @@ Extend what your agents can do. Install **Claude skills** to give agents special
 ### Desktop & Web
 Runs in the browser during development, or as a **native desktop app** via Tauri with an integrated terminal (xterm.js), system clipboard access, and cross-platform support.
 
+### Multi-User Mode
+Enable `AUTH_MODE=multi` for team environments. Login page, per-user data isolation, admin-managed accounts, and individual git identity and GitHub credentials — all with encrypted token storage (AES-256-GCM).
+
+### Automations
+Schedule recurring agent tasks with cron expressions. Get inbox notifications with summaries when they complete.
+
 ### Internationalization
 Interface available in English, Spanish, and Portuguese.
 
@@ -144,6 +150,45 @@ a-parallel/
 **Client** — React 19 SPA with modular Zustand stores, real-time WebSocket updates, and a component library built on shadcn/ui.
 
 **Shared** — Zero-runtime TypeScript package with all interfaces and types shared between server and client.
+
+---
+
+## Authentication
+
+### Single User (default)
+
+No configuration needed. A bearer token is auto-generated and stored at `~/.a-parallel/auth-token`. Just run `npm run dev` and go.
+
+### Multi-User
+
+For team environments with multiple users sharing a single server:
+
+```bash
+AUTH_MODE=multi npm run dev
+```
+
+On first startup, a default admin account is created: **admin** / **admin** (change it immediately).
+
+| Feature | Details |
+|---|---|
+| **User management** | Admin creates accounts from Settings > Users |
+| **Data isolation** | Each user sees only their own projects, threads, and automations |
+| **Git identity** | Each user configures their own git name, email, and GitHub PAT (Settings > Profile) |
+| **Token security** | GitHub tokens encrypted at rest with AES-256-GCM |
+| **Sessions** | Cookie-based sessions via Better Auth, 7-day expiry |
+
+### Data Directory
+
+All persistent data lives under `~/.a-parallel/`:
+
+| File | Purpose |
+|---|---|
+| `data.db` | SQLite database |
+| `auth-token` | Bearer token (local mode) |
+| `auth-secret` | Session signing key (multi mode) |
+| `encryption.key` | AES-256 key for GitHub token encryption |
+
+> **Backup note:** If `encryption.key` is deleted, previously saved GitHub tokens become unrecoverable.
 
 ---
 

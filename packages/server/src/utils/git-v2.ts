@@ -4,14 +4,20 @@ import { validatePath, validatePathSync } from './path-validation.js';
 import { processError, internal, badRequest, type DomainError } from '@a-parallel/shared/errors';
 import type { FileDiff, GitSyncState } from '@a-parallel/shared';
 
+/** Per-user git identity for multi-user mode. */
+export interface GitIdentityOptions {
+  author?: { name: string; email: string };
+  githubToken?: string;
+}
+
 /**
  * Execute a git command safely with proper argument escaping.
  * Returns ResultAsync<string, DomainError>.
  */
-export function git(args: string[], cwd: string): ResultAsync<string, DomainError> {
+export function git(args: string[], cwd: string, env?: Record<string, string>): ResultAsync<string, DomainError> {
   return validatePath(cwd).andThen((validCwd) =>
     ResultAsync.fromPromise(
-      execute('git', args, { cwd: validCwd }),
+      execute('git', args, { cwd: validCwd, env }),
       (error) => {
         if (error instanceof ProcessExecutionError) {
           return processError(error.message, error.exitCode, error.stderr);
@@ -211,36 +217,46 @@ export function revertFiles(cwd: string, paths: string[]): ResultAsync<void, Dom
 }
 
 /**
- * Create a commit with a message
+ * Create a commit with a message.
+ * When identity.author is provided, adds --author flag for per-user attribution.
  */
-export function commit(cwd: string, message: string): ResultAsync<string, DomainError> {
-  return git(['commit', '-m', message], cwd);
+export function commit(cwd: string, message: string, identity?: GitIdentityOptions): ResultAsync<string, DomainError> {
+  const args = ['commit', '-m', message];
+  if (identity?.author) {
+    args.push('--author', `${identity.author.name} <${identity.author.email}>`);
+  }
+  return git(args, cwd);
 }
 
 /**
- * Push to remote
+ * Push to remote.
+ * When identity.githubToken is provided, passes GH_TOKEN env var for authentication.
  */
-export function push(cwd: string): ResultAsync<string, DomainError> {
+export function push(cwd: string, identity?: GitIdentityOptions): ResultAsync<string, DomainError> {
+  const env = identity?.githubToken ? { GH_TOKEN: identity.githubToken } : undefined;
   return getCurrentBranch(cwd).andThen((branch) =>
-    git(['push', '-u', 'origin', branch], cwd)
+    git(['push', '-u', 'origin', branch], cwd, env)
   );
 }
 
 /**
- * Create a pull request using GitHub CLI
+ * Create a pull request using GitHub CLI.
+ * When identity.githubToken is provided, passes GH_TOKEN env var for authentication.
  */
 export function createPR(
   cwd: string,
   title: string,
   body: string,
-  baseBranch?: string
+  baseBranch?: string,
+  identity?: GitIdentityOptions
 ): ResultAsync<string, DomainError> {
   const args = ['pr', 'create', '--title', title, '--body', body];
   if (baseBranch) {
     args.push('--base', baseBranch);
   }
+  const env = identity?.githubToken ? { GH_TOKEN: identity.githubToken } : undefined;
   return ResultAsync.fromPromise(
-    execute('gh', args, { cwd, timeout: 30_000 }).then((r) => r.stdout.trim()),
+    execute('gh', args, { cwd, timeout: 30_000, env }).then((r) => r.stdout.trim()),
     (error) => {
       if (error instanceof ProcessExecutionError) {
         return processError(error.message, error.exitCode, error.stderr);
@@ -257,7 +273,8 @@ export function createPR(
 export function mergeBranch(
   cwd: string,
   featureBranch: string,
-  targetBranch: string
+  targetBranch: string,
+  identity?: GitIdentityOptions
 ): ResultAsync<string, DomainError> {
   return ResultAsync.fromPromise(
     (async () => {
@@ -277,10 +294,11 @@ export function mergeBranch(
         const checkoutResult = await git(['checkout', targetBranch], cwd);
         if (checkoutResult.isErr()) throw checkoutResult.error;
 
-        const mergeResult = await git(
-          ['merge', '--no-ff', featureBranch, '-m', `Merge branch '${featureBranch}' into ${targetBranch}`],
-          cwd
-        );
+        const mergeArgs = ['merge', '--no-ff', featureBranch, '-m', `Merge branch '${featureBranch}' into ${targetBranch}`];
+        if (identity?.author) {
+          mergeArgs.push('--author', `${identity.author.name} <${identity.author.email}>`);
+        }
+        const mergeResult = await git(mergeArgs, cwd);
         if (mergeResult.isErr()) throw mergeResult.error;
         return mergeResult.value;
       } catch (error) {

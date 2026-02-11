@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/__tests__/setup.ts'],
     },
     server: {
+      host: env.VITE_HOST || '127.0.0.1',
       port: clientPort,
       proxy: {
         '/api': {

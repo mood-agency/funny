@@ -12,6 +12,7 @@ function parseRoute(pathname: string) {
       projectId: projectSettingsMatch.params.projectId!,
       threadId: null,
       allThreads: false,
+      globalSearch: false,
     };
   }
 
@@ -22,6 +23,7 @@ function parseRoute(pathname: string) {
       projectId: null,
       threadId: null,
       allThreads: false,
+      globalSearch: false,
     };
   }
 
@@ -35,6 +37,7 @@ function parseRoute(pathname: string) {
       projectId: threadMatch.params.projectId!,
       threadId: threadMatch.params.threadId!,
       allThreads: false,
+      globalSearch: false,
     };
   }
 
@@ -46,6 +49,7 @@ function parseRoute(pathname: string) {
       projectId: allThreadsMatch.params.projectId!,
       threadId: null,
       allThreads: true,
+      globalSearch: false,
     };
   }
 
@@ -56,10 +60,16 @@ function parseRoute(pathname: string) {
       projectId: projectMatch.params.projectId!,
       threadId: null,
       allThreads: false,
+      globalSearch: false,
     };
   }
 
-  return { settingsPage: null, projectId: null, threadId: null, allThreads: false };
+  // Global search: /search
+  if (pathname === '/search') {
+    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: true };
+  }
+
+  return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false };
 }
 
 const validSettingsIds = new Set(settingsItems.map((i) => i.id));
@@ -72,7 +82,7 @@ export function useRouteSync() {
   useEffect(() => {
     if (!initialized) return;
 
-    const { settingsPage, projectId, threadId, allThreads } = parseRoute(location.pathname);
+    const { settingsPage, projectId, threadId, allThreads, globalSearch } = parseRoute(location.pathname);
     const store = useAppStore.getState();
 
     if (settingsPage && validSettingsIds.has(settingsPage as any)) {
@@ -90,6 +100,14 @@ export function useRouteSync() {
     // Close automation inbox when navigating via URL
     if (store.automationInboxOpen) {
       store.setAutomationInboxOpen(false);
+    }
+
+    // Global search view
+    if (globalSearch) {
+      if (store.allThreadsProjectId !== '__all__') {
+        store.showGlobalSearch();
+      }
+      return;
     }
 
     if (allThreads && projectId) {

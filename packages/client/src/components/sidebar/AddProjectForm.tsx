@@ -11,6 +11,7 @@ import { useAppStore } from '@/stores/app-store';
 export function AddProjectForm() {
   const { t } = useTranslation();
   const setAddProjectOpen = useAppStore(s => s.setAddProjectOpen);
+  const projects = useAppStore(s => s.projects);
 
   return (
     <div className="px-2 pt-2 pb-1">
@@ -32,6 +33,14 @@ export function AddProjectForm() {
           <TooltipContent side="top">{t('sidebar.addProject')}</TooltipContent>
         </Tooltip>
       </div>
+      {projects.length === 0 && (
+        <button
+          onClick={() => setAddProjectOpen(true)}
+          className="w-full text-left px-2 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          {t('sidebar.noProjects')}
+        </button>
+      )}
     </div>
   );
 }

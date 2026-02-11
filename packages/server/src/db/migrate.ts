@@ -182,6 +182,18 @@ export function autoMigrate() {
     // Column already exists
   }
 
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      git_name TEXT,
+      git_email TEXT,
+      github_token TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
   // Add pinned column to threads
   try {
     db.run(sql`ALTER TABLE threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);

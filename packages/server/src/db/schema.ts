@@ -100,6 +100,16 @@ export const automationRuns = sqliteTable('automation_runs', {
   completedAt: text('completed_at'),
 });
 
+export const userProfiles = sqliteTable('user_profiles', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().unique(),
+  gitName: text('git_name'),
+  gitEmail: text('git_email'),
+  githubToken: text('github_token'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const mcpOauthTokens = sqliteTable('mcp_oauth_tokens', {
   id: text('id').primaryKey(),
   serverName: text('server_name').notNull(),

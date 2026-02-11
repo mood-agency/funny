@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import * as tm from '../services/thread-manager.js';
-import { getDiff, stageFiles, unstageFiles, revertFiles, commit, push, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState } from '../utils/git-v2.js';
+import { getDiff, stageFiles, unstageFiles, revertFiles, commit, push, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState, type GitIdentityOptions } from '../utils/git-v2.js';
 import * as wm from '../services/worktree-manager.js';
 import { validate, mergeSchema, stageFilesSchema, commitSchema, createPRSchema } from '../validation/schemas.js';
 import { sanitizePath } from '../utils/path-validation.js';
@@ -10,8 +10,22 @@ import { badRequest } from '@a-parallel/shared/errors';
 import { getClaudeBinaryPath } from '../utils/claude-binary.js';
 import { execute } from '../utils/process.js';
 import { err } from 'neverthrow';
+import { getAuthMode } from '../lib/auth-mode.js';
+import { getGitIdentity, getGithubToken } from '../services/profile-service.js';
 
 export const gitRoutes = new Hono();
+
+/**
+ * Resolve per-user git identity for multi-user mode.
+ * Returns undefined in local mode so all functions behave as before.
+ */
+function resolveIdentity(userId: string): GitIdentityOptions | undefined {
+  if (getAuthMode() === 'local' || userId === '__local__') return undefined;
+  const author = getGitIdentity(userId) ?? undefined;
+  const githubToken = getGithubToken(userId) ?? undefined;
+  if (!author && !githubToken) return undefined;
+  return { author, githubToken };
+}
 
 /**
  * Validate that all file paths stay within the working directory.
@@ -164,7 +178,9 @@ gitRoutes.post('/:threadId/commit', async (c) => {
   const parsed = validate(commitSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
-  const result = await commit(cwd, parsed.value.message);
+  const userId = c.get('userId') as string;
+  const identity = resolveIdentity(userId);
+  const result = await commit(cwd, parsed.value.message, identity);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ ok: true, output: result.value });
 });
@@ -174,7 +190,9 @@ gitRoutes.post('/:threadId/push', async (c) => {
   const cwdResult = requireThreadCwd(c.req.param('threadId'));
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
 
-  const result = await push(cwdResult.value);
+  const userId = c.get('userId') as string;
+  const identity = resolveIdentity(userId);
+  const result = await push(cwdResult.value, identity);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ ok: true, output: result.value });
 });
@@ -191,7 +209,9 @@ gitRoutes.post('/:threadId/pr', async (c) => {
   const parsed = validate(createPRSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
-  const result = await createPR(cwd, parsed.value.title, parsed.value.body, thread?.baseBranch ?? undefined);
+  const userId = c.get('userId') as string;
+  const identity = resolveIdentity(userId);
+  const result = await createPR(cwd, parsed.value.title, parsed.value.body, thread?.baseBranch ?? undefined, identity);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ ok: true, url: result.value });
 });
@@ -251,11 +271,14 @@ gitRoutes.post('/:threadId/merge', async (c) => {
     return resultToResponse(c, err(badRequest('No target branch specified and no baseBranch set on thread')));
   }
 
-  const mergeResult = await mergeBranch(project.path, thread.branch, targetBranch);
+  const userId = c.get('userId') as string;
+  const identity = resolveIdentity(userId);
+  const mergeResult = await mergeBranch(project.path, thread.branch, targetBranch, identity);
   if (mergeResult.isErr()) return resultToResponse(c, mergeResult);
 
   if (parsed.value.push) {
-    const pushResult = await git(['push', 'origin', targetBranch], project.path);
+    const env = identity?.githubToken ? { GH_TOKEN: identity.githubToken } : undefined;
+    const pushResult = await git(['push', 'origin', targetBranch], project.path, env);
     if (pushResult.isErr()) {
       return resultToResponse(c, err(badRequest(`Merge succeeded but push failed: ${pushResult.error.message}`)));
     }

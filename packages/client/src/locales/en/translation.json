@@ -25,7 +25,8 @@
     "activeThreads": "Active",
     "recentThreads": "Recent",
     "searchThreads": "Search threads",
-    "threadsTitle": "Threads"
+    "threadsTitle": "Threads",
+    "noProjects": "No projects yet. Click + to add one."
   },
   "thread": {
     "status": {
@@ -415,6 +416,24 @@
     "passwordPlaceholder": "Enter your password",
     "loginFailed": "Login failed. Please check your credentials.",
     "logout": "Log out"
+  },
+  "profile": {
+    "title": "Profile",
+    "gitIdentity": "Git Identity",
+    "gitName": "Git Name",
+    "gitNameDesc": "Author name used for git commits",
+    "gitEmail": "Git Email",
+    "gitEmailDesc": "Author email used for git commits",
+    "githubToken": "GitHub Credentials",
+    "githubTokenLabel": "GitHub Personal Access Token",
+    "githubTokenDesc": "Used for pushing and creating pull requests. Requires repo scope.",
+    "tokenSaved": "Token saved",
+    "tokenPlaceholder": "ghp_xxxxxxxxxxxxxxxxxxxx",
+    "clearToken": "Clear",
+    "tokenCleared": "GitHub token cleared",
+    "saved": "Profile saved",
+    "saveFailed": "Failed to save profile",
+    "saving": "Saving..."
   },
   "users": {
     "title": "Users",

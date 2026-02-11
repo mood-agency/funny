@@ -18,6 +18,8 @@ import type {
   CreateAutomationRequest,
   UpdateAutomationRequest,
   InboxItem,
+  UserProfile,
+  UpdateProfileRequest,
 } from '@a-parallel/shared';
 
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
@@ -301,6 +303,11 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ triageStatus }),
     }),
+
+  // Profile
+  getProfile: () => request<UserProfile | null>('/profile'),
+  updateProfile: (data: UpdateProfileRequest) =>
+    request<UserProfile>('/profile', { method: 'PUT', body: JSON.stringify(data) }),
 
   // Browse (filesystem)
   browseRoots: () =>
