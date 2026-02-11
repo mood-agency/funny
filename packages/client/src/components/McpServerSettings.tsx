@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAppStore } from '@/stores/app-store';
+import { useProjectStore } from '@/stores/project-store';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +23,8 @@ import {
   ChevronDown,
   ChevronUp,
   ShieldAlert,
+  KeyRound,
+  Check,
 } from 'lucide-react';
 import type { McpServer, McpServerType } from '@a-parallel/shared';
 
@@ -63,14 +65,20 @@ function InstalledServerCard({
   removing,
   onAuthenticate,
   authenticating,
+  onSetToken,
+  settingToken,
 }: {
   server: McpServer;
   onRemove: () => void;
   removing: boolean;
   onAuthenticate?: () => void;
   authenticating?: boolean;
+  onSetToken?: (token: string) => void;
+  settingToken?: boolean;
 }) {
   const { t } = useTranslation();
+  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [tokenValue, setTokenValue] = useState('');
 
   return (
     <div className={cn(
@@ -111,24 +119,63 @@ function InstalledServerCard({
         </Button>
       </div>
       {server.status === 'needs_auth' && (
-        <div className="flex items-center justify-between pl-7 gap-2">
-          <p className="text-[11px] text-amber-500/80">
-            {t('mcp.authHint')}
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onAuthenticate}
-            disabled={authenticating}
-            className="text-xs h-6 px-2 border-amber-500/40 text-amber-500 hover:bg-amber-500/10 flex-shrink-0"
-          >
-            {authenticating ? (
-              <Loader2 className="h-3 w-3 animate-spin mr-1" />
-            ) : (
-              <ShieldAlert className="h-3 w-3 mr-1" />
-            )}
-            {authenticating ? t('mcp.authenticating') : t('mcp.authenticate')}
-          </Button>
+        <div className="pl-7 space-y-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onAuthenticate}
+              disabled={authenticating || settingToken}
+              className="text-xs h-6 px-2 border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
+            >
+              {authenticating ? (
+                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+              ) : (
+                <ShieldAlert className="h-3 w-3 mr-1" />
+              )}
+              {authenticating ? t('mcp.authenticating') : 'OAuth'}
+            </Button>
+            <Button
+              variant={showTokenInput ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={() => setShowTokenInput(!showTokenInput)}
+              disabled={authenticating || settingToken}
+              className="text-xs h-6 px-2"
+            >
+              <KeyRound className="h-3 w-3 mr-1" />
+              {t('mcp.manualToken')}
+            </Button>
+          </div>
+          {showTokenInput && (
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={tokenValue}
+                onChange={(e) => setTokenValue(e.target.value)}
+                placeholder={t('mcp.tokenPlaceholder')}
+                className="flex-1 h-7 px-2 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (tokenValue && onSetToken) {
+                    onSetToken(tokenValue);
+                    setTokenValue('');
+                    setShowTokenInput(false);
+                  }
+                }}
+                disabled={!tokenValue || settingToken}
+                className="text-xs h-7 px-2"
+              >
+                {settingToken ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Check className="h-3 w-3" />
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -177,9 +224,8 @@ function RecommendedServerCard({
 
 export function McpServerSettings() {
   const { t } = useTranslation();
-  const projects = useAppStore(s => s.projects);
-  const selectedProjectId = useAppStore(s => s.selectedProjectId);
-  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const projects = useProjectStore(s => s.projects);
+  const selectedProjectId = useProjectStore(s => s.selectedProjectId);
   const [servers, setServers] = useState<McpServer[]>([]);
   const [recommended, setRecommended] = useState<RecommendedServer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -187,6 +233,7 @@ export function McpServerSettings() {
   const [removingName, setRemovingName] = useState<string | null>(null);
   const [installingName, setInstallingName] = useState<string | null>(null);
   const [authenticatingName, setAuthenticatingName] = useState<string | null>(null);
+  const [settingTokenName, setSettingTokenName] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
 
   // Add form state
@@ -197,17 +244,14 @@ export function McpServerSettings() {
   const [addArgs, setAddArgs] = useState('');
   const [adding, setAdding] = useState(false);
 
-  // Resolve project path from selected project
-  useEffect(() => {
+  // Derive project path directly (no useEffect + setState cascade)
+  const projectPath = (() => {
     if (selectedProjectId) {
       const project = projects.find((p) => p.id === selectedProjectId);
-      if (project) {
-        setProjectPath(project.path);
-      }
-    } else if (projects.length > 0) {
-      setProjectPath(projects[0].path);
+      return project?.path ?? null;
     }
-  }, [selectedProjectId, projects]);
+    return projects.length > 0 ? projects[0].path : null;
+  })();
 
   const loadServers = useCallback(async () => {
     if (!projectPath) return;
@@ -223,22 +267,23 @@ export function McpServerSettings() {
     }
   }, [projectPath]);
 
-  const loadRecommended = useCallback(async () => {
-    try {
-      const res = await api.getRecommendedMcpServers();
-      setRecommended(res.servers as unknown as RecommendedServer[]);
-    } catch {
-      // Silently fail for recommended
-    }
-  }, []);
-
+  // Load servers when projectPath changes (track previous to avoid duplicate calls)
+  const prevProjectPathRef = useRef<string | null>(null);
   useEffect(() => {
+    if (!projectPath || projectPath === prevProjectPathRef.current) return;
+    prevProjectPathRef.current = projectPath;
     loadServers();
-  }, [loadServers]);
+  }, [projectPath, loadServers]);
 
+  // Load recommended servers once on mount
+  const recommendedLoadedRef = useRef(false);
   useEffect(() => {
-    loadRecommended();
-  }, [loadRecommended]);
+    if (recommendedLoadedRef.current) return;
+    recommendedLoadedRef.current = true;
+    api.getRecommendedMcpServers()
+      .then(res => setRecommended(res.servers as unknown as RecommendedServer[]))
+      .catch(() => {});
+  }, []);
 
   const handleRemove = async (name: string) => {
     if (!projectPath) return;
@@ -346,6 +391,20 @@ export function McpServerSettings() {
     } catch (err: any) {
       setError(err.message);
       setAuthenticatingName(null);
+    }
+  };
+
+  const handleSetToken = async (server: McpServer, token: string) => {
+    if (!projectPath) return;
+    setSettingTokenName(server.name);
+    setError(null);
+    try {
+      await api.setMcpToken(server.name, projectPath, token);
+      await loadServers();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSettingTokenName(null);
     }
   };
 
@@ -507,6 +566,8 @@ export function McpServerSettings() {
                 removing={removingName === server.name}
                 onAuthenticate={() => handleAuthenticate(server)}
                 authenticating={authenticatingName === server.name}
+                onSetToken={(token) => handleSetToken(server, token)}
+                settingToken={settingTokenName === server.name}
               />
             ))}
           </div>

@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
-import { GitBranch, Monitor, Sparkles, Zap, Cpu } from 'lucide-react';
+import { GitBranch, Monitor, Sparkles, Zap, Cpu, Check, ChevronsUpDown, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,12 +15,11 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function NewThreadDialog() {
   const { t } = useTranslation();
@@ -38,6 +37,9 @@ export function NewThreadDialog() {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [title, setTitle] = useState('');
   const [creating, setCreating] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
+  const [branchOpen, setBranchOpen] = useState(false);
+  const branchSearchRef = useRef<HTMLInputElement>(null);
 
   // Load branches and detect default branch when dialog opens
   useEffect(() => {
@@ -146,18 +148,67 @@ export function NewThreadDialog() {
             <label className="text-xs font-medium text-muted-foreground block mb-1">
               {t('newThread.baseBranch')}
             </label>
-            <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-              <SelectTrigger className="w-full h-9 text-sm">
-                <SelectValue placeholder={t('newThread.selectBranch')} />
-              </SelectTrigger>
-              <SelectContent>
-                {branches.map((b) => (
-                  <SelectItem key={b} value={b}>
-                    {b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover open={branchOpen} onOpenChange={(v) => { setBranchOpen(v); if (!v) setBranchSearch(''); }}>
+              <PopoverTrigger asChild>
+                <button
+                  className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 h-9 text-sm transition-[border-color,box-shadow] duration-150 hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{selectedBranch || t('newThread.selectBranch')}</span>
+                  </div>
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-[var(--radix-popover-trigger-width)] p-0 flex flex-col"
+                style={{ maxHeight: '320px' }}
+                align="start"
+                onOpenAutoFocus={(e) => { e.preventDefault(); branchSearchRef.current?.focus(); }}
+              >
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    ref={branchSearchRef}
+                    type="text"
+                    value={branchSearch}
+                    onChange={(e) => setBranchSearch(e.target.value)}
+                    placeholder={t('newThread.searchBranches', 'Search branches...')}
+                    className="w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+                  />
+                </div>
+                <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '260px' }}>
+                  <div className="p-1">
+                    {branches
+                      .filter((b) => !branchSearch || b.toLowerCase().includes(branchSearch.toLowerCase()))
+                      .map((b) => {
+                        const isSelected = b === selectedBranch;
+                        return (
+                          <button
+                            key={b}
+                            onClick={() => { setSelectedBranch(b); setBranchOpen(false); setBranchSearch(''); }}
+                            className={cn(
+                              'w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
+                              isSelected
+                                ? 'bg-accent text-foreground'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                            )}
+                          >
+                            <GitBranch className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                            <span className="font-mono truncate">{b}</span>
+                            {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-blue-400 ml-auto" />}
+                          </button>
+                        );
+                      })}
+                    {branches.filter((b) => !branchSearch || b.toLowerCase().includes(branchSearch.toLowerCase())).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-3">
+                        {t('newThread.noBranchesMatch', 'No branches match')}
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
           </div>
         )}
 

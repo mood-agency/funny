@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Inbox } from 'lucide-react';
 import { useAutomationStore } from '@/stores/automation-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -9,12 +9,16 @@ export function AutomationInboxButton() {
   const automationInboxOpen = useUIStore(s => s.automationInboxOpen);
   const setAutomationInboxOpen = useUIStore(s => s.setAutomationInboxOpen);
 
+  // Keep a stable ref to avoid restarting the interval on re-renders
+  const loadInboxRef = useRef(loadInbox);
+  loadInboxRef.current = loadInbox;
+
   // Load all inbox items; inboxCount is derived as pending count in the store
   useEffect(() => {
-    loadInbox();
-    const interval = setInterval(() => loadInbox(), 60_000);
+    loadInboxRef.current();
+    const interval = setInterval(() => loadInboxRef.current(), 60_000);
     return () => clearInterval(interval);
-  }, [loadInbox]);
+  }, []);
 
   return (
     <button

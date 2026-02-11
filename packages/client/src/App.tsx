@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWS } from '@/hooks/use-ws';
 import { useRouteSync } from '@/hooks/use-route-sync';
-import { useAppStore, setAppNavigate } from '@/stores/app-store';
+import { useProjectStore } from '@/stores/project-store';
+import { useUIStore } from '@/stores/ui-store';
+import { setAppNavigate } from '@/stores/thread-store';
 import { initAuth } from '@/lib/api';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { Sidebar } from '@/components/Sidebar';
@@ -18,12 +20,12 @@ import { Toaster } from 'sonner';
 import { CommandPalette } from '@/components/CommandPalette';
 
 export function App() {
-  const loadProjects = useAppStore(s => s.loadProjects);
-  const reviewPaneOpen = useAppStore(s => s.reviewPaneOpen);
-  const settingsOpen = useAppStore(s => s.settingsOpen);
-  const allThreadsProjectId = useAppStore(s => s.allThreadsProjectId);
-  const automationInboxOpen = useAppStore(s => s.automationInboxOpen);
-  const addProjectOpen = useAppStore(s => s.addProjectOpen);
+  const loadProjects = useProjectStore(s => s.loadProjects);
+  const reviewPaneOpen = useUIStore(s => s.reviewPaneOpen);
+  const settingsOpen = useUIStore(s => s.settingsOpen);
+  const allThreadsProjectId = useUIStore(s => s.allThreadsProjectId);
+  const automationInboxOpen = useUIStore(s => s.automationInboxOpen);
+  const addProjectOpen = useUIStore(s => s.addProjectOpen);
   const navigate = useNavigate();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -55,14 +57,14 @@ export function App() {
       if (e.ctrlKey && e.key === '`') {
         e.preventDefault();
         const store = useTerminalStore.getState();
-        const appState = useAppStore.getState();
-        if (!appState.selectedProjectId) return;
+        const { selectedProjectId, projects } = useProjectStore.getState();
+        if (!selectedProjectId) return;
         const projectTabs = store.tabs.filter(
-          (t) => t.projectId === appState.selectedProjectId
+          (t) => t.projectId === selectedProjectId
         );
         if (projectTabs.length === 0 && !store.panelVisible) {
-          const project = appState.projects.find(
-            (p) => p.id === appState.selectedProjectId
+          const project = projects.find(
+            (p: any) => p.id === selectedProjectId
           );
           const cwd = project?.path ?? 'C:\\';
           store.addTab({
@@ -70,7 +72,7 @@ export function App() {
             label: 'Terminal 1',
             cwd,
             alive: true,
-            projectId: appState.selectedProjectId,
+            projectId: selectedProjectId,
           });
         } else {
           store.togglePanel();

@@ -29,6 +29,128 @@ interface WorktreeInfo {
   isMain: boolean;
 }
 
+interface SearchablePickerItem {
+  key: string;
+  label: string;
+  isSelected: boolean;
+  detail?: string;
+  badge?: string;
+}
+
+function SearchablePicker({
+  items,
+  label,
+  displayValue,
+  searchPlaceholder,
+  noMatchText,
+  emptyText,
+  loadingText,
+  loading,
+  onSelect,
+  triggerClassName,
+  triggerTitle,
+  width = 'w-72',
+}: {
+  items: SearchablePickerItem[];
+  label: string;
+  displayValue: string;
+  searchPlaceholder: string;
+  noMatchText: string;
+  emptyText?: string;
+  loadingText?: string;
+  loading?: boolean;
+  onSelect: (key: string) => void;
+  triggerClassName?: string;
+  triggerTitle?: string;
+  width?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = search
+    ? items.filter((item) => item.label.toLowerCase().includes(search.toLowerCase()))
+    : items;
+
+  return (
+    <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch(''); }}>
+      <PopoverTrigger asChild>
+        <button
+          className={triggerClassName ?? 'flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[300px]'}
+          title={triggerTitle}
+        >
+          <GitBranch className="h-3 w-3 shrink-0" />
+          <span className="truncate font-mono">{displayValue}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="start"
+        className={cn(width, 'p-0 flex flex-col')}
+        style={{ maxHeight: '320px' }}
+        onOpenAutoFocus={(e) => { e.preventDefault(); searchInputRef.current?.focus(); }}
+      >
+        <div className="px-3 py-2 border-b border-border bg-muted/30">
+          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        </div>
+        <div className="px-2 py-1.5 border-b border-border">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full bg-transparent text-[11px] placeholder:text-muted-foreground focus:outline-none"
+          />
+        </div>
+        <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '240px' }}>
+          <div className="p-1">
+            {loading && items.length === 0 && loadingText && (
+              <p className="text-[11px] text-muted-foreground text-center py-3">{loadingText}</p>
+            )}
+            {!loading && items.length === 0 && emptyText && (
+              <p className="text-[11px] text-muted-foreground text-center py-3">{emptyText}</p>
+            )}
+            {!loading && items.length > 0 && filtered.length === 0 && (
+              <p className="text-[11px] text-muted-foreground text-center py-3">{noMatchText}</p>
+            )}
+            {filtered.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => { onSelect(item.key); setOpen(false); setSearch(''); }}
+                className={cn(
+                  'w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] transition-colors',
+                  item.isSelected
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                )}
+              >
+                <GitBranch className="h-3 w-3 shrink-0 text-blue-400" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium font-mono truncate">{item.label}</span>
+                    {item.badge && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground leading-none">
+                        {item.badge}
+                      </span>
+                    )}
+                  </div>
+                  {item.detail && (
+                    <span className="text-[10px] text-muted-foreground/70 truncate block font-mono">
+                      {item.detail}
+                    </span>
+                  )}
+                </div>
+                {item.isSelected && <Check className="h-3 w-3 shrink-0 text-blue-400" />}
+              </button>
+            ))}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function WorktreePicker({
   projectId,
   currentPath,
@@ -39,18 +161,18 @@ function WorktreePicker({
   onChange: (path: string) => void;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchTrigger, setFetchTrigger] = useState(0);
 
   useEffect(() => {
-    if (!open) return;
+    if (!fetchTrigger) return;
     setLoading(true);
     api.listWorktrees(projectId)
       .then((data) => setWorktrees(data))
       .catch(() => setWorktrees([]))
       .finally(() => setLoading(false));
-  }, [open, projectId]);
+  }, [fetchTrigger, projectId]);
 
   const normalizedCurrent = currentPath.replace(/\\/g, '/').toLowerCase();
   const currentWorktree = worktrees.find(
@@ -58,82 +180,30 @@ function WorktreePicker({
   );
   const displayLabel = currentWorktree?.branch ?? currentPath.split(/[/\\]/).filter(Boolean).pop() ?? '...';
 
-  const selectWorktree = (wt: WorktreeInfo) => {
-    onChange(wt.path);
-    setOpen(false);
-  };
+  const items: SearchablePickerItem[] = worktrees.map((wt) => ({
+    key: wt.path,
+    label: wt.branch,
+    isSelected: wt.path.replace(/\\/g, '/').toLowerCase() === normalizedCurrent,
+    detail: wt.commit?.slice(0, 8),
+    badge: wt.isMain ? 'main' : undefined,
+  }));
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          className="flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[300px]"
-          title={currentPath}
-        >
-          <GitBranch className="h-3 w-3 shrink-0" />
-          <span className="truncate font-mono">{displayLabel}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        className="w-80 p-0 flex flex-col"
-        style={{ maxHeight: '280px' }}
-        onOpenAutoFocus={(e) => e.preventDefault()}
-      >
-        <div className="px-3 py-2 border-b border-border bg-muted/30">
-          <p className="text-[11px] font-medium text-muted-foreground">
-            {t('prompt.selectWorktree', 'Select worktree')}
-          </p>
-        </div>
-
-        <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '220px' }}>
-          <div className="p-1">
-            {loading && worktrees.length === 0 && (
-              <p className="text-[11px] text-muted-foreground text-center py-3">
-                {t('prompt.loadingWorktrees', 'Loading worktrees...')}
-              </p>
-            )}
-            {!loading && worktrees.length === 0 && (
-              <p className="text-[11px] text-muted-foreground text-center py-3">
-                {t('prompt.noWorktrees', 'No worktrees available')}
-              </p>
-            )}
-            {worktrees.map((wt) => {
-              const isSelected = wt.path.replace(/\\/g, '/').toLowerCase() === normalizedCurrent;
-              return (
-                <button
-                  key={wt.path}
-                  onClick={() => selectWorktree(wt)}
-                  className={cn(
-                    'w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] transition-colors',
-                    isSelected
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                  )}
-                >
-                  <GitBranch className="h-3 w-3 shrink-0 text-blue-400" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-medium font-mono truncate">{wt.branch}</span>
-                      {wt.isMain && (
-                        <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground leading-none">
-                          main
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-muted-foreground/70 truncate block font-mono">
-                      {wt.commit?.slice(0, 8)}
-                    </span>
-                  </div>
-                  {isSelected && <Check className="h-3 w-3 shrink-0 text-blue-400" />}
-                </button>
-              );
-            })}
-          </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
+    <div onMouseDown={() => setFetchTrigger((n) => n + 1)}>
+      <SearchablePicker
+        items={items}
+        label={t('prompt.selectWorktree', 'Select worktree')}
+        displayValue={displayLabel}
+        searchPlaceholder={t('prompt.searchWorktrees', 'Search worktrees...')}
+        noMatchText={t('prompt.noWorktreesMatch', 'No worktrees match')}
+        emptyText={t('prompt.noWorktrees', 'No worktrees available')}
+        loadingText={t('prompt.loadingWorktrees', 'Loading worktrees...')}
+        loading={loading}
+        onSelect={(path) => onChange(path)}
+        triggerTitle={currentPath}
+        width="w-80"
+      />
+    </div>
   );
 }
 
@@ -147,54 +217,24 @@ function BranchPicker({
   onChange: (branch: string) => void;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+
+  const items: SearchablePickerItem[] = branches.map((b) => ({
+    key: b,
+    label: b,
+    isSelected: b === selected,
+  }));
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          className="flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[200px]"
-        >
-          <GitBranch className="h-3 w-3 shrink-0" />
-          <span className="truncate font-mono">{selected || t('newThread.selectBranch')}</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        className="w-64 p-0 flex flex-col"
-        style={{ maxHeight: '280px' }}
-      >
-        <div className="px-3 py-2 border-b border-border bg-muted/30">
-          <p className="text-[11px] font-medium text-muted-foreground">
-            {t('newThread.baseBranch', 'Base branch')}
-          </p>
-        </div>
-        <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '220px' }}>
-          <div className="p-1">
-            {branches.map((branch) => {
-              const isSelected = branch === selected;
-              return (
-                <button
-                  key={branch}
-                  onClick={() => { onChange(branch); setOpen(false); }}
-                  className={cn(
-                    'w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] transition-colors',
-                    isSelected
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                  )}
-                >
-                  <GitBranch className="h-3 w-3 shrink-0 text-blue-400" />
-                  <span className="font-medium font-mono truncate">{branch}</span>
-                  {isSelected && <Check className="h-3 w-3 shrink-0 text-blue-400 ml-auto" />}
-                </button>
-              );
-            })}
-          </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
+    <SearchablePicker
+      items={items}
+      label={t('newThread.baseBranch', 'Base branch')}
+      displayValue={selected || t('newThread.selectBranch')}
+      searchPlaceholder={t('newThread.searchBranches', 'Search branches...')}
+      noMatchText={t('newThread.noBranchesMatch', 'No branches match')}
+      onSelect={(branch) => onChange(branch)}
+      triggerClassName="flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[200px]"
+      width="w-64"
+    />
   );
 }
 
