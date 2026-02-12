@@ -60,18 +60,33 @@ export function ThreadListView({
     setHighlightIndex(-1);
   }, [search, threads]);
 
+  // Track whether navigation is keyboard-driven (focus follows highlight)
+  // vs mouse-driven (highlight follows mouse but focus stays in search input)
+  const keyboardNav = useRef(false);
+
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!onThreadClick || threads.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightIndex(0);
-      itemRefs.current[0]?.focus();
-      itemRefs.current[0]?.scrollIntoView({ block: 'nearest' });
+      keyboardNav.current = true;
+      const next = highlightIndex < threads.length - 1 ? highlightIndex + 1 : 0;
+      setHighlightIndex(next);
+      itemRefs.current[next]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      keyboardNav.current = true;
+      const prev = highlightIndex > 0 ? highlightIndex - 1 : threads.length - 1;
+      setHighlightIndex(prev);
+      itemRefs.current[prev]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && highlightIndex >= 0 && highlightIndex < threads.length) {
+      e.preventDefault();
+      onThreadClick(threads[highlightIndex]);
     }
-  }, [threads, onThreadClick]);
+  }, [threads, onThreadClick, highlightIndex]);
 
   const handleItemKeyDown = useCallback((e: React.KeyboardEvent, i: number) => {
     if (!onThreadClick) return;
+    keyboardNav.current = true;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (i < threads.length - 1) {
@@ -157,7 +172,7 @@ export function ThreadListView({
                 {...(onThreadClick ? { onClick: () => onThreadClick(thread) } : {})}
                 onKeyDown={(e: React.KeyboardEvent) => handleItemKeyDown(e, i)}
                 onFocus={() => setHighlightIndex(i)}
-                onMouseEnter={() => { setHighlightIndex(i); itemRefs.current[i]?.focus(); }}
+                onMouseMove={() => { keyboardNav.current = false; setHighlightIndex(i); }}
                 className={cn(
                   'w-full flex items-center gap-3 px-3 py-2.5 border-b border-border/50 last:border-b-0 group outline-none',
                   onThreadClick && 'text-left hover:bg-accent/50 transition-colors',

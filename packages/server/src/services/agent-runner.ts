@@ -295,6 +295,14 @@ export class AgentRunner {
         ...(finalStatus !== 'waiting' ? { completedAt: new Date().toISOString() } : {}),
       });
 
+      // Auto-transition stage to 'review' when agent completes/fails
+      if (finalStatus !== 'waiting') {
+        const threadForStage = this.threadManager.getThread(threadId);
+        if (threadForStage && threadForStage.stage === 'in_progress') {
+          this.threadManager.updateThread(threadId, { stage: 'review' });
+        }
+      }
+
       // Emit agent:result which already contains the final status.
       this.emitWS(threadId, 'agent:result', {
         result: msg.result ? decodeUnicodeEscapes(msg.result) : msg.result,
@@ -374,6 +382,12 @@ export class AgentRunner {
 
     // Update thread status
     this.threadManager.updateThread(threadId, { status: 'running' });
+
+    // Auto-transition stage to 'in_progress' when agent starts
+    const currentThread = this.threadManager.getThread(threadId);
+    if (currentThread && ['backlog', 'review', 'done'].includes(currentThread.stage)) {
+      this.threadManager.updateThread(threadId, { stage: 'in_progress' });
+    }
 
     this.emitWS(threadId, 'agent:status', { status: 'running' });
 

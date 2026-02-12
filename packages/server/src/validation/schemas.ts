@@ -7,6 +7,7 @@ import { validationErr, type DomainError } from '@a-parallel/shared/errors';
 export const threadModeSchema = z.enum(['local', 'worktree']);
 export const claudeModelSchema = z.enum(['sonnet', 'opus', 'haiku']);
 export const permissionModeSchema = z.enum(['plan', 'autoEdit', 'confirmEdit']);
+export const threadStageSchema = z.enum(['backlog', 'in_progress', 'review', 'done']);
 
 // ── Image attachment ─────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ export const sendMessageSchema = z.object({
 export const updateThreadSchema = z.object({
   archived: z.boolean().optional(),
   pinned: z.boolean().optional(),
+  stage: threadStageSchema.optional(),
 });
 
 export const stageFilesSchema = z.object({

@@ -5,7 +5,7 @@
  */
 
 import { create } from 'zustand';
-import type { Thread, MessageRole, ThreadStatus, WaitingReason } from '@a-parallel/shared';
+import type { Thread, MessageRole, ThreadStatus, ThreadStage, WaitingReason } from '@a-parallel/shared';
 import { api } from '@/lib/api';
 import { useUIStore } from './ui-store';
 import { useProjectStore } from './project-store';
@@ -54,6 +54,7 @@ export interface ThreadState {
   selectThread: (threadId: string | null) => Promise<void>;
   archiveThread: (threadId: string, projectId: string) => Promise<void>;
   pinThread: (threadId: string, projectId: string, pinned: boolean) => Promise<void>;
+  updateThreadStage: (threadId: string, projectId: string, stage: ThreadStage) => Promise<void>;
   deleteThread: (threadId: string, projectId: string) => Promise<void>;
   appendOptimisticMessage: (threadId: string, content: string, images?: any[]) => void;
   refreshActiveThread: () => Promise<void>;
@@ -215,6 +216,22 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         ),
       },
       activeThread: activeThread?.id === threadId ? { ...activeThread, pinned } : activeThread,
+    });
+  },
+
+  updateThreadStage: async (threadId, projectId, stage) => {
+    const result = await api.updateThreadStage(threadId, stage);
+    if (result.isErr()) return;
+    const { threadsByProject, activeThread } = get();
+    const projectThreads = threadsByProject[projectId] ?? [];
+    set({
+      threadsByProject: {
+        ...threadsByProject,
+        [projectId]: projectThreads.map((t) =>
+          t.id === threadId ? { ...t, stage } : t
+        ),
+      },
+      activeThread: activeThread?.id === threadId ? { ...activeThread, stage } : activeThread,
     });
   },
 

@@ -417,6 +417,19 @@
     "merged": "Branch mergeado",
     "clean": "Limpio"
   },
+  "kanban": {
+    "backlog": "Pendientes",
+    "inProgress": "En Progreso",
+    "review": "Revisión",
+    "done": "Listo",
+    "boardView": "Tablero",
+    "listView": "Lista",
+    "moveToBacklog": "Mover a Pendientes",
+    "moveToInProgress": "Mover a En Progreso",
+    "moveToReview": "Mover a Revisión",
+    "moveToDone": "Mover a Listo",
+    "emptyColumn": "Sin hilos"
+  },
   "auth": {
     "signIn": "Iniciar sesión",
     "signingIn": "Iniciando sesión...",

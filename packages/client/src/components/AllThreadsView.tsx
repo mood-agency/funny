@@ -5,9 +5,10 @@ import { useAppStore } from '@/stores/app-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown, LayoutList, Columns3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThreadListView } from '@/components/ThreadListView';
+import { KanbanView } from '@/components/KanbanView';
 import { statusConfig, gitSyncStateConfig, getStatusLabels } from '@/lib/thread-utils';
 import type { Thread, ThreadStatus, GitSyncState } from '@a-parallel/shared';
 
@@ -63,6 +64,10 @@ export function AllThreadsView() {
   const [archivedThreads, setArchivedThreads] = useState<Thread[]>([]);
   const [sortField, setSortField] = useState<SortField>('updated');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [viewMode, setViewMode] = useState<'list' | 'board'>(() => {
+    const saved = localStorage.getItem('threadViewMode');
+    return (saved === 'board' || saved === 'list') ? saved : 'list';
+  });
 
   const project = isGlobalSearch ? null : projects.find((p) => p.id === allThreadsProjectId);
   const projectNameById = useMemo(() => {
@@ -241,16 +246,46 @@ export function AllThreadsView() {
           </p>
         </div>
 
-        {hasActiveFilters && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={resetFilters}
-            className="text-xs text-muted-foreground hover:text-foreground h-7"
-          >
-            {t('allThreads.clearFilters')}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {hasActiveFilters && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resetFilters}
+              className="text-xs text-muted-foreground hover:text-foreground h-7"
+            >
+              {t('allThreads.clearFilters')}
+            </Button>
+          )}
+
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-md p-0.5">
+            <Button
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => {
+                setViewMode('list');
+                localStorage.setItem('threadViewMode', 'list');
+              }}
+              className="h-6 w-6"
+              title={t('kanban.listView')}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={viewMode === 'board' ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => {
+                setViewMode('board');
+                localStorage.setItem('threadViewMode', 'board');
+              }}
+              className="h-6 w-6"
+              title={t('kanban.boardView')}
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -363,26 +398,30 @@ export function AllThreadsView() {
         </div>
       </div>
 
-      {/* Thread list */}
-      <div className="flex-1 min-h-0 px-4 py-3">
-        <ThreadListView
-          className="h-full"
-          autoFocusSearch
-          threads={paginated}
-          totalCount={filtered.length}
-          search={search}
-          onSearchChange={handleSearchChange}
-          searchPlaceholder={isGlobalSearch ? t('allThreads.globalSearchPlaceholder') : t('allThreads.searchPlaceholder')}
-          page={currentPage}
-          onPageChange={setPage}
-          pageSize={ITEMS_PER_PAGE}
-          emptyMessage={t('allThreads.noThreads')}
-          searchEmptyMessage={t('allThreads.noMatch')}
-          onThreadClick={(thread) => navigate(`/projects/${thread.projectId}/threads/${thread.id}`)}
-          paginationLabel={({ total }) =>
-            `${total} ${t('allThreads.threads')}${search || hasActiveFilters ? ` ${t('allThreads.found')}` : ''}`
-          }
-          renderExtraBadges={(thread) => {
+      {/* Thread content */}
+      <div className="flex-1 min-h-0">
+        {viewMode === 'board' ? (
+          <KanbanView threads={filtered} projectId={isGlobalSearch ? undefined : allThreadsProjectId} />
+        ) : (
+          <div className="px-4 py-3 h-full">
+            <ThreadListView
+              className="h-full"
+              autoFocusSearch
+              threads={paginated}
+              totalCount={filtered.length}
+              search={search}
+              onSearchChange={handleSearchChange}
+              searchPlaceholder={isGlobalSearch ? t('allThreads.globalSearchPlaceholder') : t('allThreads.searchPlaceholder')}
+              page={currentPage}
+              onPageChange={setPage}
+              pageSize={ITEMS_PER_PAGE}
+              emptyMessage={t('allThreads.noThreads')}
+              searchEmptyMessage={t('allThreads.noMatch')}
+              onThreadClick={(thread) => navigate(`/projects/${thread.projectId}/threads/${thread.id}`)}
+              paginationLabel={({ total }) =>
+                `${total} ${t('allThreads.threads')}${search || hasActiveFilters ? ` ${t('allThreads.found')}` : ''}`
+              }
+              renderExtraBadges={(thread) => {
             const gs = statusByThread[thread.id];
             const gitConf = gs ? gitSyncStateConfig[gs.state] : null;
             return (
@@ -409,7 +448,9 @@ export function AllThreadsView() {
               </>
             );
           }}
-        />
+            />
+          </div>
+        )}
       </div>
     </div>
   );

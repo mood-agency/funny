@@ -208,5 +208,16 @@ export function autoMigrate() {
     // Column already exists
   }
 
+  // Add stage column to threads for Kanban workflow tracking
+  try {
+    db.run(sql`ALTER TABLE threads ADD COLUMN stage TEXT NOT NULL DEFAULT 'backlog'`);
+  } catch {
+    // Column already exists
+  }
+
+  // Backfill existing threads based on their current status
+  db.run(sql`UPDATE threads SET stage = 'in_progress' WHERE status IN ('running', 'waiting') AND stage = 'backlog'`);
+  db.run(sql`UPDATE threads SET stage = 'review' WHERE status IN ('completed', 'failed', 'stopped', 'interrupted') AND stage = 'backlog'`);
+
   console.log('[db] Tables ready');
 }

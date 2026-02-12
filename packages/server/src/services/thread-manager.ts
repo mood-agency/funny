@@ -135,6 +135,7 @@ export function updateThread(
     completedAt: string | null;
     archived: number;
     pinned: number;
+    stage: string;
     branch: string | null;
     baseBranch: string | null;
     worktreePath: string | null;

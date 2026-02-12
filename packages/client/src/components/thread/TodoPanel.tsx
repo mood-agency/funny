@@ -40,7 +40,7 @@ export function TodoPanel({ todos, progress, onDismiss }: TodoPanelProps) {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
       transition={{ duration: 0.2, ease: 'easeOut' }}
-      className="absolute top-14 right-4 z-20 w-64 rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg"
+      className="absolute top-1/2 -translate-y-1/2 right-4 z-20 w-64 rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg"
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">

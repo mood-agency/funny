@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
+import { useUIStore } from '@/stores/ui-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { SettingsPanel } from './SettingsPanel';
@@ -22,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Plus, Folder } from 'lucide-react';
+import { Plus, Folder, Columns3 } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -69,6 +70,7 @@ export function AppSidebar() {
   const settingsOpen = useAppStore(s => s.settingsOpen);
   const showAllThreads = useAppStore(s => s.showAllThreads);
   const setAddProjectOpen = useAppStore(s => s.setAddProjectOpen);
+  const showGlobalSearch = useUIStore(s => s.showGlobalSearch);
   const authMode = useAuthStore(s => s.mode);
   const authUser = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
@@ -182,8 +184,25 @@ export function AppSidebar() {
     <Sidebar collapsible="offcanvas">
       {/* Logo area */}
       <SidebarHeader className="px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between">
           <Logo3D scale={0.75} glow={0.3} />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => {
+                  localStorage.setItem('threadViewMode', 'board');
+                  showGlobalSearch();
+                  navigate('/search');
+                }}
+                className="text-muted-foreground"
+              >
+                <Columns3 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Kanban</TooltipContent>
+          </Tooltip>
         </div>
       </SidebarHeader>
 

@@ -26,6 +26,7 @@ export const threads = sqliteTable('threads', {
   cost: real('cost').notNull().default(0),
   archived: integer('archived').notNull().default(0),
   pinned: integer('pinned').notNull().default(0),
+  stage: text('stage').notNull().default('backlog'), // 'backlog' | 'in_progress' | 'review' | 'done'
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 });

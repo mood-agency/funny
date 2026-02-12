@@ -9,8 +9,11 @@ import {
   ArrowUpCircle,
   GitPullRequestArrow,
   GitMerge,
+  LayoutList,
+  Play,
+  Eye,
 } from 'lucide-react';
-import type { ThreadStatus, GitSyncState } from '@a-parallel/shared';
+import type { ThreadStatus, GitSyncState, ThreadStage } from '@a-parallel/shared';
 
 export const statusConfig: Record<ThreadStatus, { icon: typeof Clock; className: string }> = {
   pending: { icon: Clock, className: 'text-yellow-400' },
@@ -20,6 +23,13 @@ export const statusConfig: Record<ThreadStatus, { icon: typeof Clock; className:
   failed: { icon: XCircle, className: 'text-red-400' },
   stopped: { icon: CircleStop, className: 'text-gray-400' },
   interrupted: { icon: AlertTriangle, className: 'text-orange-400' },
+};
+
+export const stageConfig: Record<ThreadStage, { icon: typeof Clock; className: string; labelKey: string }> = {
+  backlog: { icon: LayoutList, className: 'text-gray-400', labelKey: 'kanban.backlog' },
+  in_progress: { icon: Play, className: 'text-blue-400', labelKey: 'kanban.inProgress' },
+  review: { icon: Eye, className: 'text-amber-400', labelKey: 'kanban.review' },
+  done: { icon: CheckCircle2, className: 'text-green-400', labelKey: 'kanban.done' },
 };
 
 export function timeAgo(dateStr: string, t: (key: string, opts?: any) => string): string {

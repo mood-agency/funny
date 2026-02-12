@@ -82,6 +82,7 @@ export interface Project {
 
 export type ThreadMode = 'local' | 'worktree';
 export type ThreadStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+export type ThreadStage = 'backlog' | 'in_progress' | 'review' | 'done';
 export type WaitingReason = 'question' | 'plan' | 'permission';
 
 export type ClaudeModel = 'sonnet' | 'opus' | 'haiku';
@@ -94,6 +95,7 @@ export interface Thread {
   title: string;
   mode: ThreadMode;
   status: ThreadStatus;
+  stage: ThreadStage;
   permissionMode: PermissionMode;
   branch?: string;
   baseBranch?: string;
