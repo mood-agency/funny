@@ -1,243 +1,215 @@
-<div align="center">
-
 # a-parallel
 
-### Run multiple AI coding agents at the same time. On the same repo. Without conflicts.
+> Parallel Claude Code agent orchestration powered by git worktrees
 
-**Parallel agent orchestration for Claude Code, powered by git worktrees.**
-
-[Getting Started](#getting-started) &bull; [Features](#features) &bull; [How It Works](#how-it-works) &bull; [Architecture](#architecture)
-
-</div>
-
----
-
-I built this because I had **seven VS Code windows open at the same time** — one per project, each with multiple Claude Code agents running, each needing attention. Alt-tabbing between them, losing context, forgetting which window was doing what. It was chaos.
-
-**a-parallel** replaces all of that with a single UI. Spin up multiple Claude Code agents working on the same repository simultaneously — each on its own isolated branch — and review, commit, and merge their work from one place. It's like having a team of engineers that never step on each other's toes, managed from a single control room.
-
-> Think [OpenAI Codex](https://openai.com/index/introducing-codex/) but self-hosted, open, and built around **parallel execution** as a first-class concept.
-
----
-
-## Why a-parallel?
-
-| Problem | Solution |
-|---|---|
-| Seven VS Code windows open, each with an agent | **One dashboard** to manage all your agents and projects |
-| Running one agent at a time is slow | Launch **multiple agents in parallel**, each on its own branch |
-| Agents overwrite each other's files | **Git worktrees** give every agent an isolated working directory |
-| Switching between tasks kills your flow | A **single UI** shows all running agents, their progress, and diffs |
-| Reviewing AI-generated code is tedious | Built-in **diff viewer** with stage, unstage, revert, commit, push, and PR — all in one pane |
-| CLI-only tools lack visibility | **Real-time streaming UI** shows every tool call, file edit, and bash command as it happens |
-
----
+a-parallel is a web UI for orchestrating multiple [Claude Code](https://claude.ai/code) agents in parallel. It uses git worktrees to let each agent work on its own branch simultaneously without conflicts. Think of it as a Codex App clone powered by the Claude Agent SDK.
 
 ## Features
 
-### Parallel Agent Orchestration
-Run 2, 5, or 10 Claude agents at the same time on the same repository. Each agent gets its own git worktree and branch — complete filesystem isolation with zero merge conflicts.
+- **Parallel agent execution** — Run multiple Claude Code agents simultaneously on different branches
+- **Git worktree isolation** — Each agent gets its own isolated working directory
+- **Real-time monitoring** — WebSocket-based live updates for all agent activities
+- **Git integration** — Built-in diff viewer, staging, commits, and PR creation
+- **Dual authentication modes** — Single-user local mode or multi-user with Better Auth
+- **MCP support** — Model Context Protocol integration
+- **Automation scheduling** — Cron-based recurring tasks
 
-### Real-Time Streaming
-Watch agents think, code, and execute in real time. Every tool call, file write, bash command, and reasoning step streams to your browser via WebSocket.
+## Installation
 
-### Built-In Code Review
-A full git workflow lives inside the app. View diffs with syntax highlighting, stage or revert individual files, write commit messages, push to remote, and open pull requests — without leaving the window.
+### Quick Start (npx)
 
-### Multiple Permission Modes
-Control how much autonomy each agent gets:
-- **Plan** — Agent describes what it will do before doing it
-- **Auto Edit** — Agent applies changes automatically
-- **Confirm Edit** — Agent asks for approval before each edit
+No installation needed! Run directly with:
 
-### Project Management
-Organize work by project. Each project points to a git repository, and threads within it represent individual tasks. Archive completed threads, track costs, and resume interrupted sessions.
+\`\`\`bash
+npx a-parallel
+\`\`\`
 
-### Model Flexibility
-Switch between Claude models per thread — use **Haiku** for quick tasks, **Sonnet** for everyday coding, **Opus** for complex architectural work.
+The app will start and open at \`http://localhost:3001\`
 
-### Skills & MCP Servers
-Extend what your agents can do. Install **Claude skills** to give agents specialized knowledge and workflows, and connect **MCP (Model Context Protocol) servers** to plug in external tools — databases, APIs, custom integrations — all configurable per project from the settings panel.
+### Global Installation
 
-### Desktop & Web
-Runs in the browser during development, or as a **native desktop app** via Tauri with an integrated terminal (xterm.js), system clipboard access, and cross-platform support.
+\`\`\`bash
+npm install -g a-parallel
+a-parallel
+\`\`\`
 
-### Multi-User Mode
-Enable `AUTH_MODE=multi` for team environments. Login page, per-user data isolation, admin-managed accounts, and individual git identity and GitHub credentials — all with encrypted token storage (AES-256-GCM).
+### From Source
 
-### Automations
-Schedule recurring agent tasks with cron expressions. Get inbox notifications with summaries when they complete.
-
-### Internationalization
-Interface available in English, Spanish, and Portuguese.
-
----
-
-## How It Works
-
-1. **You create a thread** with a prompt, a model, and a mode (local or worktree).
-2. **a-parallel spawns a Claude CLI process** in an isolated git worktree with its own branch.
-3. **The agent works** — reading files, writing code, running commands — while streaming every action to the UI.
-4. **You review the diff** in the built-in review pane, stage what you want, and commit/push/open a PR.
-5. **Meanwhile**, other agents are doing the same thing on other branches. In parallel. At the same time.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- **Node.js** 18+ and **npm**
-- **Git** installed and available in PATH
-- **Claude Code CLI** installed (`npm install -g @anthropic-ai/claude-code`)
-- A valid **Anthropic API key** configured for Claude Code
-
-### Installation
-
-```bash
-# Clone the repository
+\`\`\`bash
 git clone https://github.com/anthropics/a-parallel.git
 cd a-parallel
-
-# Install dependencies
 npm install
+npm run build
+npm start
+\`\`\`
 
-# Initialize the database
-npm run db:push
+## Requirements
 
-# Start development server
-npm run dev
-```
+- **Bun** >= 1.0.0 (install from [bun.sh](https://bun.sh))
+- **Claude CLI** installed and authenticated ([claude.ai/code](https://claude.ai/code))
+- **Git** installed and configured
 
-The client opens at `http://localhost:5173` and the API runs on `http://localhost:3001`.
+## Usage
 
-### First Steps
+### Starting the Server
 
-1. Click **Add Project** and select a local git repository.
-2. Create a **New Thread** — pick a model, choose worktree mode, and write your prompt.
-3. Watch the agent work in real time.
-4. Open the **Review Pane** to see diffs, stage files, and commit.
-5. Create more threads for parallel tasks.
+\`\`\`bash
+# Default (local mode, port 3001)
+a-parallel
 
----
+# Custom port
+a-parallel --port 8080
 
-## Tech Stack
+# Multi-user mode
+a-parallel --auth-mode multi
 
-| Layer | Technology |
-|---|---|
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, shadcn/ui, Zustand, XState |
-| **Backend** | Hono, SQLite, Drizzle ORM, WebSocket |
-| **Agent** | Claude Code CLI (NDJSON streaming) |
-| **Desktop** | Tauri 2 (Rust) |
-| **Isolation** | Git worktrees |
+# Show all options
+a-parallel --help
+\`\`\`
 
----
+### CLI Options
 
-## Architecture
+| Option | Description | Default |
+|--------|-------------|---------|
+| \`-p, --port <port>\` | Server port | \`3001\` |
+| \`-h, --host <host>\` | Server host | \`127.0.0.1\` |
+| \`--auth-mode <mode>\` | Authentication mode (\`local\` or \`multi\`) | \`local\` |
+| \`--help\` | Show help message | - |
 
-```
-a-parallel/
-├── packages/
-│   ├── shared/     # TypeScript types (no runtime code)
-│   ├── server/     # Hono API + Claude agent orchestration
-│   └── client/     # React SPA
-├── src-tauri/      # Native desktop app (Rust)
-└── scripts/
-```
+### Environment Variables
 
-**Server** — Hono HTTP server that spawns Claude CLI processes, manages git worktrees, persists everything to SQLite, and broadcasts real-time events over a multiplexed WebSocket.
+| Variable | Description | Default |
+|----------|-------------|---------|
+| \`PORT\` | Server port | \`3001\` |
+| \`HOST\` | Server hostname | \`127.0.0.1\` |
+| \`AUTH_MODE\` | Authentication mode (\`local\` or \`multi\`) | \`local\` |
+| \`CORS_ORIGIN\` | Custom CORS origins (comma-separated) | Auto-configured |
 
-**Client** — React 19 SPA with modular Zustand stores, real-time WebSocket updates, and a component library built on shadcn/ui.
+## Authentication Modes
 
-**Shared** — Zero-runtime TypeScript package with all interfaces and types shared between server and client.
+### Local Mode (default)
 
----
+Single-user mode with automatic bearer token authentication. Perfect for personal use.
 
-## Authentication
+- No login page
+- Token auto-generated at \`~/.a-parallel/auth-token\`
+- All data stored locally
 
-### Single User (default)
+### Multi-User Mode
 
-No configuration needed. A bearer token is auto-generated and stored at `~/.a-parallel/auth-token`. Just run `npm run dev` and go.
+Multiple users with login page and admin-managed accounts.
 
-### Multi-User
+\`\`\`bash
+AUTH_MODE=multi a-parallel
+\`\`\`
 
-For team environments with multiple users sharing a single server:
+Default admin credentials:
+- **Username:** \`admin\`
+- **Password:** \`admin\`
 
-```bash
-AUTH_MODE=multi npm run dev
-```
-
-On first startup, a default admin account is created: **admin** / **admin** (change it immediately).
-
-| Feature | Details |
-|---|---|
-| **User management** | Admin creates accounts from Settings > Users |
-| **Data isolation** | Each user sees only their own projects, threads, and automations |
-| **Git identity** | Each user configures their own git name, email, and GitHub PAT (Settings > Profile) |
-| **Token security** | GitHub tokens encrypted at rest with AES-256-GCM |
-| **Sessions** | Cookie-based sessions via Better Auth, 7-day expiry |
-
-### Data Directory
-
-All persistent data lives under `~/.a-parallel/`:
-
-| File | Purpose |
-|---|---|
-| `data.db` | SQLite database |
-| `auth-token` | Bearer token (local mode) |
-| `auth-secret` | Session signing key (multi mode) |
-| `encryption.key` | AES-256 key for GitHub token encryption |
-
-> **Backup note:** If `encryption.key` is deleted, previously saved GitHub tokens become unrecoverable.
-
----
-
-## Configuration
-
-All environment variables are optional. Copy `packages/server/.env.example` to `packages/server/.env` and adjust as needed.
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3001` | Server port |
-| `HOST` | `127.0.0.1` | Bind address. Use `0.0.0.0` for remote access |
-| `CLIENT_PORT` | `5173` | Client port (used to build CORS origins) |
-| `CORS_ORIGIN` | — | Custom CORS origins, comma-separated. Overrides the default `localhost` origins |
-| `AUTH_MODE` | `local` | `local` (single user, no login) or `multi` (multi-user with login page) |
-| `CLAUDE_BINARY_PATH` | — | Explicit path to the Claude CLI binary. Overrides auto-detection |
-| `GITHUB_CLIENT_ID` | — | GitHub OAuth App client ID. Required for the **Clone from GitHub** feature |
-
-### GitHub Integration (Clone from GitHub)
-
-To enable cloning repositories directly from the UI:
-
-1. Go to [github.com/settings/applications/new](https://github.com/settings/applications/new)
-2. Fill in a name (e.g. `a-parallel`) and a homepage URL
-3. Check **Enable Device Flow**
-4. Click **Register application**
-5. Copy the **Client ID** and set it in your `.env`:
-
-```bash
-GITHUB_CLIENT_ID=Ov23liXxXxXxXxXxXxXx
-```
-
-Users can then click **Clone from GitHub** when adding a project, authorize via a one-time code, and browse/clone their repositories (including private ones).
-
----
+Features:
+- Cookie-based sessions (7-day expiry)
+- Per-user data isolation
+- Admin user management
+- Per-user git identity and GitHub tokens
 
 ## Development
 
-```bash
-npm run dev              # Run server + client
-npm run dev:server       # Server only (port 3001)
-npm run dev:client       # Client only (port 5173)
-npm run build            # Build all packages
-npm run db:push          # Push database schema
-npm run db:studio        # Open Drizzle Studio
-npm test                 # Run tests
-```
+\`\`\`bash
+# Install dependencies
+npm install
 
----
+# Run in development mode (client + server with hot reload)
+npm run dev
+
+# Run only server (port 3001)
+npm run dev:server
+
+# Run only client (port 5173)
+npm run dev:client
+
+# Build for production
+npm run build
+
+# Database operations
+npm run db:push    # Push schema changes
+npm run db:studio  # Open Drizzle Studio
+
+# Run tests
+npm test
+\`\`\`
+
+## Architecture
+
+### Monorepo Structure
+
+- **\`packages/shared\`** — Shared TypeScript types
+- **\`packages/server\`** — Hono HTTP server with Claude Agent SDK (port 3001)
+- **\`packages/client\`** — React 19 + Vite SPA (port 5173 in dev)
+
+### Tech Stack
+
+**Server:**
+- Hono (HTTP framework)
+- Claude Agent SDK
+- Drizzle ORM + SQLite
+- Better Auth (multi-user mode)
+- WebSocket (real-time updates)
+
+**Client:**
+- React 19
+- Vite
+- Zustand (state management)
+- shadcn/ui (components)
+- Tailwind CSS
+
+## Data Storage
+
+All data is stored in:
+
+\`\`\`
+~/.a-parallel/
+├── data.db           # SQLite database (projects, threads, messages)
+├── auth-token        # Local mode bearer token
+├── auth-secret       # Multi-user mode session secret
+└── encryption.key    # GitHub token encryption key (multi-user)
+\`\`\`
+
+## Git Worktrees
+
+Worktrees are created in \`.a-parallel-worktrees/\` adjacent to your project:
+
+\`\`\`
+/your-project/
+├── .git/
+├── src/
+└── ...
+
+/your-project-worktrees/
+├── feature-branch-1/
+├── feature-branch-2/
+└── ...
+\`\`\`
+
+Each worktree is an isolated working directory allowing parallel agent work without conflicts.
+
+## Commands
+
+See [CLAUDE.md](./CLAUDE.md) for detailed commands and architecture documentation.
 
 ## License
 
 MIT
+
+## Support
+
+- [GitHub Issues](https://github.com/anthropics/a-parallel/issues)
+- [Claude Code Documentation](https://claude.ai/code)
+
+## Contributing
+
+Contributions are welcome! Please read [CLAUDE.md](./CLAUDE.md) for development guidelines.
+
+---
+
+Built with ❤️ using [Claude Code](https://claude.ai/code)

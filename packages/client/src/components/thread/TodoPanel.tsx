@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'motion/react';
 import { ListTodo, X, ChevronDown, ChevronUp, Circle, CircleDot, CircleCheck } from 'lucide-react';
@@ -14,8 +14,25 @@ interface TodoPanelProps {
 export function TodoPanel({ todos, progress, onDismiss }: TodoPanelProps) {
   const { t } = useTranslation();
   const [minimized, setMinimized] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const pct = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
   const allDone = progress.completed === progress.total;
+
+  // Auto-scroll to the in_progress (or last completed) item
+  const activeIdx = todos.findIndex((t) => t.status === 'in_progress');
+  const scrollTargetIdx = activeIdx >= 0 ? activeIdx : progress.completed - 1;
+  useEffect(() => {
+    if (scrollTargetIdx < 0 || minimized || !listRef.current) return;
+    const container = listRef.current;
+    const wrapper = container.firstElementChild as HTMLElement | null;
+    if (!wrapper || scrollTargetIdx >= wrapper.children.length) return;
+    const el = wrapper.children[scrollTargetIdx] as HTMLElement;
+    // scrollTo the target, centering it in the container
+    requestAnimationFrame(() => {
+      const targetTop = el.offsetTop - container.clientHeight / 2 + el.offsetHeight / 2;
+      container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    });
+  }, [scrollTargetIdx, minimized, todos]);
 
   return (
     <motion.div
@@ -75,7 +92,7 @@ export function TodoPanel({ todos, progress, onDismiss }: TodoPanelProps) {
           </div>
 
           {/* Animated todo list */}
-          <div className="px-3 pb-2 max-h-64 overflow-y-auto">
+          <div ref={listRef} className="px-3 pb-2 max-h-64 overflow-y-auto">
             <div className="space-y-1 py-1">
               {todos.map((todo, i) => (
                 <motion.div

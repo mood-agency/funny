@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import * as pm from '../services/project-manager.js';
 import * as sc from '../services/startup-commands-service.js';
-import { listBranches, getDefaultBranch } from '../utils/git-v2.js';
+import { listBranches, getDefaultBranch, getCurrentBranch } from '../utils/git-v2.js';
 import { startCommand, stopCommand, isCommandRunning } from '../services/command-runner.js';
 import { createProjectSchema, renameProjectSchema, reorderProjectsSchema, createCommandSchema, validate } from '../validation/schemas.js';
 import { requireProject } from '../utils/route-helpers.js';
@@ -66,15 +66,21 @@ projectRoutes.get('/:id/branches', async (c) => {
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const project = projectResult.value;
-  const [branchesResult, defaultBranchResult] = await Promise.all([
+  const [branchesResult, defaultBranchResult, currentBranchResult] = await Promise.all([
     listBranches(project.path),
     getDefaultBranch(project.path),
+    getCurrentBranch(project.path),
   ]);
 
   if (branchesResult.isErr()) return resultToResponse(c, branchesResult);
   if (defaultBranchResult.isErr()) return resultToResponse(c, defaultBranchResult);
+  if (currentBranchResult.isErr()) return resultToResponse(c, currentBranchResult);
 
-  return c.json({ branches: branchesResult.value, defaultBranch: defaultBranchResult.value });
+  return c.json({
+    branches: branchesResult.value,
+    defaultBranch: defaultBranchResult.value,
+    currentBranch: currentBranchResult.value,
+  });
 });
 
 // ─── Startup Commands ───────────────────────────────────

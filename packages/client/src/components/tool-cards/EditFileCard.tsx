@@ -4,7 +4,7 @@ import { ChevronRight, FilePen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toVscodeUri, ReactDiffViewer, DIFF_VIEWER_STYLES } from './utils';
 
-export function EditFileCard({ parsed }: { parsed: Record<string, unknown> }) {
+export function EditFileCard({ parsed, hideLabel }: { parsed: Record<string, unknown>; hideLabel?: boolean }) {
   const { t } = useTranslation();
   const filePath = parsed.file_path as string | undefined;
   const oldString = parsed.old_string as string | undefined;
@@ -17,7 +17,7 @@ export function EditFileCard({ parsed }: { parsed: Record<string, unknown> }) {
   }, [filePath, oldString, newString]);
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 text-sm w-full min-w-0 overflow-hidden">
+    <div className={cn("text-sm w-full min-w-0 overflow-hidden", !hideLabel && "rounded-md border border-border/60 bg-muted/30")}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-xs hover:bg-accent/30 transition-colors rounded-md overflow-hidden"
@@ -28,8 +28,8 @@ export function EditFileCard({ parsed }: { parsed: Record<string, unknown> }) {
             expanded && 'rotate-90'
           )}
         />
-        <FilePen className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        <span className="font-medium text-foreground flex-shrink-0">{t('tools.editFile')}</span>
+        {!hideLabel && <FilePen className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+        {!hideLabel && <span className="font-medium text-foreground flex-shrink-0">{t('tools.editFile')}</span>}
         {filePath && (
           <a
             href={toVscodeUri(filePath)}

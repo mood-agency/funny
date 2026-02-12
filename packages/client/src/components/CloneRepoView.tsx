@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FolderPicker } from './FolderPicker';
@@ -25,6 +26,7 @@ type ViewState = 'checking' | 'connect' | 'device-flow' | 'repos' | 'clone-confi
 
 export function CloneRepoView() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const loadProjects = useAppStore(s => s.loadProjects);
   const setAddProjectOpen = useAppStore(s => s.setAddProjectOpen);
 
@@ -196,6 +198,7 @@ export function CloneRepoView() {
     toast.success(t('github.clone.success'));
     await loadProjects();
     setAddProjectOpen(false);
+    navigate(`/projects/${result.value.id}`);
   };
 
   // ── Disconnect ─────────────────────────────────

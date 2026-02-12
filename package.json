@@ -1,16 +1,36 @@
 {
   "name": "a-parallel",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Codex App clone powered by Claude Code — parallel agent orchestration with git worktrees",
+  "author": "Anthropic",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/a-parallel.git"
+  },
+  "bin": {
+    "a-parallel": "./bin/a-parallel.js"
+  },
+  "files": [
+    "bin",
+    "packages/server/dist",
+    "packages/client/dist",
+    "packages/shared/src"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
+    "start": "bun ./bin/a-parallel.js",
     "dev": "concurrently --kill-others \"bun run --cwd packages/server dev\" \"bun run --cwd packages/client dev\"",
     "dev:server": "bun run --cwd packages/server dev",
     "dev:client": "bun run --cwd packages/client dev",
-    "build": "bun run --cwd packages/server build && bun run --cwd packages/client build",
+    "build": "bun run --cwd packages/client build && bun run --cwd packages/server build",
+    "prepublishOnly": "npm run build",
     "db:push": "bun run --cwd packages/server db:push",
     "db:studio": "bun run --cwd packages/server db:studio",
     "tauri": "tauri",
@@ -26,6 +46,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
-    "neverthrow": "^8.2.0"
+    "neverthrow": "^8.2.0",
+    "node-pty": "^1.1.0"
   }
 }

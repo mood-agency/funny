@@ -121,7 +121,7 @@ export const api = {
   reorderProjects: (projectIds: string[]) =>
     request<void>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
   listBranches: (projectId: string) =>
-    request<{ branches: string[]; defaultBranch: string | null }>(`/projects/${projectId}/branches`),
+    request<{ branches: string[]; defaultBranch: string | null; currentBranch: string }>(`/projects/${projectId}/branches`),
 
   // Threads
   listThreads: (projectId?: string, includeArchived?: boolean) => {

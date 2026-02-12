@@ -11,6 +11,8 @@ export interface TerminalTab {
   commandId?: string;
   /** Port number for preview window feature */
   port?: number;
+  /** Type of terminal: 'pty' for interactive shell, 'command' for non-interactive */
+  type?: 'pty' | 'command';
 }
 
 interface TerminalState {
@@ -20,6 +22,8 @@ interface TerminalState {
   panelHeight: number;
   /** Output buffer per commandId for server-managed commands */
   commandOutput: Record<string, string>;
+  /** PTY data callbacks: ptyId -> callback function */
+  ptyDataCallbacks: Record<string, (data: string) => void>;
 
   addTab: (tab: TerminalTab) => void;
   removeTab: (id: string) => void;
@@ -30,14 +34,18 @@ interface TerminalState {
   setPanelHeight: (height: number) => void;
   appendCommandOutput: (commandId: string, data: string) => void;
   markCommandExited: (commandId: string) => void;
+  registerPtyCallback: (ptyId: string, callback: (data: string) => void) => void;
+  unregisterPtyCallback: (ptyId: string) => void;
+  emitPtyData: (ptyId: string, data: string) => void;
 }
 
-export const useTerminalStore = create<TerminalState>((set) => ({
+export const useTerminalStore = create<TerminalState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   panelVisible: false,
   panelHeight: 300,
   commandOutput: {},
+  ptyDataCallbacks: {},
 
   addTab: (tab) =>
     set((state) => ({
@@ -96,4 +104,22 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         t.commandId === commandId ? { ...t, alive: false } : t
       ),
     })),
+
+  registerPtyCallback: (ptyId, callback) =>
+    set((state) => ({
+      ptyDataCallbacks: { ...state.ptyDataCallbacks, [ptyId]: callback },
+    })),
+
+  unregisterPtyCallback: (ptyId) =>
+    set((state) => {
+      const { [ptyId]: _, ...rest } = state.ptyDataCallbacks;
+      return { ptyDataCallbacks: rest };
+    }),
+
+  emitPtyData: (ptyId, data) => {
+    const callback = get().ptyDataCallbacks[ptyId];
+    if (callback) {
+      callback(data);
+    }
+  },
 }));

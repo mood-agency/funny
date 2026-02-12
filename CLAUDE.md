@@ -6,7 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 a-parallel is a web UI for orchestrating multiple Claude Code agents in parallel. It uses git worktrees to let each agent work on its own branch simultaneously without conflicts. Think of it as a Codex App clone powered by the Claude Agent SDK.
 
-## Commands
+## Installation & Running
+
+### For End Users
+
+```bash
+# Quick start (no installation)
+npx a-parallel
+
+# Or install globally
+npm install -g a-parallel
+a-parallel
+
+# CLI options
+a-parallel --port 8080              # Custom port
+a-parallel --auth-mode multi        # Multi-user mode
+a-parallel --help                   # Show all options
+```
+
+### For Development
 
 ```bash
 # Install dependencies (npm workspaces)
@@ -15,7 +33,7 @@ npm install
 # Run both server and client in development
 npm run dev
 
-# Run only the server (Hono + tsx watch, port 3001)
+# Run only the server (Hono + Bun watch, port 3001)
 npm run dev:server
 
 # Run only the client (Vite, port 5173)
@@ -23,6 +41,9 @@ npm run dev:client
 
 # Build all packages
 npm run build
+
+# Start from built files (production mode)
+npm start
 
 # Push database schema (Drizzle + SQLite)
 npm run db:push

@@ -14,13 +14,15 @@ import { TerminalPanel } from '@/components/TerminalPanel';
 import { SettingsDetailView } from '@/components/SettingsDetailView';
 import { AutomationInboxView } from '@/components/AutomationInboxView';
 import { AddProjectView } from '@/components/AddProjectView';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarInset, Sidebar, SidebarContent } from '@/components/ui/sidebar';
 import { Toaster } from 'sonner';
+import { TOAST_DURATION } from '@/lib/utils';
 import { CommandPalette } from '@/components/CommandPalette';
 
 export function App() {
   const loadProjects = useProjectStore(s => s.loadProjects);
   const reviewPaneOpen = useUIStore(s => s.reviewPaneOpen);
+  const setReviewPaneOpen = useUIStore(s => s.setReviewPaneOpen);
   const settingsOpen = useUIStore(s => s.settingsOpen);
   const allThreadsProjectId = useUIStore(s => s.allThreadsProjectId);
   const automationInboxOpen = useUIStore(s => s.automationInboxOpen);
@@ -118,22 +120,32 @@ export function App() {
       <SidebarInset className="flex flex-col overflow-hidden">
         {/* Main content + terminal */}
         <div className="flex-1 flex overflow-hidden min-h-0">
-          <div className="flex-1 flex overflow-hidden min-h-0">
-            {settingsOpen ? <SettingsDetailView /> : automationInboxOpen ? <AutomationInboxView /> : addProjectOpen ? <AddProjectView /> : allThreadsProjectId ? <AllThreadsView /> : <ThreadView />}
-          </div>
-
-          {/* Review pane */}
-          {reviewPaneOpen && !settingsOpen && (
-            <aside className="w-[clamp(420px,40vw,960px)] flex-shrink-0 border-l border-border overflow-hidden">
-              <ReviewPane />
-            </aside>
-          )}
+          {settingsOpen ? <SettingsDetailView /> : automationInboxOpen ? <AutomationInboxView /> : addProjectOpen ? <AddProjectView /> : allThreadsProjectId ? <AllThreadsView /> : <ThreadView />}
         </div>
 
         <TerminalPanel />
       </SidebarInset>
 
-      <Toaster position="bottom-left" theme="dark" duration={2000} />
+      {/* Right sidebar for review pane */}
+      <SidebarProvider
+        open={reviewPaneOpen && !settingsOpen}
+        onOpenChange={setReviewPaneOpen}
+        keyboardShortcut={false}
+        style={
+          {
+            '--sidebar-width': '38.4rem',
+          } as React.CSSProperties
+        }
+        className="!min-h-0 !w-auto"
+      >
+        <Sidebar side="right" collapsible="offcanvas">
+          <SidebarContent className="p-0 gap-0">
+            <ReviewPane />
+          </SidebarContent>
+        </Sidebar>
+      </SidebarProvider>
+
+      <Toaster position="bottom-right" theme="dark" duration={TOAST_DURATION} />
       {commandPaletteOpen && <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />}
     </SidebarProvider>
   );

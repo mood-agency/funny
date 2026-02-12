@@ -4,7 +4,7 @@ import { ChevronRight, Terminal } from 'lucide-react';
 import AnsiToHtml from 'ansi-to-html';
 import { cn } from '@/lib/utils';
 
-export function BashCard({ parsed, output }: { parsed: Record<string, unknown>; output?: string }) {
+export function BashCard({ parsed, output, hideLabel }: { parsed: Record<string, unknown>; output?: string; hideLabel?: boolean }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const command = parsed.command as string | undefined;
@@ -12,7 +12,7 @@ export function BashCard({ parsed, output }: { parsed: Record<string, unknown>; 
   const htmlOutput = useMemo(() => output ? ansiConverter.toHtml(output) : null, [ansiConverter, output]);
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 text-sm max-w-full overflow-hidden">
+    <div className={cn("text-sm max-w-full overflow-hidden", !hideLabel && "rounded-md border border-border/60 bg-muted/30")}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-xs hover:bg-accent/30 transition-colors rounded-md overflow-hidden"
@@ -23,8 +23,8 @@ export function BashCard({ parsed, output }: { parsed: Record<string, unknown>; 
             expanded && 'rotate-90'
           )}
         />
-        <Terminal className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        <span className="font-medium font-mono text-foreground flex-shrink-0">{t('tools.runCommand')}</span>
+        {!hideLabel && <Terminal className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+        {!hideLabel && <span className="font-medium font-mono text-foreground flex-shrink-0">{t('tools.runCommand')}</span>}
         {!expanded && command && (
           <span className="text-muted-foreground truncate font-mono text-[11px] min-w-0 flex-1">
             {command}

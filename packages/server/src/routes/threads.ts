@@ -8,6 +8,7 @@ import { createThreadSchema, sendMessageSchema, updateThreadSchema, approveToolS
 import { requireThread, requireThreadWithMessages, requireProject } from '../utils/route-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { notFound } from '@a-parallel/shared/errors';
+import { getCurrentBranch } from '../utils/git-v2.js';
 
 export const threadRoutes = new Hono();
 
@@ -77,6 +78,12 @@ threadRoutes.post('/', async (c) => {
     }
     worktreePath = wtResult.value;
     threadBranch = branchName;
+  } else {
+    // Local mode: detect the current branch of the project
+    const branchResult = await getCurrentBranch(project.path);
+    if (branchResult.isOk()) {
+      threadBranch = branchResult.value;
+    }
   }
 
   const userId = c.get('userId') as string;

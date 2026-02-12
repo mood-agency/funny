@@ -5,7 +5,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useWS } from '@/hooks/use-ws';
 import { initAuth } from '@/lib/api';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, TOAST_DURATION } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
 import {
@@ -98,7 +98,7 @@ export function MobilePage() {
           />
         )}
       </div>
-      <Toaster position="top-center" theme="dark" duration={2000} />
+      <Toaster position="top-center" theme="dark" duration={TOAST_DURATION} />
     </>
   );
 }

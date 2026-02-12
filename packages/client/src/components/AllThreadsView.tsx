@@ -224,7 +224,7 @@ export function AllThreadsView() {
             }
           </p>
         </div>
-        <span className="text-[10px] text-muted-foreground hidden sm:block">Ctrl+Shift+F</span>
+
         {hasActiveFilters && (
           <Button
             variant="ghost"

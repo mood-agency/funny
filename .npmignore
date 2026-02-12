@@ -1,0 +1,42 @@
+# Development files
+.git
+.github
+.vscode
+.idea
+*.log
+*.tsbuildinfo
+.env
+.env.*
+
+# Source files (we only publish built files)
+packages/*/src
+packages/*/tsconfig.json
+!packages/shared/src
+
+# Build artifacts we don't need
+packages/client/node_modules
+packages/server/node_modules
+packages/shared/node_modules
+node_modules/.cache
+
+# Test files
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Documentation for development
+CLAUDE.md
+TODO.md
+plan.md
+
+# Tauri (not needed for npm package)
+src-tauri
+tauri.conf.json
+
+# Misc
+.DS_Store
+*.db
+*.db-journal
+.a-parallel-worktrees

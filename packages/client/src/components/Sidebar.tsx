@@ -184,7 +184,6 @@ export function AppSidebar() {
       <SidebarHeader className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Logo3D scale={0.75} glow={0.3} />
-          <span className="text-sm font-semibold tracking-tight">a-parallel</span>
         </div>
       </SidebarHeader>
 

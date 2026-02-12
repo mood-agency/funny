@@ -311,6 +311,17 @@ export function ThreadView() {
         return;
       }
 
+      // When auto-scrolling at the bottom, always show the latest snapshot
+      if (isAtBottom) {
+        let maxIdx = -1;
+        todoEls.forEach((el) => {
+          const idx = parseInt(el.dataset.todoSnapshot!, 10);
+          if (idx > maxIdx) maxIdx = idx;
+        });
+        setCurrentSnapshotIdx(maxIdx);
+        return;
+      }
+
       const viewportRect = viewport.getBoundingClientRect();
       const threshold = viewportRect.top + viewportRect.height * 0.5;
 

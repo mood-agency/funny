@@ -55,6 +55,7 @@ export function ToolCallGroup({ name, calls, onRespond }: ToolCallGroupProps) {
               input={tc.input}
               output={tc.output}
               onRespond={onRespond}
+              hideLabel
             />
           ))}
         </div>

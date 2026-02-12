@@ -103,7 +103,7 @@ export function ProjectItem({
           )}
           <span className="truncate font-medium">{project.name}</span>
         </CollapsibleTrigger>
-        <div className="flex items-center mr-1.5 gap-0.5">
+        <div className="flex items-center mr-2 gap-0.5">
           <div className={cn(
             'flex items-center gap-0.5 transition-opacity',
             hovered || openDropdown

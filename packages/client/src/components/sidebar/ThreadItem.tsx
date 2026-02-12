@@ -93,7 +93,7 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
                 <TooltipTrigger asChild>
                   <Icon className={cn('h-3 w-3', s.className)} />
                 </TooltipTrigger>
-                <TooltipContent side="right" className="text-xs">
+                <TooltipContent side="top" className="text-xs">
                   {gitTooltip}
                 </TooltipContent>
               </Tooltip>

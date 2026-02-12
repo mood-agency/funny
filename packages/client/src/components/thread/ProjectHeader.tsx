@@ -1,9 +1,9 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { usePreviewWindow } from '@/hooks/use-preview-window';
-import { GitBranch, GitCompare, Globe } from 'lucide-react';
+import { GitBranch, GitCommit, GitCompare, Globe, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -20,6 +20,31 @@ import {
 } from '@/components/ui/breadcrumb';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
+import { CommitDialog } from './CommitDialog';
+
+function CommitButton() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setOpen(true)}
+            className={open ? 'text-primary' : 'text-muted-foreground'}
+          >
+            <GitCommit className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('review.commitTooltip', 'Commit')}</TooltipContent>
+      </Tooltip>
+      <CommitDialog open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
 
 export const ProjectHeader = memo(function ProjectHeader() {
   const { t } = useTranslation();
@@ -29,6 +54,10 @@ export const ProjectHeader = memo(function ProjectHeader() {
   const setReviewPaneOpen = useAppStore(s => s.setReviewPaneOpen);
   const reviewPaneOpen = useAppStore(s => s.reviewPaneOpen);
   const { openPreview, isTauri } = usePreviewWindow();
+  const toggleTerminalPanel = useTerminalStore(s => s.togglePanel);
+  const terminalPanelVisible = useTerminalStore(s => s.panelVisible);
+  const setPanelVisible = useTerminalStore(s => s.setPanelVisible);
+  const addTab = useTerminalStore(s => s.addTab);
 
   const projectId = activeThread?.projectId ?? selectedProjectId;
   const project = projects.find(p => p.id === projectId);
@@ -103,6 +132,42 @@ export const ProjectHeader = memo(function ProjectHeader() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('review.title')}</TooltipContent>
+          </Tooltip>
+          <CommitButton />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => {
+                  if (!selectedProjectId) return;
+                  const projectTabs = tabs.filter(t => t.projectId === selectedProjectId);
+
+                  if (projectTabs.length === 0 && !terminalPanelVisible) {
+                    // No tabs for this project and panel is closed — create a new PTY tab
+                    const cwd = project?.path ?? 'C:\\';
+                    const id = crypto.randomUUID();
+                    const label = 'Terminal 1';
+                    addTab({
+                      id,
+                      label,
+                      cwd,
+                      alive: true,
+                      projectId: selectedProjectId,
+                      type: isTauri ? undefined : 'pty',
+                    });
+                    setPanelVisible(true);
+                  } else {
+                    // Otherwise, just toggle panel visibility
+                    toggleTerminalPanel();
+                  }
+                }}
+                className={terminalPanelVisible ? 'text-primary' : 'text-muted-foreground'}
+              >
+                <Terminal className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('terminal.toggle', 'Toggle Terminal')}</TooltipContent>
           </Tooltip>
         </div>
       </div>

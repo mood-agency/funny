@@ -213,6 +213,16 @@ export interface WSAutomationRunCompletedData {
   summary?: string;
 }
 
+export interface WSPtyDataData {
+  ptyId: string;
+  data: string;
+}
+
+export interface WSPtyExitData {
+  ptyId: string;
+  exitCode: number;
+}
+
 export type WSEvent =
   | { type: 'agent:init'; threadId: string; data: WSInitData }
   | { type: 'agent:message'; threadId: string; data: WSMessageData }
@@ -225,7 +235,9 @@ export type WSEvent =
   | { type: 'command:status'; threadId: string; data: WSCommandStatusData }
   | { type: 'automation:run_started'; threadId: string; data: WSAutomationRunStartedData }
   | { type: 'automation:run_completed'; threadId: string; data: WSAutomationRunCompletedData }
-  | { type: 'git:status'; threadId: string; data: WSGitStatusData };
+  | { type: 'git:status'; threadId: string; data: WSGitStatusData }
+  | { type: 'pty:data'; threadId: string; data: WSPtyDataData }
+  | { type: 'pty:exit'; threadId: string; data: WSPtyExitData };
 
 export type WSEventType = WSEvent['type'];
 

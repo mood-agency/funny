@@ -308,11 +308,12 @@ function notifyThreadResult(
   const toastOpts: Parameters<typeof toast.success>[1] = {
     id: `result-${threadId}`,
     action: { label: 'View', onClick: navigateToThread },
-    duration: 2000,
+    duration: 4000,
   };
+  const truncated = threadTitle.length > 20 ? threadTitle.slice(0, 20) + '…' : threadTitle;
   if (resultStatus === 'completed') {
-    toast.success(`"${threadTitle}" completed`, toastOpts);
+    toast.success(`"${truncated}" completed`, toastOpts);
   } else if (resultStatus === 'failed') {
-    toast.error(`"${threadTitle}" failed`, toastOpts);
+    toast.error(`"${truncated}" failed`, toastOpts);
   }
 }

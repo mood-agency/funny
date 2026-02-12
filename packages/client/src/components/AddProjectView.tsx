@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { FolderOpen, Loader2, Plus, Github } from 'lucide-react';
 import { FolderPicker } from './FolderPicker';
@@ -12,6 +13,7 @@ type AddMode = 'local' | 'github';
 
 export function AddProjectView() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const loadProjects = useAppStore(s => s.loadProjects);
   const setAddProjectOpen = useAppStore(s => s.setAddProjectOpen);
   const [mode, setMode] = useState<AddMode>('local');
@@ -49,6 +51,7 @@ export function AddProjectView() {
           }
           await loadProjects();
           setAddProjectOpen(false);
+          navigate(`/projects/${retryResult.value.id}`);
         }
       } else {
         toast.error(result.error.message);
@@ -58,6 +61,7 @@ export function AddProjectView() {
     }
     await loadProjects();
     setAddProjectOpen(false);
+    navigate(`/projects/${result.value.id}`);
     setIsCreating(false);
   };
 

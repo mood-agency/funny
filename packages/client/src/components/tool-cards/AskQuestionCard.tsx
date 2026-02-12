@@ -4,7 +4,7 @@ import { MessageCircleQuestion, Check, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getQuestions } from './utils';
 
-export function AskQuestionCard({ parsed, onRespond }: { parsed: Record<string, unknown>; onRespond?: (answer: string) => void }) {
+export function AskQuestionCard({ parsed, onRespond, hideLabel }: { parsed: Record<string, unknown>; onRespond?: (answer: string) => void; hideLabel?: boolean }) {
   const { t } = useTranslation();
   const questions = getQuestions(parsed);
   if (!questions || questions.length === 0) return null;
@@ -54,11 +54,11 @@ export function AskQuestionCard({ parsed, onRespond }: { parsed: Record<string, 
   const allAnswered = questions.every((_, i) => (selections.get(i)?.size ?? 0) > 0);
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 text-sm max-w-full overflow-hidden">
+    <div className={cn("text-sm max-w-full overflow-hidden", !hideLabel && "rounded-md border border-border/60 bg-muted/30")}>
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
-        <MessageCircleQuestion className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        <span className="font-medium text-foreground">{t('tools.question')}</span>
+        {!hideLabel && <MessageCircleQuestion className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+        {!hideLabel && <span className="font-medium text-foreground">{t('tools.question')}</span>}
         <span className="text-muted-foreground text-[11px]">
           {questions.length} {questions.length > 1 ? t('tools.questionsPlural') : t('tools.questions')}
         </span>

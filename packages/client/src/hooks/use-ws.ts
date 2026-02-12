@@ -146,6 +146,16 @@ function handleMessage(e: MessageEvent) {
       });
       break;
     }
+    case 'pty:data': {
+      const termStore = useTerminalStore.getState();
+      termStore.emitPtyData(data.ptyId, data.data);
+      break;
+    }
+    case 'pty:exit': {
+      const termStore = useTerminalStore.getState();
+      termStore.markExited(data.ptyId);
+      break;
+    }
   }
 }
 
@@ -254,4 +264,9 @@ export function useWS() {
       }
     };
   }, []);
+}
+
+/** Get the active WebSocket instance (for sending messages from components) */
+export function getActiveWS(): WebSocket | null {
+  return activeWS;
 }

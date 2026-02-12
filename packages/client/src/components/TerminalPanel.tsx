@@ -1,10 +1,12 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AnimatePresence, motion } from 'motion/react';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { useAppStore } from '@/stores/app-store';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import AnsiToHtml from 'ansi-to-html';
+import { getActiveWS } from '@/hooks/use-ws';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -112,6 +114,146 @@ function TauriTerminalTabContent({
 
     return () => { cleanup?.(); };
   }, [id, cwd]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn('w-full h-full', !active && 'hidden')}
+    />
+  );
+}
+
+/** Web PTY tab — uses xterm.js over WebSocket */
+function WebTerminalTabContent({
+  id,
+  cwd,
+  active,
+}: {
+  id: string;
+  cwd: string;
+  active: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<{ terminal: any; fitAddon: any } | null>(null);
+  const registerPtyCallback = useTerminalStore(s => s.registerPtyCallback);
+  const unregisterPtyCallback = useTerminalStore(s => s.unregisterPtyCallback);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+
+    (async () => {
+      // Lazy-load xterm
+      const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+        import('@xterm/xterm'),
+        import('@xterm/addon-fit'),
+        import('@xterm/addon-web-links'),
+      ]);
+      // @ts-ignore - CSS import handled by Vite bundler
+      await import('@xterm/xterm/css/xterm.css');
+
+      // Bail out if the effect was cleaned up while we were loading
+      if (cancelled || !containerRef.current) return;
+
+      const terminal = new Terminal({
+        cursorBlink: true,
+        fontSize: 13,
+        fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace',
+        theme: {
+          background: '#09090b',
+          foreground: '#fafafa',
+          cursor: '#fafafa',
+          selectionBackground: '#264f78',
+        },
+        scrollback: 5000,
+      });
+
+      const fitAddon = new FitAddon();
+      const webLinksAddon = new WebLinksAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.loadAddon(webLinksAddon);
+      terminal.open(containerRef.current);
+      termRef.current = { terminal, fitAddon };
+      requestAnimationFrame(() => {
+        fitAddon.fit();
+        terminal.focus();
+      });
+
+      // Register callback to receive PTY data from WebSocket
+      registerPtyCallback(id, (data: string) => {
+        terminal.write(data);
+      });
+
+      // Send keyboard input to server
+      const onDataDisposable = terminal.onData((data) => {
+        const ws = getActiveWS();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'pty:write', data: { id, data } }));
+        }
+      });
+
+      // Send resize events to server
+      const onResizeDisposable = terminal.onResize(({ rows, cols }) => {
+        const ws = getActiveWS();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'pty:resize', data: { id, cols, rows } }));
+        }
+      });
+
+      // Spawn PTY on server
+      const dims = fitAddon.proposeDimensions();
+      const ws = getActiveWS();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'pty:spawn',
+          data: { id, cwd, rows: dims?.rows ?? 24, cols: dims?.cols ?? 80 },
+        }));
+      }
+
+      // Auto-resize on container resize
+      const resizeObserver = new ResizeObserver(() => {
+        if (containerRef.current?.offsetParent !== null) {
+          fitAddon.fit();
+        }
+      });
+      resizeObserver.observe(containerRef.current!);
+
+      cleanup = () => {
+        resizeObserver.disconnect();
+        unregisterPtyCallback(id);
+        onDataDisposable.dispose();
+        onResizeDisposable.dispose();
+        termRef.current = null;
+        terminal.dispose();
+
+        // Kill PTY on server
+        const ws = getActiveWS();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'pty:kill', data: { id } }));
+        }
+      };
+    })();
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, [id, cwd, registerPtyCallback, unregisterPtyCallback]);
+
+  // Re-fit and focus when this tab becomes active (fixes canvas corruption
+  // caused by xterm being in a display:none container while inactive)
+  useEffect(() => {
+    if (active && termRef.current) {
+      const { terminal, fitAddon } = termRef.current;
+      requestAnimationFrame(() => {
+        fitAddon.fit();
+        terminal.refresh(0, terminal.rows - 1);
+        terminal.focus();
+      });
+    }
+  }, [active]);
 
   return (
     <div
@@ -246,12 +388,19 @@ export function TerminalPanel() {
   );
 
   const handleNewTerminal = useCallback(() => {
-    if (!isTauri || !selectedProjectId) return;
+    if (!selectedProjectId) return;
     const project = projects.find((p) => p.id === selectedProjectId);
     const cwd = project?.path ?? 'C:\\';
     const id = crypto.randomUUID();
     const label = `Terminal ${visibleTabs.length + 1}`;
-    addTab({ id, label, cwd, alive: true, projectId: selectedProjectId });
+    addTab({
+      id,
+      label,
+      cwd,
+      alive: true,
+      projectId: selectedProjectId,
+      type: isTauri ? undefined : 'pty', // Web mode uses PTY type
+    });
   }, [projects, selectedProjectId, visibleTabs.length, addTab]);
 
   const handleCloseTab = useCallback(
@@ -261,9 +410,8 @@ export function TerminalPanel() {
     [removeTab]
   );
 
-  // Show the panel if there are server command tabs (works in browser mode)
-  // or if in Tauri mode
-  if (!isTauri && !hasAnyTabs) return null;
+  // Only show when explicitly toggled visible from the header button
+  if (!panelVisible && !isTauri) return null;
 
   return (
     <div
@@ -334,53 +482,67 @@ export function TerminalPanel() {
           ))}
         </div>
 
-        {isTauri && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={handleNewTerminal}
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('terminal.newTerminal')}</TooltipContent>
-          </Tooltip>
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleNewTerminal}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t('terminal.newTerminal')}</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Terminal content area */}
-      {panelVisible && (
-        <div className="flex-1 bg-[#09090b] overflow-hidden min-h-0">
-          {visibleTabs.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
-              {t('terminal.noProcesses')}
-            </div>
-          ) : (
-            /* Render ALL tabs to keep PTY sessions alive across project switches,
-               but only show the active tab from the current project */
-            tabs.map((tab) =>
-              tab.commandId ? (
-                <CommandTabContent
-                  key={tab.id}
-                  commandId={tab.commandId}
-                  projectId={tab.projectId}
-                  active={tab.id === effectiveActiveTabId}
-                  alive={tab.alive}
-                />
-              ) : isTauri ? (
-                <TauriTerminalTabContent
-                  key={tab.id}
-                  id={tab.id}
-                  cwd={tab.cwd}
-                  active={tab.id === effectiveActiveTabId}
-                />
-              ) : null
-            )
-          )}
-        </div>
-      )}
+      <AnimatePresence>
+        {panelVisible && (
+          <motion.div
+            key="terminal-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="flex-1 bg-[#09090b] overflow-hidden min-h-0"
+          >
+            {visibleTabs.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                {t('terminal.noProcesses')}
+              </div>
+            ) : (
+              /* Render ALL tabs to keep PTY sessions alive across project switches,
+                 but only show the active tab from the current project */
+              tabs.map((tab) =>
+                tab.commandId ? (
+                  <CommandTabContent
+                    key={tab.id}
+                    commandId={tab.commandId}
+                    projectId={tab.projectId}
+                    active={tab.id === effectiveActiveTabId}
+                    alive={tab.alive}
+                  />
+                ) : tab.type === 'pty' ? (
+                  <WebTerminalTabContent
+                    key={tab.id}
+                    id={tab.id}
+                    cwd={tab.cwd}
+                    active={tab.id === effectiveActiveTabId}
+                  />
+                ) : isTauri ? (
+                  <TauriTerminalTabContent
+                    key={tab.id}
+                    id={tab.id}
+                    cwd={tab.cwd}
+                    active={tab.id === effectiveActiveTabId}
+                  />
+                ) : null
+              )
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

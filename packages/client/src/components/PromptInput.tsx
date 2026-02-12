@@ -335,6 +335,7 @@ export function PromptInput({
   const [newThreadBranches, setNewThreadBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [localCurrentBranch, setLocalCurrentBranch] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaCallbackRef = useCallback((node: HTMLTextAreaElement | null) => {
     textareaRef.current = node;
@@ -396,6 +397,22 @@ export function PromptInput({
       })();
     }
   }, [isNewThread, effectiveProjectId]);
+
+  // Fetch current branch for local mode threads without a saved branch
+  useEffect(() => {
+    if (!isNewThread && activeThread?.mode === 'local' && !activeThread?.branch && selectedProjectId) {
+      (async () => {
+        const result = await api.listBranches(selectedProjectId);
+        if (result.isOk()) {
+          setLocalCurrentBranch(result.value.currentBranch);
+        } else {
+          setLocalCurrentBranch(null);
+        }
+      })();
+    } else {
+      setLocalCurrentBranch(null);
+    }
+  }, [isNewThread, activeThread?.mode, activeThread?.branch, selectedProjectId]);
 
   // Fetch skills once when the menu first opens
   const loadSkills = useCallback(async () => {
@@ -688,11 +705,18 @@ export function PromptInput({
             {/* Row 1 on mobile / only row on desktop: config + actions */}
             <div className="flex items-center gap-1 flex-wrap">
               {!isNewThread && effectiveCwd && selectedProjectId && (
-                <WorktreePicker
-                  projectId={selectedProjectId}
-                  currentPath={effectiveCwd}
-                  onChange={setCwdOverride}
-                />
+                activeThread?.mode === 'worktree' ? (
+                  <WorktreePicker
+                    projectId={selectedProjectId}
+                    currentPath={effectiveCwd}
+                    onChange={setCwdOverride}
+                  />
+                ) : (activeThread?.branch || localCurrentBranch) ? (
+                  <span className="flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground truncate max-w-[300px]">
+                    <GitBranch className="h-3 w-3 shrink-0" />
+                    <span className="truncate font-mono">{activeThread?.branch || localCurrentBranch}</span>
+                  </span>
+                ) : null
               )}
               {isNewThread && (
                 <>

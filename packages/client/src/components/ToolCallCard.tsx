@@ -9,15 +9,18 @@ import { PlanCard } from './tool-cards/PlanCard';
 import { BashCard } from './tool-cards/BashCard';
 import { WriteFileCard } from './tool-cards/WriteFileCard';
 import { EditFileCard } from './tool-cards/EditFileCard';
+import { ReadFileCard } from './tool-cards/ReadFileCard';
 
 interface ToolCallCardProps {
   name: string;
   input: string | Record<string, unknown>;
   output?: string;
   onRespond?: (answer: string) => void;
+  /** When true, hides the tool label (used inside ToolCallGroup to avoid redundancy) */
+  hideLabel?: boolean;
 }
 
-export const ToolCallCard = memo(function ToolCallCard({ name, input, output, onRespond }: ToolCallCardProps) {
+export const ToolCallCard = memo(function ToolCallCard({ name, input, output, onRespond, hideLabel }: ToolCallCardProps) {
   const { t } = useTranslation();
   const isTodo = name === 'TodoWrite';
   const [expanded, setExpanded] = useState(!!onRespond || isTodo);
@@ -38,14 +41,15 @@ export const ToolCallCard = memo(function ToolCallCard({ name, input, output, on
   }, [output, expanded]);
 
   // Specialized cards
-  if (isPlan) return <PlanCard parsed={parsed} output={output} onRespond={onRespond} />;
-  if (name === 'Bash') return <BashCard parsed={parsed} output={output} />;
-  if (name === 'Write') return <WriteFileCard parsed={parsed} />;
-  if (name === 'Edit') return <EditFileCard parsed={parsed} />;
-  if (name === 'AskUserQuestion') return <AskQuestionCard parsed={parsed} onRespond={onRespond} />;
+  if (isPlan) return <PlanCard parsed={parsed} output={output} onRespond={onRespond} hideLabel={hideLabel} />;
+  if (name === 'Bash') return <BashCard parsed={parsed} output={output} hideLabel={hideLabel} />;
+  if (name === 'Read') return <ReadFileCard parsed={parsed} output={output} hideLabel={hideLabel} />;
+  if (name === 'Write') return <WriteFileCard parsed={parsed} hideLabel={hideLabel} />;
+  if (name === 'Edit') return <EditFileCard parsed={parsed} hideLabel={hideLabel} />;
+  if (name === 'AskUserQuestion') return <AskQuestionCard parsed={parsed} onRespond={onRespond} hideLabel={hideLabel} />;
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 text-sm max-w-full overflow-hidden">
+    <div className={cn("text-sm max-w-full overflow-hidden", !hideLabel && "rounded-md border border-border/60 bg-muted/30")}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 w-full px-3 py-1.5 text-left text-xs hover:bg-accent/30 transition-colors rounded-md overflow-hidden"
@@ -56,12 +60,16 @@ export const ToolCallCard = memo(function ToolCallCard({ name, input, output, on
             expanded && 'rotate-90'
           )}
         />
-        {isTodo ? (
-          <ListTodo className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        ) : (
-          <Wrench className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+        {!hideLabel && (
+          isTodo ? (
+            <ListTodo className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+          ) : (
+            <Wrench className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+          )
         )}
-        <span className="font-medium font-mono text-foreground flex-shrink-0">{label}</span>
+        {!hideLabel && (
+          <span className="font-medium font-mono text-foreground flex-shrink-0">{label}</span>
+        )}
         {summary && (
           filePath ? (
             <a
@@ -92,9 +100,18 @@ export const ToolCallCard = memo(function ToolCallCard({ name, input, output, on
             <TodoList todos={todos} />
           ) : (
             <>
-              <pre className="text-[11px] font-mono text-muted-foreground leading-relaxed whitespace-pre-wrap break-all mt-1.5">
-                {JSON.stringify(parsed, null, 2)}
-              </pre>
+              <div className="space-y-1.5 mt-1.5">
+                {Object.entries(parsed).map(([key, value]) => (
+                  <div key={key}>
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-0.5">{key}</div>
+                    <div className="rounded bg-background/80 border border-border/40 px-2.5 py-1.5 overflow-x-auto">
+                      <pre className="font-mono text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap break-all">
+                        {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
               {output && (
                 <div className="mt-2">
                   <div className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">{t('tools.output')}</div>
@@ -121,5 +138,5 @@ export const ToolCallCard = memo(function ToolCallCard({ name, input, output, on
     </div>
   );
 }, (prev, next) => {
-  return prev.name === next.name && prev.input === next.input && prev.output === next.output;
+  return prev.name === next.name && prev.input === next.input && prev.output === next.output && prev.hideLabel === next.hideLabel;
 });

@@ -2,6 +2,9 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
+import { serveStatic } from 'hono/bun';
+import { join, resolve } from 'path';
+import { existsSync } from 'fs';
 import { handleError } from './middleware/error-handler.js';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimit } from './middleware/rate-limit.js';
@@ -23,6 +26,13 @@ import { profileRoutes } from './routes/profile.js';
 import { githubRoutes } from './routes/github.js';
 import { wsBroker } from './services/ws-broker.js';
 import { startScheduler, stopScheduler } from './services/automation-scheduler.js';
+import * as ptyManager from './services/pty-manager.js';
+
+// Resolve client dist directory (works both in dev and when installed via npm)
+const clientDistDir = resolve(
+  import.meta.dir,
+  '..', '..', '..', 'client', 'dist'
+);
 
 const port = Number(process.env.PORT) || 3001;
 const host = process.env.HOST || '127.0.0.1';
@@ -89,6 +99,18 @@ app.route('/api/automations', automationRoutes);
 app.route('/api/profile', profileRoutes);
 app.route('/api/github', githubRoutes);
 
+// Serve static files from client build (only if dist exists)
+if (existsSync(clientDistDir)) {
+  app.use('/*', serveStatic({ root: clientDistDir }));
+  // SPA fallback: serve index.html for all non-API routes
+  app.get('*', (c) => {
+    return c.html(Bun.file(join(clientDistDir, 'index.html')));
+  });
+  console.log(`[server] Serving static files from ${clientDistDir}`);
+} else {
+  console.log(`[server] Client build not found at ${clientDistDir} - static serving disabled`);
+}
+
 // Auto-create tables on startup, then start server
 autoMigrate();
 markStaleThreadsInterrupted();
@@ -141,8 +163,31 @@ const server = Bun.serve({
     close(ws: any) {
       wsBroker.removeClient(ws);
     },
-    message(_ws: any, _msg: any) {
-      // No client→server messages needed for now
+    message(ws: any, msg: any) {
+      try {
+        const parsed = JSON.parse(msg.toString());
+        const { type, data } = parsed;
+        const userId = ws.data?.userId ?? '__local__';
+
+        switch (type) {
+          case 'pty:spawn':
+            ptyManager.spawnPty(data.id, data.cwd, data.cols, data.rows, userId);
+            break;
+          case 'pty:write':
+            ptyManager.writePty(data.id, data.data);
+            break;
+          case 'pty:resize':
+            ptyManager.resizePty(data.id, data.cols, data.rows);
+            break;
+          case 'pty:kill':
+            ptyManager.killPty(data.id);
+            break;
+          default:
+            console.warn(`[ws] Unknown message type: ${type}`);
+        }
+      } catch (err) {
+        console.error('[ws] Error handling message:', err);
+      }
     },
   },
 });

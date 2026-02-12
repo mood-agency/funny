@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileCode2, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-export function PlanCard({ parsed, output, onRespond }: { parsed: Record<string, unknown>; output?: string; onRespond?: (answer: string) => void }) {
+export function PlanCard({ parsed, output, onRespond, hideLabel }: { parsed: Record<string, unknown>; output?: string; onRespond?: (answer: string) => void; hideLabel?: boolean }) {
   const { t } = useTranslation();
   const plan = parsed.plan as string | undefined;
   const [accepted, setAccepted] = useState(!!output);
@@ -18,12 +19,14 @@ export function PlanCard({ parsed, output, onRespond }: { parsed: Record<string,
   };
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 text-xs max-w-full overflow-hidden">
+    <div className={cn("text-xs max-w-full overflow-hidden", !hideLabel && "rounded-md border border-border/60 bg-muted/30")}>
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
-        <FileCode2 className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-        <span className="font-medium text-foreground">{t('tools.plan')}</span>
-      </div>
+      {!hideLabel && (
+        <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+          <FileCode2 className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+          <span className="font-medium text-foreground">{t('tools.plan')}</span>
+        </div>
+      )}
 
       {/* Plan content */}
       <div className="border-t border-border/40 px-4 py-3 max-h-[500px] overflow-y-auto">

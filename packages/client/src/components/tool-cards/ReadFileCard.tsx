@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, FileText } from 'lucide-react';
+import { ChevronRight, FileSearch } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toVscodeUri, getFileExtension, getFileName } from './utils';
 
-export function WriteFileCard({ parsed, hideLabel }: { parsed: Record<string, unknown>; hideLabel?: boolean }) {
+export function ReadFileCard({ parsed, output, hideLabel }: { parsed: Record<string, unknown>; output?: string; hideLabel?: boolean }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const filePath = parsed.file_path as string | undefined;
-  const content = parsed.content as string | undefined;
   const ext = filePath ? getFileExtension(filePath) : '';
   const fileName = filePath ? getFileName(filePath) : 'unknown';
 
@@ -24,8 +23,8 @@ export function WriteFileCard({ parsed, hideLabel }: { parsed: Record<string, un
             expanded && 'rotate-90'
           )}
         />
-        {!hideLabel && <FileText className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
-        {!hideLabel && <span className="font-medium text-foreground flex-shrink-0">{t('tools.writeFile')}</span>}
+        {!hideLabel && <FileSearch className="h-3 w-3 flex-shrink-0 text-muted-foreground" />}
+        {!hideLabel && <span className="font-medium text-foreground flex-shrink-0">{t('tools.readFile')}</span>}
         {filePath && (
           <a
             href={toVscodeUri(filePath)}
@@ -37,7 +36,7 @@ export function WriteFileCard({ parsed, hideLabel }: { parsed: Record<string, un
           </a>
         )}
       </button>
-      {expanded && content != null && (
+      {expanded && output && (
         <div className="border-t border-border/40 overflow-hidden">
           <div className="flex items-center justify-between px-3 py-1 bg-background/50 border-b border-border/30">
             <span className="text-[10px] font-medium text-muted-foreground">{fileName}</span>
@@ -49,7 +48,7 @@ export function WriteFileCard({ parsed, hideLabel }: { parsed: Record<string, un
           </div>
           <div className="overflow-x-auto max-h-80 overflow-y-auto">
             <pre className="px-3 py-2 font-mono text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap break-all">
-              {content}
+              {output}
             </pre>
           </div>
         </div>

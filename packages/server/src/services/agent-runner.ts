@@ -153,6 +153,14 @@ export class AgentRunner {
             continue;
           }
 
+          // Claude Code sometimes calls ExitPlanMode twice with the same plan content.
+          // Skip the duplicate if we already have a pending plan for this thread.
+          if (block.name === 'ExitPlanMode' && this.pendingUserInput.get(threadId) === 'plan') {
+            console.log(`[agent] Skipping duplicate ExitPlanMode for thread=${threadId}`);
+            seen.set(block.id, 'skipped');
+            continue;
+          }
+
           console.log(`[agent] tool_use: ${block.name} thread=${threadId}`);
           console.log(`[agent] tool_use input:`, JSON.stringify(block.input, null, 2));
 
