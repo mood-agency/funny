@@ -14,6 +14,7 @@ interface ProjectState {
   toggleProject: (projectId: string) => void;
   selectProject: (projectId: string | null) => void;
   renameProject: (projectId: string, name: string) => Promise<void>;
+  updateProject: (projectId: string, data: { name?: string; color?: string | null }) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   reorderProjects: (projectIds: string[]) => Promise<void>;
 }
@@ -93,6 +94,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   renameProject: async (projectId, name) => {
     const result = await api.renameProject(projectId, name);
+    if (result.isErr()) return;
+    const { projects } = get();
+    set({
+      projects: projects.map((p) => (p.id === projectId ? result.value : p)),
+    });
+  },
+
+  updateProject: async (projectId, data) => {
+    const result = await api.updateProject(projectId, data);
     if (result.isErr()) return;
     const { projects } = get();
     set({

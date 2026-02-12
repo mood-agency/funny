@@ -14,6 +14,7 @@ function parseRoute(pathname: string) {
       allThreads: false,
       globalSearch: false,
       inbox: false,
+      analytics: false,
     };
   }
 
@@ -26,6 +27,7 @@ function parseRoute(pathname: string) {
       allThreads: false,
       globalSearch: false,
       inbox: false,
+      analytics: false,
     };
   }
 
@@ -41,6 +43,7 @@ function parseRoute(pathname: string) {
       allThreads: false,
       globalSearch: false,
       inbox: false,
+      analytics: false,
     };
   }
 
@@ -54,6 +57,7 @@ function parseRoute(pathname: string) {
       allThreads: true,
       globalSearch: false,
       inbox: false,
+      analytics: false,
     };
   }
 
@@ -66,20 +70,26 @@ function parseRoute(pathname: string) {
       allThreads: false,
       globalSearch: false,
       inbox: false,
+      analytics: false,
     };
   }
 
   // Automation inbox: /inbox
   if (pathname === '/inbox') {
-    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: true };
+    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: true, analytics: false };
   }
 
   // Global search: /search
   if (pathname === '/search') {
-    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: true, inbox: false };
+    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: true, inbox: false, analytics: false };
   }
 
-  return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: false };
+  // Analytics: /analytics
+  if (pathname === '/analytics') {
+    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: false, analytics: true };
+  }
+
+  return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: false, analytics: false };
 }
 
 const validSettingsIds = new Set(settingsItems.map((i) => i.id));
@@ -92,7 +102,7 @@ export function useRouteSync() {
   useEffect(() => {
     if (!initialized) return;
 
-    const { settingsPage, projectId, threadId, allThreads, globalSearch, inbox } = parseRoute(location.pathname);
+    const { settingsPage, projectId, threadId, allThreads, globalSearch, inbox, analytics } = parseRoute(location.pathname);
     const store = useAppStore.getState();
 
     if (settingsPage && validSettingsIds.has(settingsPage as any)) {
@@ -118,6 +128,19 @@ export function useRouteSync() {
     // Close automation inbox when navigating away from /inbox
     if (store.automationInboxOpen) {
       store.setAutomationInboxOpen(false);
+    }
+
+    // Analytics view
+    if (analytics) {
+      if (!store.analyticsOpen) {
+        store.setAnalyticsOpen(true);
+      }
+      return;
+    }
+
+    // Close analytics when navigating away
+    if (store.analyticsOpen) {
+      store.setAnalyticsOpen(false);
     }
 
     // Global search view

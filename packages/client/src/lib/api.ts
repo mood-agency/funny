@@ -117,6 +117,8 @@ export const api = {
     request<Project>('/projects', { method: 'POST', body: JSON.stringify({ name, path }) }),
   renameProject: (id: string, name: string) =>
     request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  updateProject: (id: string, data: { name?: string; color?: string | null }) =>
+    request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProject: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
   reorderProjects: (projectIds: string[]) =>
     request<void>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
@@ -358,4 +360,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ cloneUrl, destinationPath, name }),
     }),
+
+  // Analytics
+  analyticsOverview: (projectId?: string, timeRange?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    if (timeRange) params.set('timeRange', timeRange);
+    const qs = params.toString();
+    return request<any>(`/analytics/overview${qs ? `?${qs}` : ''}`);
+  },
+  analyticsTimeline: (projectId?: string, timeRange?: string, groupBy?: string) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    if (timeRange) params.set('timeRange', timeRange);
+    if (groupBy) params.set('groupBy', groupBy);
+    const qs = params.toString();
+    return request<any>(`/analytics/timeline${qs ? `?${qs}` : ''}`);
+  },
 };

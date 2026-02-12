@@ -72,18 +72,30 @@ export function createProject(name: string, rawPath: string, userId: string): Re
 }
 
 export function renameProject(id: string, name: string): Result<Project, DomainError> {
+  return updateProject(id, { name });
+}
+
+export function updateProject(id: string, fields: { name?: string; color?: string | null }): Result<Project, DomainError> {
   const project = db.select().from(schema.projects).where(eq(schema.projects.id, id)).get();
   if (!project) {
     return err(notFound('Project not found'));
   }
 
-  const existingName = db.select().from(schema.projects).where(eq(schema.projects.name, name)).get();
-  if (existingName && existingName.id !== id) {
-    return err(conflict(`A project with this name already exists: ${name}`));
+  // Validate name uniqueness if name is being updated
+  if (fields.name !== undefined) {
+    const existingName = db.select().from(schema.projects).where(eq(schema.projects.name, fields.name)).get();
+    if (existingName && existingName.id !== id) {
+      return err(conflict(`A project with this name already exists: ${fields.name}`));
+    }
   }
 
-  db.update(schema.projects).set({ name }).where(eq(schema.projects.id, id)).run();
-  return ok({ ...project, name });
+  // Build update object with only provided fields
+  const updateData: Partial<Project> = {};
+  if (fields.name !== undefined) updateData.name = fields.name;
+  if (fields.color !== undefined) updateData.color = fields.color;
+
+  db.update(schema.projects).set(updateData).where(eq(schema.projects.id, id)).run();
+  return ok({ ...project, ...updateData });
 }
 
 export function deleteProject(id: string): void {

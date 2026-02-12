@@ -336,6 +336,7 @@ export function PromptInput({
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [localCurrentBranch, setLocalCurrentBranch] = useState<string | null>(null);
+  const [newThreadCurrentBranch, setNewThreadCurrentBranch] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaCallbackRef = useCallback((node: HTMLTextAreaElement | null) => {
     textareaRef.current = node;
@@ -386,6 +387,7 @@ export function PromptInput({
         if (result.isOk()) {
           const data = result.value;
           setNewThreadBranches(data.branches);
+          setNewThreadCurrentBranch(data.currentBranch);
           if (data.defaultBranch) {
             setSelectedBranch(data.defaultBranch);
           } else if (data.branches.length > 0) {
@@ -393,6 +395,7 @@ export function PromptInput({
           }
         } else {
           setNewThreadBranches([]);
+          setNewThreadCurrentBranch(null);
         }
       })();
     }
@@ -742,6 +745,12 @@ export function PromptInput({
                       {t('thread.mode.worktree')}
                     </button>
                   </div>
+                  {threadMode === 'local' && newThreadCurrentBranch && (
+                    <span className="flex items-center gap-1 px-2 py-1 text-[11px] text-muted-foreground truncate max-w-[300px]">
+                      <GitBranch className="h-3 w-3 shrink-0" />
+                      <span className="truncate font-mono">{newThreadCurrentBranch}</span>
+                    </span>
+                  )}
                   {threadMode === 'worktree' && newThreadBranches.length > 0 && (
                     <BranchPicker
                       branches={newThreadBranches}

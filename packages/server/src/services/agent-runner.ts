@@ -72,11 +72,17 @@ export class AgentRunner {
   // Track pending permission requests per thread
   private pendingPermissionRequest = new Map<string, { toolName: string; toolUseId: string }>();
 
+  // Track the ID of the last tool use (specifically for AskUserQuestion) to enable resuming
+  private lastToolUseId = new Map<string, string>();
+
+  // Store pending can_use_tool requests for AskUserQuestion so we can respond with the user's answer later
+  private pendingCanUseTool = new Map<string, { requestId: string; process: IClaudeProcess; input: any }>();
+
   constructor(
     private threadManager: IThreadManager,
     private wsBroker: IWSBroker,
     private processFactory: IClaudeProcessFactory,
-  ) {}
+  ) { }
 
   private emitWS(threadId: string, type: WSEvent['type'], data: unknown): void {
     const event = { type, threadId, data } as WSEvent;
@@ -203,6 +209,7 @@ export class AgentRunner {
           // Track if this tool call means Claude is waiting for user input
           if (block.name === 'AskUserQuestion') {
             this.pendingUserInput.set(threadId, 'question');
+            this.lastToolUseId.set(threadId, block.id);
           } else if (block.name === 'ExitPlanMode') {
             this.pendingUserInput.set(threadId, 'plan');
           } else {
@@ -319,8 +326,81 @@ export class AgentRunner {
       }
 
       // Emit git status for worktree threads (async, non-blocking)
-      this.emitGitStatus(threadId).catch(() => {});
+      this.emitGitStatus(threadId).catch(() => { });
     }
+  }
+
+  // ── Control Protocol Handler ───────────────────────────────────
+
+  handleControlRequest(threadId: string, msg: any, process: IClaudeProcess): void {
+    const subtype = msg.request?.subtype;
+
+    // Handle hook_callback for tool approval
+    if (subtype === 'hook_callback' && msg.request.callback_id === 'tool_approval') {
+      const toolName = msg.request.input?.tool_name || msg.request.input?.tool || 'Unknown';
+      console.log(`[agent] hook_callback tool_approval: ${toolName} thread=${threadId}`);
+
+      // If AskUserQuestion or ExitPlanMode, we PAUSE and ask user.
+      if (toolName === 'AskUserQuestion') {
+        console.log(`[agent] Intercepted AskUserQuestion - pausing for user input`);
+        this.pendingUserInput.set(threadId, 'question');
+        const toolUseId = msg.request.input?.tool_use_id;
+        if (toolUseId) {
+          this.lastToolUseId.set(threadId, toolUseId);
+        }
+      } else if (toolName === 'ExitPlanMode') {
+        console.log(`[agent] Intercepted ExitPlanMode - pausing for user input`);
+        this.pendingUserInput.set(threadId, 'plan');
+        const toolUseId = msg.request.input?.tool_use_id;
+        if (toolUseId) {
+          this.lastToolUseId.set(threadId, toolUseId);
+        }
+      }
+
+      // Always ALLOW the tool
+      const response = {
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: msg.request_id,
+          response: { behavior: 'allow' }
+        }
+      };
+      process.sendControlResponse(response);
+      return;
+    }
+
+    // Handle can_use_tool requests (permission check)
+    if (subtype === 'can_use_tool') {
+      const toolName = msg.request.tool_name || 'Unknown';
+      console.log(`[agent] can_use_tool: ${toolName} thread=${threadId}`);
+
+      // For AskUserQuestion or ExitPlanMode, DON'T respond yet — wait for the user's answer
+      if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') {
+        console.log(`[agent] Holding can_use_tool for ${toolName} — waiting for user answer`);
+        this.pendingCanUseTool.set(threadId, {
+          requestId: msg.request_id,
+          process,
+          input: msg.request.input,
+        });
+        return;
+      }
+
+      // For all other tools, allow immediately
+      const response = {
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: msg.request_id,
+          response: { behavior: 'allow', updatedInput: msg.request.input }
+        }
+      };
+      process.sendControlResponse(response);
+      return;
+    }
+
+    // Unhandled request type - log for debugging
+    console.log(`[agent] Unhandled control request subtype=${subtype} thread=${threadId}`);
   }
 
   // ── Git status emission ────────────────────────────────────────
@@ -363,9 +443,57 @@ export class AgentRunner {
   ): Promise<void> {
     console.log(`[agent] start thread=${threadId} model=${model} cwd=${cwd}`);
 
-    // Stop existing agent for this thread (if any) before starting a new one.
+    // Check if we're resuming an existing active session (e.g. user answering a question or providing feedback)
     const existing = this.activeAgents.get(threadId);
     if (existing && !existing.exited) {
+      const waitingReason = this.pendingUserInput.get(threadId);
+
+      // If we are waiting for a question answer, this prompt IS the answer.
+      if (waitingReason === 'question' || waitingReason === 'permission' || waitingReason === 'plan') {
+        console.log(`[agent] Resuming existing thread=${threadId} with user input`);
+
+        // Save user message to DB
+        this.threadManager.insertMessage({
+          threadId,
+          role: 'user',
+          content: prompt,
+          images: images ? JSON.stringify(images) : null,
+        });
+
+        // Respond to the stored can_use_tool request with the user's answer
+        const pending = this.pendingCanUseTool.get(threadId);
+        if (pending) {
+          console.log(`[agent] Responding to can_use_tool with user answer for thread=${threadId}`);
+
+          // Inject the user's answer into the original question input
+          const updatedInput = {
+            ...pending.input,
+            result: prompt, // The user's answer text
+          };
+
+          const response = {
+            type: 'control_response',
+            response: {
+              subtype: 'success',
+              request_id: pending.requestId,
+              response: { behavior: 'allow', updatedInput }
+            }
+          };
+          pending.process.sendControlResponse(response);
+
+          // Clear all waiting state
+          this.pendingUserInput.delete(threadId);
+          this.lastToolUseId.delete(threadId);
+          this.pendingCanUseTool.delete(threadId);
+          this.emitWS(threadId, 'agent:status', { status: 'running' });
+          return; // Do NOT kill the process!
+        }
+
+        // If we can't find the toolUseId, fall through to restart (last resort)
+        console.warn(`[agent] Could not find toolUseId for resume, falling back to restart`);
+      }
+
+      // Explicitly STOP if we are restarting and it's not a resume flow
       console.log(`[agent] stopping existing agent for thread=${threadId} before restart`);
       this.manuallyStopped.add(threadId);
       try { await existing.kill(); } catch { /* best-effort */ }
@@ -383,9 +511,10 @@ export class AgentRunner {
     // Update thread status
     this.threadManager.updateThread(threadId, { status: 'running' });
 
-    // Auto-transition stage to 'in_progress' when agent starts
+    // Auto-transition stage to 'in_progress' from 'backlog' or 'review'.
+    // 'done' is a user-assigned stage and should be preserved.
     const currentThread = this.threadManager.getThread(threadId);
-    if (currentThread && ['backlog', 'review', 'done'].includes(currentThread.stage)) {
+    if (currentThread && (currentThread.stage === 'review' || currentThread.stage === 'backlog')) {
       this.threadManager.updateThread(threadId, { stage: 'in_progress' });
     }
 
@@ -401,14 +530,33 @@ export class AgentRunner {
 
     // Check if we're resuming a previous session
     const thread = this.threadManager.getThread(threadId);
+    const isResume = !!thread?.sessionId;
+
+    // When resuming a session, add context to prevent Claude from re-planning.
+    // Without this, Claude sees plan mode in its conversation history and starts
+    // planning again instead of continuing execution.
+    let effectivePrompt = prompt;
+    if (isResume) {
+      console.log(`[agent] Resuming session=${thread!.sessionId} for thread=${threadId}`);
+      effectivePrompt = `[SYSTEM NOTE: This is a session resume after an interruption. Your previous session was interrupted mid-execution. Continue from where you left off. Do NOT re-plan or start over — pick up execution from the last completed step.]\n\n${prompt}`;
+    }
+
+    // When resuming, override 'plan' permission mode to 'acceptEdits'.
+    // The CLI's --permission-mode plan flag forces Claude back into planning mode
+    // even on resume. By switching to 'acceptEdits', Claude gets full edit
+    // permissions and continues execution instead of re-planning.
+    const cliPermissionMode = PERMISSION_MAP[permissionMode];
+    const effectivePermissionMode = (isResume && cliPermissionMode === 'plan')
+      ? 'acceptEdits'
+      : cliPermissionMode;
 
     // Spawn claude CLI process
     const effectiveAllowedTools = allowedTools ?? DEFAULT_ALLOWED_TOOLS;
     const claudeProcess = this.processFactory.create({
-      prompt,
+      prompt: effectivePrompt,
       cwd,
       model: MODEL_MAP[model],
-      permissionMode: PERMISSION_MAP[permissionMode],
+      permissionMode: effectivePermissionMode,
       allowedTools: effectiveAllowedTools,
       disallowedTools,
       maxTurns: 30,
@@ -422,6 +570,11 @@ export class AgentRunner {
     // Handle messages from the CLI
     claudeProcess.on('message', (msg: CLIMessage) => {
       this.handleCLIMessage(threadId, msg);
+    });
+
+    // Handle Control Requests (hooks, permissions)
+    claudeProcess.on('control_request', (msg: any) => {
+      this.handleControlRequest(threadId, msg, claudeProcess);
     });
 
     // Handle errors

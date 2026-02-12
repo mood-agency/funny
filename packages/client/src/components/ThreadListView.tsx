@@ -26,6 +26,7 @@ interface ThreadListViewProps {
   paginationLabel: (info: { from: number; to: number; total: number }) => string;
   className?: string;
   autoFocusSearch?: boolean;
+  hideSearch?: boolean;
 }
 
 export function ThreadListView({
@@ -48,6 +49,7 @@ export function ThreadListView({
   paginationLabel,
   className,
   autoFocusSearch,
+  hideSearch = false,
 }: ThreadListViewProps) {
   const { t } = useTranslation();
   const statusLabels = getStatusLabels(t);
@@ -119,34 +121,36 @@ export function ThreadListView({
   return (
     <div className={cn('flex flex-col gap-4', className)}>
       {/* Search + optional page size */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder={searchPlaceholder}
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            autoFocus={autoFocusSearch}
-            className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
+      {!hideSearch && (
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder={searchPlaceholder}
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              autoFocus={autoFocusSearch}
+              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          {pageSizeOptions && onPageSizeChange && (
+            <select
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              className="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+            >
+              {pageSizeOptions.map((size) => (
+                <option key={size} value={size}>
+                  {size} / {t('archived.page', { defaultValue: 'page' })}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
-        {pageSizeOptions && onPageSizeChange && (
-          <select
-            value={pageSize}
-            onChange={(e) => onPageSizeChange(Number(e.target.value))}
-            className="rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-          >
-            {pageSizeOptions.map((size) => (
-              <option key={size} value={size}>
-                {size} / {t('archived.page', { defaultValue: 'page' })}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+      )}
 
       {/* Thread list */}
       {loading ? (

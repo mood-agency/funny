@@ -1,17 +1,30 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   draggable,
   dropTargetForElements,
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
+import { Plus, Trash2 } from 'lucide-react';
 import type { Thread, ThreadStage } from '@a-parallel/shared';
+import { useAppStore } from '@/stores/app-store';
 import { useThreadStore } from '@/stores/thread-store';
+import { useUIStore } from '@/stores/ui-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { stageConfig, statusConfig, gitSyncStateConfig, timeAgo } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 interface KanbanViewProps {
   threads: Thread[];
@@ -20,7 +33,7 @@ interface KanbanViewProps {
 
 const STAGES: ThreadStage[] = ['backlog', 'in_progress', 'review', 'done'];
 
-function KanbanCard({ thread }: { thread: Thread }) {
+function KanbanCard({ thread, projectInfo, onDelete }: { thread: Thread; projectInfo?: { name: string; color?: string }; onDelete: (thread: Thread) => void }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const statusByThread = useGitStatusStore((s) => s.statusByThread);
@@ -55,7 +68,7 @@ function KanbanCard({ thread }: { thread: Thread }) {
     <div
       ref={ref}
       className={cn(
-        'rounded-md border bg-card p-2.5 cursor-grab active:cursor-grabbing transition-opacity',
+        'group/card relative rounded-md border bg-card p-2.5 cursor-pointer transition-opacity',
         isDragging && 'opacity-40'
       )}
       onClick={() => {
@@ -64,7 +77,28 @@ function KanbanCard({ thread }: { thread: Thread }) {
         }
       }}
     >
-      <div className="text-xs font-medium truncate mb-1.5">{thread.title}</div>
+      <button
+        className="absolute top-1.5 right-1.5 p-1 rounded opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(thread);
+        }}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+
+      {projectInfo && (
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded inline-block mb-1"
+          style={{
+            backgroundColor: projectInfo.color ? `${projectInfo.color}1A` : '#3b82f61A',
+            color: projectInfo.color || '#3b82f6',
+          }}
+        >
+          {projectInfo.name}
+        </span>
+      )}
+      <div className="text-xs font-medium mb-1.5 line-clamp-3 pr-5">{thread.title}</div>
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <div className="flex items-center gap-1">
@@ -98,7 +132,7 @@ function KanbanCard({ thread }: { thread: Thread }) {
   );
 }
 
-function KanbanColumn({ stage, threads }: { stage: ThreadStage; threads: Thread[] }) {
+function KanbanColumn({ stage, threads, projectInfoById, onDelete }: { stage: ThreadStage; threads: Thread[]; projectInfoById?: Record<string, { name: string; color?: string }>; onDelete: (thread: Thread) => void }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [isDraggedOver, setIsDraggedOver] = useState(false);
@@ -140,7 +174,7 @@ function KanbanColumn({ stage, threads }: { stage: ThreadStage; threads: Thread[
             {t('kanban.emptyColumn')}
           </div>
         ) : (
-          threads.map((thread) => <KanbanCard key={thread.id} thread={thread} />)
+          threads.map((thread) => <KanbanCard key={thread.id} thread={thread} projectInfo={projectInfoById?.[thread.projectId]} onDelete={onDelete} />)
         )}
       </div>
     </div>
@@ -148,7 +182,45 @@ function KanbanColumn({ stage, threads }: { stage: ThreadStage; threads: Thread[
 }
 
 export function KanbanView({ threads, projectId }: KanbanViewProps) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const updateThreadStage = useThreadStore((s) => s.updateThreadStage);
+  const deleteThread = useThreadStore((s) => s.deleteThread);
+  const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
+  const projects = useAppStore((s) => s.projects);
+
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    threadId: string;
+    projectId: string;
+    title: string;
+    isWorktree?: boolean;
+  } | null>(null);
+
+  const handleDeleteRequest = useCallback((thread: Thread) => {
+    setDeleteConfirm({
+      threadId: thread.id,
+      projectId: thread.projectId,
+      title: thread.title,
+      isWorktree: thread.mode === 'worktree' && !!thread.branch,
+    });
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm) return;
+    const { threadId, projectId: threadProjectId, title } = deleteConfirm;
+    const wasSelected = selectedThreadId === threadId;
+    await deleteThread(threadId, threadProjectId);
+    setDeleteConfirm(null);
+    toast.success(t('toast.threadDeleted', { title }));
+    if (wasSelected) navigate(`/projects/${threadProjectId}`);
+  }, [deleteConfirm, selectedThreadId, deleteThread, navigate, t]);
+
+  const projectInfoById = useMemo(() => {
+    if (projectId) return undefined;
+    const map: Record<string, { name: string; color?: string }> = {};
+    for (const p of projects) map[p.id] = { name: p.name, color: p.color };
+    return map;
+  }, [projectId, projects]);
 
   const threadsByStage = useMemo(() => {
     const map: Record<ThreadStage, Thread[]> = {
@@ -208,10 +280,39 @@ export function KanbanView({ threads, projectId }: KanbanViewProps) {
   }, [handleDrop]);
 
   return (
-    <div className="flex gap-3 h-full overflow-x-auto p-4">
-      {STAGES.map((stage) => (
-        <KanbanColumn key={stage} stage={stage} threads={threadsByStage[stage]} />
-      ))}
-    </div>
+    <>
+      <div className="flex gap-3 h-full overflow-x-auto p-4">
+        {STAGES.map((stage) => (
+          <KanbanColumn key={stage} stage={stage} threads={threadsByStage[stage]} projectInfoById={projectInfoById} onDelete={handleDeleteRequest} />
+        ))}
+      </div>
+
+      <Dialog
+        open={!!deleteConfirm}
+        onOpenChange={(open) => { if (!open) setDeleteConfirm(null); }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('dialog.deleteThread')}</DialogTitle>
+            <DialogDescription>
+              {t('dialog.deleteThreadDesc', { title: deleteConfirm?.title })}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteConfirm?.isWorktree && (
+            <p className="text-xs text-amber-500 bg-amber-500/10 rounded-md px-3 py-2">
+              {t('dialog.worktreeWarning')}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleDeleteConfirm}>
+              {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

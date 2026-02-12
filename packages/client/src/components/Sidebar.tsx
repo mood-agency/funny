@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Plus, Folder, Columns3 } from 'lucide-react';
+import { Plus, Folder, Columns3, BarChart3 } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -186,23 +186,38 @@ export function AppSidebar() {
       <SidebarHeader className="px-4 py-3">
         <div className="flex items-center justify-between">
           <Logo3D scale={0.75} glow={0.3} />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => {
-                  localStorage.setItem('threadViewMode', 'board');
-                  showGlobalSearch();
-                  navigate('/search');
-                }}
-                className="text-muted-foreground"
-              >
-                <Columns3 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">Kanban</TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    localStorage.setItem('threadViewMode', 'board');
+                    showGlobalSearch();
+                    navigate('/search');
+                  }}
+                  className="text-muted-foreground"
+                >
+                  <Columns3 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Kanban</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => navigate('/analytics')}
+                  className="text-muted-foreground"
+                >
+                  <BarChart3 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{t('sidebar.analytics')}</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </SidebarHeader>
 

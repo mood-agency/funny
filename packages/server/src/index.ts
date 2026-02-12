@@ -24,6 +24,7 @@ import { worktreeRoutes } from './routes/worktrees.js';
 import { automationRoutes } from './routes/automations.js';
 import { profileRoutes } from './routes/profile.js';
 import { githubRoutes } from './routes/github.js';
+import { analyticsRoutes } from './routes/analytics.js';
 import { wsBroker } from './services/ws-broker.js';
 import { startScheduler, stopScheduler } from './services/automation-scheduler.js';
 import * as ptyManager from './services/pty-manager.js';
@@ -98,6 +99,7 @@ app.route('/api/worktrees', worktreeRoutes);
 app.route('/api/automations', automationRoutes);
 app.route('/api/profile', profileRoutes);
 app.route('/api/github', githubRoutes);
+app.route('/api/analytics', analyticsRoutes);
 
 // Serve static files from client build (only if dist exists)
 if (existsSync(clientDistDir)) {

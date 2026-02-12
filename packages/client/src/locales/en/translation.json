@@ -26,7 +26,8 @@
     "recentThreads": "Recent",
     "searchThreads": "Search threads",
     "threadsTitle": "Threads",
-    "noProjects": "No projects yet. Click + to add one."
+    "noProjects": "No projects yet. Click + to add one.",
+    "analytics": "Analytics"
   },
   "thread": {
     "status": {
@@ -431,6 +432,35 @@
     "moveToReview": "Move to Review",
     "moveToDone": "Move to Done",
     "emptyColumn": "No threads"
+  },
+  "analytics": {
+    "title": "Analytics",
+    "allProjects": "All Projects",
+    "selectProject": "Select a project to view analytics",
+    "timeRange": "Time Range",
+    "day": "Last 24 Hours",
+    "week": "Last 7 Days",
+    "month": "Last 30 Days",
+    "all": "All Time",
+    "currentDistribution": "Current Stage Distribution",
+    "tasksCreated": "Tasks Created",
+    "tasksCompleted": "Tasks Completed",
+    "movedToReview": "Moved to Review",
+    "movedToDone": "Moved to Done",
+    "totalCost": "Total Cost",
+    "timeline": "Timeline",
+    "created": "Created",
+    "completed": "Completed",
+    "noData": "No data available for this time range",
+    "loading": "Loading analytics...",
+    "backlog": "Backlog",
+    "inProgress": "In Progress",
+    "review": "Review",
+    "done": "Done",
+    "groupByDay": "Day",
+    "groupByWeek": "Week",
+    "groupByMonth": "Month",
+    "groupByYear": "Year"
   },
   "auth": {
     "signIn": "Sign in",

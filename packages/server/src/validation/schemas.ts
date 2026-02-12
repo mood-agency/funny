@@ -31,6 +31,11 @@ export const renameProjectSchema = z.object({
   name: z.string().min(1, 'name is required'),
 });
 
+export const updateProjectSchema = z.object({
+  name: z.string().min(1, 'name is required').optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'color must be a valid hex color (#RRGGBB)').nullable().optional(),
+});
+
 export const reorderProjectsSchema = z.object({
   projectIds: z.array(z.string().min(1)).min(1, 'projectIds must not be empty'),
 });

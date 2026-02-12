@@ -4,6 +4,7 @@ export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   path: text('path').notNull(),
+  color: text('color'),
   userId: text('user_id').notNull().default('__local__'),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
@@ -110,6 +111,16 @@ export const userProfiles = sqliteTable('user_profiles', {
   githubToken: text('github_token'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+});
+
+export const stageHistory = sqliteTable('stage_history', {
+  id: text('id').primaryKey(),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => threads.id, { onDelete: 'cascade' }),
+  fromStage: text('from_stage'), // null for initial entry
+  toStage: text('to_stage').notNull(),
+  changedAt: text('changed_at').notNull(),
 });
 
 export const mcpOauthTokens = sqliteTable('mcp_oauth_tokens', {

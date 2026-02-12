@@ -3,7 +3,7 @@ import * as pm from '../services/project-manager.js';
 import * as sc from '../services/startup-commands-service.js';
 import { listBranches, getDefaultBranch, getCurrentBranch } from '../utils/git-v2.js';
 import { startCommand, stopCommand, isCommandRunning } from '../services/command-runner.js';
-import { createProjectSchema, renameProjectSchema, reorderProjectsSchema, createCommandSchema, validate } from '../validation/schemas.js';
+import { createProjectSchema, renameProjectSchema, updateProjectSchema, reorderProjectsSchema, createCommandSchema, validate } from '../validation/schemas.js';
 import { requireProject } from '../utils/route-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
 
@@ -38,8 +38,8 @@ projectRoutes.post('/', async (c) => {
 projectRoutes.patch('/:id', async (c) => {
   const id = c.req.param('id');
   const raw = await c.req.json();
-  const result = validate(renameProjectSchema, raw)
-    .andThen(({ name }) => pm.renameProject(id, name));
+  const result = validate(updateProjectSchema, raw)
+    .andThen((fields) => pm.updateProject(id, fields));
   return resultToResponse(c, result);
 });
 

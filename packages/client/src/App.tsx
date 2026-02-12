@@ -14,6 +14,7 @@ import { TerminalPanel } from '@/components/TerminalPanel';
 import { SettingsDetailView } from '@/components/SettingsDetailView';
 import { AutomationInboxView } from '@/components/AutomationInboxView';
 import { AddProjectView } from '@/components/AddProjectView';
+import { AnalyticsView } from '@/components/AnalyticsView';
 import { SidebarProvider, SidebarInset, Sidebar, SidebarContent } from '@/components/ui/sidebar';
 import { Toaster } from 'sonner';
 import { TOAST_DURATION } from '@/lib/utils';
@@ -27,6 +28,7 @@ export function App() {
   const allThreadsProjectId = useUIStore(s => s.allThreadsProjectId);
   const automationInboxOpen = useUIStore(s => s.automationInboxOpen);
   const addProjectOpen = useUIStore(s => s.addProjectOpen);
+  const analyticsOpen = useUIStore(s => s.analyticsOpen);
   const navigate = useNavigate();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -120,7 +122,7 @@ export function App() {
       <SidebarInset className="flex flex-col overflow-hidden">
         {/* Main content + terminal */}
         <div className="flex-1 flex overflow-hidden min-h-0">
-          {settingsOpen ? <SettingsDetailView /> : automationInboxOpen ? <AutomationInboxView /> : addProjectOpen ? <AddProjectView /> : allThreadsProjectId ? <AllThreadsView /> : <ThreadView />}
+          {settingsOpen ? <SettingsDetailView /> : analyticsOpen ? <AnalyticsView /> : automationInboxOpen ? <AutomationInboxView /> : addProjectOpen ? <AddProjectView /> : allThreadsProjectId ? <AllThreadsView /> : <ThreadView />}
         </div>
 
         <TerminalPanel />

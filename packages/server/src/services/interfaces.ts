@@ -9,7 +9,7 @@ import type { CLIMessage, ClaudeProcessOptions } from './claude-process.js';
 // ── Thread Manager subset used by agent-runner ──────────────────
 
 export interface IThreadManager {
-  getThread(id: string): { sessionId: string | null; [key: string]: any } | undefined;
+  getThread(id: string): { sessionId: string | null;[key: string]: any } | undefined;
   updateThread(id: string, updates: Record<string, any>): void;
   insertMessage(data: {
     threadId: string;
@@ -25,7 +25,8 @@ export interface IThreadManager {
   }): string;
   updateToolCallOutput(id: string, output: string): void;
   findToolCall(messageId: string, name: string, input: string): { id: string } | undefined;
-  getToolCall(id: string): { id: string; name: string; input: string; output?: string } | undefined;
+  getToolCall(id: string): { id: string; name: string; input: string | null; output?: string | null } | undefined;
+  getThreadWithMessages(id: string): { messages: any[];[key: string]: any } | null;
 }
 
 // ── WebSocket broker ────────────────────────────────────────────
@@ -41,6 +42,8 @@ export interface IClaudeProcess {
   on(event: 'message', listener: (msg: CLIMessage) => void): this;
   on(event: 'error', listener: (err: Error) => void): this;
   on(event: 'exit', listener: (code: number | null) => void): this;
+  on(event: 'control_request', listener: (msg: any) => void): this; // TODO: Use specific type
+  sendControlResponse(response: any): void;
   start(): void;
   kill(): Promise<void>;
   readonly exited: boolean;

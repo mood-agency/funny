@@ -7,6 +7,20 @@ function escapeLike(value: string): string {
   return value.replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
+/** Record a stage transition in the history table */
+function recordStageChange(threadId: string, fromStage: string | null, toStage: string) {
+  const id = nanoid();
+  db.insert(schema.stageHistory)
+    .values({
+      id,
+      threadId,
+      fromStage,
+      toStage,
+      changedAt: new Date().toISOString(),
+    })
+    .run();
+}
+
 // ── Thread CRUD ──────────────────────────────────────────────────
 
 /** List threads, optionally filtered by projectId, userId, and archive status */
@@ -123,6 +137,10 @@ export function getThreadWithMessages(id: string) {
 /** Insert a new thread */
 export function createThread(data: typeof schema.threads.$inferInsert) {
   db.insert(schema.threads).values(data).run();
+
+  // Record initial stage in history
+  const initialStage = data.stage ?? 'backlog';
+  recordStageChange(data.id, null, initialStage);
 }
 
 /** Update thread fields by ID */
@@ -141,6 +159,18 @@ export function updateThread(
     worktreePath: string | null;
   }>
 ) {
+  // If stage is being updated, record the transition
+  if (updates.stage !== undefined) {
+    const currentThread = db.select({ stage: schema.threads.stage })
+      .from(schema.threads)
+      .where(eq(schema.threads.id, id))
+      .get();
+
+    if (currentThread && currentThread.stage !== updates.stage) {
+      recordStageChange(id, currentThread.stage, updates.stage);
+    }
+  }
+
   db.update(schema.threads).set(updates).where(eq(schema.threads.id, id)).run();
 }
 

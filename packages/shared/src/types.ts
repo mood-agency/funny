@@ -73,6 +73,7 @@ export interface Project {
   id: string;
   name: string;
   path: string;
+  color?: string;
   userId: string;
   sortOrder: number;
   createdAt: string;

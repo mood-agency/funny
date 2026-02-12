@@ -398,15 +398,32 @@ export function AllThreadsView() {
         </div>
       </div>
 
+      {/* Search bar (shared between both views) */}
+      <div className="px-4 pt-3 pb-2 flex-shrink-0 border-b border-border/50">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder={isGlobalSearch ? t('allThreads.globalSearchPlaceholder') : t('allThreads.searchPlaceholder')}
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            autoFocus
+            className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+        </div>
+      </div>
+
       {/* Thread content */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 flex flex-col">
         {viewMode === 'board' ? (
-          <KanbanView threads={filtered} projectId={isGlobalSearch ? undefined : allThreadsProjectId} />
+          <div className="flex-1 min-h-0">
+            <KanbanView threads={filtered} projectId={isGlobalSearch ? undefined : allThreadsProjectId} />
+          </div>
         ) : (
           <div className="px-4 py-3 h-full">
             <ThreadListView
               className="h-full"
-              autoFocusSearch
+              autoFocusSearch={false}
               threads={paginated}
               totalCount={filtered.length}
               search={search}
@@ -421,6 +438,7 @@ export function AllThreadsView() {
               paginationLabel={({ total }) =>
                 `${total} ${t('allThreads.threads')}${search || hasActiveFilters ? ` ${t('allThreads.found')}` : ''}`
               }
+              hideSearch={true}
               renderExtraBadges={(thread) => {
             const gs = statusByThread[thread.id];
             const gitConf = gs ? gitSyncStateConfig[gs.state] : null;

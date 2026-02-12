@@ -10,6 +10,7 @@ interface UIState {
   allThreadsProjectId: string | null;
   automationInboxOpen: boolean;
   addProjectOpen: boolean;
+  analyticsOpen: boolean;
 
   setReviewPaneOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -21,6 +22,7 @@ interface UIState {
   setAutomationInboxOpen: (open: boolean) => void;
   setAddProjectOpen: (open: boolean) => void;
   showGlobalSearch: () => void;
+  setAnalyticsOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -31,6 +33,7 @@ export const useUIStore = create<UIState>((set) => ({
   allThreadsProjectId: null,
   automationInboxOpen: false,
   addProjectOpen: false,
+  analyticsOpen: false,
 
   setReviewPaneOpen: (open) => set({ reviewPaneOpen: open }),
   setSettingsOpen: (open) => set(open ? { settingsOpen: true, automationInboxOpen: false, addProjectOpen: false } : { settingsOpen: false, activeSettingsPage: null }),
@@ -78,6 +81,14 @@ export const useUIStore = create<UIState>((set) => ({
   showGlobalSearch: () => {
     invalidateSelectThread();
     useThreadStore.setState({ selectedThreadId: null, activeThread: null });
-    set({ allThreadsProjectId: '__all__', newThreadProjectId: null, automationInboxOpen: false, addProjectOpen: false, settingsOpen: false });
+    set({ allThreadsProjectId: '__all__', newThreadProjectId: null, automationInboxOpen: false, addProjectOpen: false, settingsOpen: false, analyticsOpen: false });
+  },
+
+  setAnalyticsOpen: (open) => {
+    if (open) {
+      invalidateSelectThread();
+      useThreadStore.setState({ selectedThreadId: null, activeThread: null });
+    }
+    set(open ? { analyticsOpen: true, reviewPaneOpen: false, settingsOpen: false, activeSettingsPage: null, allThreadsProjectId: null, addProjectOpen: false, automationInboxOpen: false } : { analyticsOpen: false });
   },
 }));

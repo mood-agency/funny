@@ -15,12 +15,18 @@ export class LineBuffer {
    * Push a chunk of data and return any complete lines.
    * Incomplete trailing data is retained for the next push().
    */
+  /**
+   * Push a chunk of data and return any complete lines.
+   * Incomplete trailing data is retained for the next push().
+   */
   push(chunk: string): string[] {
     this.buffer += chunk;
+    if (!this.buffer.includes('\n')) {
+      return [];
+    }
     const lines = this.buffer.split('\n');
-    // Last element is either empty (if buffer ended with \n) or incomplete
     this.buffer = lines.pop() ?? '';
-    return lines.filter((line) => line.trim().length > 0);
+    return lines.filter(l => l.trim().length > 0);
   }
 
   /**

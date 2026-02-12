@@ -194,6 +194,16 @@ export function autoMigrate() {
     )
   `);
 
+  db.run(sql`
+    CREATE TABLE IF NOT EXISTS stage_history (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      from_stage TEXT,
+      to_stage TEXT NOT NULL,
+      changed_at TEXT NOT NULL
+    )
+  `);
+
   // Add pinned column to threads
   try {
     db.run(sql`ALTER TABLE threads ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
@@ -215,9 +225,31 @@ export function autoMigrate() {
     // Column already exists
   }
 
+  // Add color column to projects
+  try {
+    db.run(sql`ALTER TABLE projects ADD COLUMN color TEXT`);
+  } catch {
+    // Column already exists
+  }
+
   // Backfill existing threads based on their current status
   db.run(sql`UPDATE threads SET stage = 'in_progress' WHERE status IN ('running', 'waiting') AND stage = 'backlog'`);
   db.run(sql`UPDATE threads SET stage = 'review' WHERE status IN ('completed', 'failed', 'stopped', 'interrupted') AND stage = 'backlog'`);
+
+  // Backfill stage_history for existing threads that don't have any history yet
+  db.run(sql`
+    INSERT INTO stage_history (id, thread_id, from_stage, to_stage, changed_at)
+    SELECT
+      lower(hex(randomblob(16))),
+      t.id,
+      NULL,
+      t.stage,
+      t.created_at
+    FROM threads t
+    WHERE NOT EXISTS (
+      SELECT 1 FROM stage_history sh WHERE sh.thread_id = t.id
+    )
+  `);
 
   console.log('[db] Tables ready');
 }

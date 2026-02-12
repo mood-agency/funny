@@ -26,7 +26,8 @@
     "recentThreads": "Recientes",
     "searchThreads": "Buscar hilos",
     "threadsTitle": "Threads",
-    "noProjects": "No hay proyectos. Presiona + para agregar uno."
+    "noProjects": "No hay proyectos. Presiona + para agregar uno.",
+    "analytics": "Analíticas"
   },
   "thread": {
     "status": {
@@ -429,6 +430,35 @@
     "moveToReview": "Mover a Revisión",
     "moveToDone": "Mover a Listo",
     "emptyColumn": "Sin hilos"
+  },
+  "analytics": {
+    "title": "Analíticas",
+    "allProjects": "Todos los Proyectos",
+    "selectProject": "Selecciona un proyecto para ver las analíticas",
+    "timeRange": "Rango de Tiempo",
+    "day": "Últimas 24 Horas",
+    "week": "Últimos 7 Días",
+    "month": "Últimos 30 Días",
+    "all": "Todo el Tiempo",
+    "currentDistribution": "Distribución de Etapas Actual",
+    "tasksCreated": "Tareas Creadas",
+    "tasksCompleted": "Tareas Completadas",
+    "movedToReview": "Movidas a Revisión",
+    "movedToDone": "Movidas a Listo",
+    "totalCost": "Costo Total",
+    "timeline": "Línea de Tiempo",
+    "created": "Creadas",
+    "completed": "Completadas",
+    "noData": "No hay datos disponibles para este rango",
+    "loading": "Cargando analíticas...",
+    "backlog": "Pendientes",
+    "inProgress": "En Progreso",
+    "review": "Revisión",
+    "done": "Listo",
+    "groupByDay": "Día",
+    "groupByWeek": "Semana",
+    "groupByMonth": "Mes",
+    "groupByYear": "Año"
   },
   "auth": {
     "signIn": "Iniciar sesión",

@@ -46,10 +46,10 @@ export interface CLIUserMessage {
 export interface CLIResultMessage {
   type: 'result';
   subtype:
-    | 'success'
-    | 'error_max_turns'
-    | 'error_during_execution'
-    | 'error_max_budget_usd';
+  | 'success'
+  | 'error_max_turns'
+  | 'error_during_execution'
+  | 'error_max_budget_usd';
   is_error: boolean;
   duration_ms: number;
   num_turns: number;
@@ -100,19 +100,23 @@ export class ClaudeProcess extends EventEmitter {
     const binaryPath = getClaudeBinaryPath();
     const args = this.buildArgs();
 
+    // Use Bun.spawn with pipe for all stdio to support protocol
     this.proc = Bun.spawn([binaryPath, ...args], {
       cwd: this.options.cwd,
       stdout: 'pipe',
       stderr: 'pipe',
-      stdin: this.options.images && this.options.images.length > 0 ? 'pipe' : null,
+      stdin: 'pipe',
     });
 
     console.log(`[claude-process] pid=${this.proc.pid} cwd=${this.options.cwd}`);
 
-    // If we have images, send the structured message via stdin
-    if (this.options.images && this.options.images.length > 0 && this.proc.stdin) {
-      this.sendInitialMessage();
-    }
+    // Standard initialization sequence
+    // 1. Initialize Control Protocol Handshake
+    this.sendInitialize();
+
+    // 2. Send initial user prompt (text + images) via protocol
+    // We do this immediately. The CLI buffers it until ready.
+    this.sendInitialMessage();
 
     // Start reading stdout and stderr in background (non-blocking)
     this.readStdout();
@@ -156,6 +160,52 @@ export class ClaudeProcess extends EventEmitter {
     this.resetWatchdog();
   }
 
+  private sendInitialize(): void {
+    if (!this.proc?.stdin) return;
+
+    // Hooks configuration to intercept tool usage
+    const hooks = {
+      "PreToolUse": [
+        {
+          "matcher": ".*", // Intercept ALL tools to check permissions/hooks
+          "hookCallbackIds": ["tool_approval"]
+        }
+      ]
+    };
+
+    // Import types from shared if possible, or define interface locally
+    // transforming structure to match SDKControlRequest
+    const initReq = {
+      type: 'control_request',
+      request_id: crypto.randomUUID(), // Use built-in crypto for UUID
+      request: {
+        subtype: 'initialize',
+        hooks
+      }
+    };
+
+    try {
+      const stdin = this.proc.stdin as import('bun').FileSink;
+      stdin.write(JSON.stringify(initReq) + '\n');
+      stdin.flush();
+      console.log('[claude-process] Sent initialize handshake');
+    } catch (err) {
+      console.error('[claude-process] Failed to send initialize:', err);
+    }
+  }
+
+  // Allow sending raw control responses from AgentRunner
+  public sendControlResponse(response: any): void {
+    if (!this.proc?.stdin) return;
+    try {
+      const stdin = this.proc.stdin as import('bun').FileSink;
+      stdin.write(JSON.stringify(response) + '\n');
+      stdin.flush();
+    } catch (err) {
+      console.error('[claude-process] Failed to send control response:', err);
+    }
+  }
+
   private async readStdout(): Promise<void> {
     if (!this.proc?.stdout) return;
     const reader = (this.proc.stdout as ReadableStream<Uint8Array>).getReader();
@@ -170,21 +220,31 @@ export class ClaudeProcess extends EventEmitter {
         const chunk = decoder.decode(value, { stream: true });
         const lines = this.lineBuffer.push(chunk);
         for (const line of lines) {
+          // console.log('[claude-process] RAW stdout:', line); // Very verbose
           try {
-            const msg = decodeNDJSON(line) as CLIMessage;
-            this.emit('message', msg);
-          } catch {
-            console.warn('[claude-process] Failed to parse NDJSON line');
+            const msg = decodeNDJSON(line) as any;
+
+            // Handle Control Requests internally or emit them
+            if (msg.type === 'control_request') {
+              console.log('[claude-process] RECV control_request:', JSON.stringify(msg, null, 2)); // LOG REQUESTS
+              this.emit('control_request', msg);
+            } else if (msg.type === 'control_response') {
+              console.log('[claude-process] RECV control_response:', JSON.stringify(msg, null, 2));
+            } else {
+              // Normal message
+              this.emit('message', msg);
+            }
+          } catch (e) {
+            console.warn('[claude-process] Failed to parse NDJSON line:', line);
           }
         }
 
-        // Yield the event loop periodically so HTTP handlers can run
+        // Yield the event loop
         if (lines.length > 0) {
           await new Promise<void>((r) => setTimeout(r, 0));
         }
       }
     } catch (err) {
-      // Stream error — process likely killed or crashed
       if (!this._exited) {
         console.error('[claude-process] stdout read error:', err);
       }
@@ -206,7 +266,7 @@ export class ClaudeProcess extends EventEmitter {
         this.stderrBuf += chunk;
       }
     } catch {
-      // Ignore stderr read errors
+      // Ignore stderr
     }
   }
 
@@ -217,6 +277,8 @@ export class ClaudeProcess extends EventEmitter {
     const args: string[] = [
       '--print',
       '--output-format', 'stream-json',
+      '--input-format', 'stream-json',
+      '--permission-prompt-tool=stdio', // Enable Control Protocol
       '--verbose',
     ];
 
@@ -236,48 +298,43 @@ export class ClaudeProcess extends EventEmitter {
       args.push('--resume', this.options.sessionId);
     }
 
-    // allowedTools: comma-separated list of tools to auto-approve
     if (this.options.allowedTools && this.options.allowedTools.length > 0) {
       args.push('--allowedTools', this.options.allowedTools.join(','));
     }
 
-    // disallowedTools: comma-separated list of tools to block entirely
     if (this.options.disallowedTools && this.options.disallowedTools.length > 0) {
       args.push('--disallowedTools', this.options.disallowedTools.join(','));
     }
 
-    // If images are provided, use stream-json input format
-    if (this.options.images && this.options.images.length > 0) {
-      args.push('--input-format', 'stream-json');
-      // Don't add the prompt as a positional arg - it will be sent via stdin
-    } else {
-      // '--' signals end of flags; prompt follows as positional arg
-      args.push('--', this.options.prompt);
-    }
+
+    // NOTE: We do NOT pass the prompt as a positional argument anymore.
+    // The prompt is sent via stdin using stream-json format after initialization.
 
     return args;
   }
 
   /**
-   * Send the initial message with images via stdin using stream-json format
+   * Send the initial user message (prompt + optional images) via stdin using stream-json format.
+   * This is required because we are using --input-format stream-json for the Control Protocol.
    */
   private sendInitialMessage(): void {
-    if (!this.proc?.stdin || !this.options.images) return;
+    if (!this.proc?.stdin) return;
 
     try {
       const stdin = this.proc.stdin as import('bun').FileSink;
-
-      // Build message content with text and images
       const content: any[] = [];
 
-      // Always include text first, even if empty (use placeholder if needed)
-      const promptText = this.options.prompt.trim() || 'What do you see in this image?';
-      content.push({ type: 'text', text: promptText });
+      const promptText = this.options.prompt?.trim();
+      if (promptText) {
+        content.push({ type: 'text', text: promptText });
+      }
 
-      // Add images
-      content.push(...this.options.images);
+      if (this.options.images && this.options.images.length > 0) {
+        content.push(...this.options.images);
+      }
 
-      // Send as NDJSON message (stream-json expects type + message with role)
+      if (content.length === 0) return;
+
       const message = {
         type: 'user',
         message: {
@@ -287,9 +344,9 @@ export class ClaudeProcess extends EventEmitter {
       };
 
       const line = JSON.stringify(message) + '\n';
-      // Bun.spawn stdin is a FileSink — use .write() and .end() directly
       stdin.write(line);
-      stdin.end();
+      stdin.flush();
+      console.log('[claude-process] Sent initial user prompt via protocol');
     } catch (err) {
       console.error('[claude-process] Failed to send initial message:', err);
       this.emit('error', err);

@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/app-store';
+import { useProjectStore } from '@/stores/project-store';
 import { useSettingsStore, editorLabels, ALL_STANDARD_TOOLS, TOOL_LABELS, type Theme, type Editor, type ThreadMode } from '@/stores/settings-store';
 import { settingsItems, settingsLabelKeys, type SettingsItemId } from './SettingsPanel';
 import { cn } from '@/lib/utils';
@@ -90,13 +91,77 @@ function SegmentedControl<T extends string>({
   );
 }
 
+/* ── Color palette ── */
+const PROJECT_COLORS = [
+  '#3b82f6', // blue
+  '#ef4444', // red
+  '#22c55e', // green
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+  '#6366f1', // indigo
+  '#84cc16', // lime
+];
+
 /* ── General settings content ── */
 function GeneralSettings() {
   const { theme, defaultEditor, defaultThreadMode, allowedTools, setTheme, setDefaultEditor, setDefaultThreadMode, toggleTool, setAllowedTools } = useSettingsStore();
+  const updateProject = useProjectStore((s) => s.updateProject);
+  const selectedProjectId = useAppStore((s) => s.selectedProjectId);
+  const projects = useAppStore((s) => s.projects);
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const { t, i18n } = useTranslation();
 
   return (
     <>
+      {/* Project section (only shown when a project is selected) */}
+      {selectedProject && (
+        <>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-2">
+            Project
+          </h3>
+          <div className="rounded-lg border border-border/50 overflow-hidden mb-6">
+            <SettingRow
+              title="Project Color"
+              description="Choose a color for this project's tags in the Kanban board"
+            >
+              <div className="flex items-center gap-1.5">
+                {/* No color option */}
+                <button
+                  onClick={() => updateProject(selectedProject.id, { color: null })}
+                  className={cn(
+                    'h-7 w-7 rounded-md border-2 transition-all flex items-center justify-center',
+                    !selectedProject.color
+                      ? 'border-primary shadow-sm'
+                      : 'border-border hover:border-muted-foreground'
+                  )}
+                  title="No color"
+                >
+                  <div className="h-4 w-4 rounded-sm bg-gradient-to-br from-muted-foreground/20 to-muted-foreground/40" />
+                </button>
+                {/* Color options */}
+                {PROJECT_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => updateProject(selectedProject.id, { color })}
+                    className={cn(
+                      'h-7 w-7 rounded-md border-2 transition-all',
+                      selectedProject.color === color
+                        ? 'border-primary shadow-sm scale-110'
+                        : 'border-transparent hover:border-muted-foreground'
+                    )}
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
+            </SettingRow>
+          </div>
+        </>
+      )}
+
       {/* General section */}
       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-2">
         {t('settings.general')}
