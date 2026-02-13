@@ -52,6 +52,13 @@ export const createThreadSchema = z.object({
   allowedTools: z.array(z.string()).optional(),
 });
 
+export const createIdleThreadSchema = z.object({
+  projectId: z.string().min(1),
+  title: z.string().min(1, 'title is required'),
+  mode: threadModeSchema,
+  baseBranch: z.string().optional(),
+});
+
 export const sendMessageSchema = z.object({
   content: z.string().min(1, 'content is required'),
   model: claudeModelSchema.optional(),

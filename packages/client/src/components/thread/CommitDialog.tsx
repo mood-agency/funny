@@ -83,13 +83,14 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
   const [allFiles, setAllFiles] = useState<FileDiff[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [includeUnstaged, setIncludeUnstaged] = useState(true);
-  const [commitMsg, setCommitMsg] = useState('');
+  const [commitTitle, setCommitTitle] = useState('');
+  const [commitBody, setCommitBody] = useState('');
   const [generatingMsg, setGeneratingMsg] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<'commit' | 'commit-push' | 'commit-pr' | null>(null);
   const [selectedAction, setSelectedAction] = useState<'commit' | 'commit-push' | 'commit-pr'>('commit');
 
   const stagedFiles = allFiles.filter(f => f.staged);
-  const hasMessage = commitMsg.trim().length > 0;
+  const hasMessage = commitTitle.trim().length > 0;
   const canCommit = includeUnstaged
     ? allFiles.length > 0 && hasMessage && !actionInProgress
     : selectedFiles.size > 0 && hasMessage && !actionInProgress;
@@ -106,7 +107,8 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
   useEffect(() => {
     if (open) {
       refreshDiffs();
-      setCommitMsg('');
+      setCommitTitle('');
+      setCommitBody('');
       setActionInProgress(null);
     }
   }, [open, threadId]);
@@ -116,7 +118,8 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
     setGeneratingMsg(true);
     const result = await api.generateCommitMessage(threadId);
     if (result.isOk()) {
-      setCommitMsg(result.value.message);
+      setCommitTitle(result.value.title);
+      setCommitBody(result.value.body);
     } else {
       toast.error(t('review.generateFailed', { message: result.error.message }));
     }
@@ -125,6 +128,11 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
 
   const performCommit = async (): Promise<boolean> => {
     if (!threadId || !hasMessage) return false;
+
+    // Build commit message from title and body
+    const commitMsg = commitBody.trim()
+      ? `${commitTitle.trim()}\n\n${commitBody.trim()}`
+      : commitTitle.trim();
 
     if (includeUnstaged) {
       // Stage all files and commit everything
@@ -229,7 +237,9 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
       return;
     }
 
-    const prResult = await api.createPR(threadId, commitMsg, commitMsg);
+    const prTitle = commitTitle.trim();
+    const prBody = commitBody.trim();
+    const prResult = await api.createPR(threadId, prTitle, prBody);
     if (prResult.isErr()) {
       toast.error(t('review.prFailed', { message: prResult.error.message }));
       setActionInProgress(null);
@@ -357,32 +367,42 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
             </div>
           )}
 
-          {/* Commit Message Section */}
-          <div className="relative">
+          {/* Commit Title and Body Section */}
+          <div className="space-y-3">
+            <div className="relative">
+              <input
+                type="text"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm placeholder:text-muted-foreground transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder={t('review.commitTitle')}
+                value={commitTitle}
+                onChange={(e) => setCommitTitle(e.target.value)}
+                disabled={allFiles.length === 0 || !!actionInProgress}
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="absolute top-1.5 right-1.5"
+                    onClick={handleGenerateCommitMsg}
+                    disabled={allFiles.length === 0 || generatingMsg || !!actionInProgress}
+                  >
+                    <Sparkles className={cn('h-3.5 w-3.5', generatingMsg && 'animate-pulse')} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {generatingMsg ? t('review.generatingCommitMsg') : t('review.generateCommitMsg')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <textarea
-              className="w-full rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm placeholder:text-muted-foreground transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
               rows={3}
-              placeholder={t('review.commitMessage')}
-              value={commitMsg}
-              onChange={(e) => setCommitMsg(e.target.value)}
+              placeholder={t('review.commitBody')}
+              value={commitBody}
+              onChange={(e) => setCommitBody(e.target.value)}
               disabled={allFiles.length === 0 || !!actionInProgress}
             />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="absolute top-1.5 right-1.5"
-                  onClick={handleGenerateCommitMsg}
-                  disabled={allFiles.length === 0 || generatingMsg || !!actionInProgress}
-                >
-                  <Sparkles className={cn('h-3.5 w-3.5', generatingMsg && 'animate-pulse')} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {generatingMsg ? t('review.generatingCommitMsg') : t('review.generateCommitMsg')}
-              </TooltipContent>
-            </Tooltip>
           </div>
         </div>
 

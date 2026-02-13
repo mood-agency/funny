@@ -16,6 +16,7 @@ import {
 import type { ThreadStatus, GitSyncState, ThreadStage } from '@a-parallel/shared';
 
 export const statusConfig: Record<ThreadStatus, { icon: typeof Clock; className: string }> = {
+  idle: { icon: CircleDot, className: 'text-gray-400' },
   pending: { icon: Clock, className: 'text-yellow-400' },
   running: { icon: Loader2, className: 'text-blue-400 animate-spin' },
   waiting: { icon: Clock, className: 'text-amber-400' },
@@ -54,6 +55,7 @@ export const gitSyncStateConfig: Record<GitSyncState, { icon: typeof Clock; clas
 
 export function getStatusLabels(t: (key: string) => string): Record<ThreadStatus, string> {
   return {
+    idle: t('thread.status.idle'),
     pending: t('thread.status.pending'),
     running: t('thread.status.running'),
     waiting: t('thread.status.waiting'),

@@ -90,6 +90,8 @@
     "pushing": "Enviando...",
     "createPR": "Crear PR",
     "commitMessage": "Mensaje del commit",
+    "commitTitle": "Título del commit",
+    "commitBody": "Cuerpo del commit (opcional)",
     "revertConfirm": "¿Revertir {{paths}}? Esta acción no se puede deshacer.",
     "revertWarning": "Esta acción no se puede deshacer.",
     "commitSuccess": "Cambios confirmados exitosamente",
@@ -379,6 +381,7 @@
   "toast": {
     "threadArchived": "Hilo archivado exitosamente",
     "threadDeleted": "Hilo \"{{title}}\" eliminado",
+    "threadCreated": "Hilo \"{{title}}\" creado",
     "projectRenamed": "Proyecto renombrado a \"{{name}}\"",
     "projectDeleted": "Proyecto \"{{name}}\" eliminado",
     "worktreeDeleted": "Worktree \"{{branch}}\" eliminado",
@@ -429,7 +432,10 @@
     "moveToInProgress": "Mover a En Progreso",
     "moveToReview": "Mover a Revisión",
     "moveToDone": "Mover a Listo",
-    "emptyColumn": "Sin hilos"
+    "emptyColumn": "Sin hilos",
+    "addThread": "Agregar hilo",
+    "searchProject": "Buscar proyecto...",
+    "titlePlaceholder": "Título del hilo..."
   },
   "analytics": {
     "title": "Analíticas",

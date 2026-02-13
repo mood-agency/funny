@@ -22,7 +22,7 @@ export function TodoList({ todos }: { todos: TodoItem[] }) {
               todo.status === 'pending' && 'text-muted-foreground'
             )}
           >
-            {todo.status === 'in_progress' ? (todo.activeForm || todo.content) : todo.content}
+            {todo.content}
           </span>
         </div>
       ))}

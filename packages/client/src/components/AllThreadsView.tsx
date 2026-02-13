@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ThreadListView } from '@/components/ThreadListView';
 import { KanbanView } from '@/components/KanbanView';
 import { statusConfig, gitSyncStateConfig, getStatusLabels } from '@/lib/thread-utils';
+import { normalize } from '@/components/ui/highlight-text';
 import type { Thread, ThreadStatus, GitSyncState } from '@a-parallel/shared';
 
 const ITEMS_PER_PAGE = 20;
@@ -121,15 +122,15 @@ export function AllThreadsView() {
   const filtered = useMemo(() => {
     let result = allThreads;
 
-    // Text search
+    // Text search (accent-insensitive)
     if (search.trim()) {
-      const q = search.toLowerCase();
+      const q = normalize(search);
       result = result.filter(
         (t) =>
-          t.title.toLowerCase().includes(q) ||
-          (t.branch && t.branch.toLowerCase().includes(q)) ||
-          t.status.toLowerCase().includes(q) ||
-          (isGlobalSearch && projectNameById[t.projectId]?.toLowerCase().includes(q))
+          normalize(t.title).includes(q) ||
+          (t.branch && normalize(t.branch).includes(q)) ||
+          normalize(t.status).includes(q) ||
+          (isGlobalSearch && projectNameById[t.projectId] && normalize(projectNameById[t.projectId]).includes(q))
       );
     }
 
@@ -417,7 +418,7 @@ export function AllThreadsView() {
       <div className="flex-1 min-h-0 flex flex-col">
         {viewMode === 'board' ? (
           <div className="flex-1 min-h-0">
-            <KanbanView threads={filtered} projectId={isGlobalSearch ? undefined : allThreadsProjectId} />
+            <KanbanView threads={filtered} projectId={isGlobalSearch ? undefined : allThreadsProjectId} search={search} />
           </div>
         ) : (
           <div className="px-4 py-3 h-full">

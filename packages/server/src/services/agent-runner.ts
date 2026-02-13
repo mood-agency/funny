@@ -383,6 +383,11 @@ export class AgentRunner {
           process,
           input: msg.request.input,
         });
+
+        // Immediately transition to 'waiting' so the UI stops showing "Agent is working..."
+        const waitingReason = this.pendingUserInput.get(threadId) ?? (toolName === 'ExitPlanMode' ? 'plan' : 'question');
+        this.threadManager.updateThread(threadId, { status: 'waiting' });
+        this.emitWS(threadId, 'agent:status', { status: 'waiting', waitingReason });
         return;
       }
 

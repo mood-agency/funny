@@ -90,6 +90,8 @@
     "pushing": "Enviando...",
     "createPR": "Criar PR",
     "commitMessage": "Mensagem do commit",
+    "commitTitle": "Título do commit",
+    "commitBody": "Corpo do commit (opcional)",
     "revertConfirm": "Reverter {{paths}}? Esta ação não pode ser desfeita.",
     "revertWarning": "Esta ação não pode ser desfeita.",
     "commitSuccess": "Alterações confirmadas com sucesso",
@@ -377,6 +379,7 @@
   "toast": {
     "threadArchived": "Thread arquivada com sucesso",
     "threadDeleted": "Thread \"{{title}}\" excluída",
+    "threadCreated": "Thread \"{{title}}\" criada",
     "projectRenamed": "Projeto renomeado para \"{{name}}\"",
     "projectDeleted": "Projeto \"{{name}}\" excluído"
   },
@@ -425,7 +428,10 @@
     "moveToInProgress": "Mover para Em Progresso",
     "moveToReview": "Mover para Revisão",
     "moveToDone": "Mover para Concluído",
-    "emptyColumn": "Sem threads"
+    "emptyColumn": "Sem threads",
+    "addThread": "Adicionar thread",
+    "searchProject": "Buscar projeto...",
+    "titlePlaceholder": "Título da thread..."
   },
   "analytics": {
     "title": "Analíticas",

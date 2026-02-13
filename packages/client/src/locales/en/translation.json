@@ -90,6 +90,8 @@
     "pushing": "Pushing...",
     "createPR": "Create PR",
     "commitMessage": "Commit message",
+    "commitTitle": "Commit title",
+    "commitBody": "Commit body (optional)",
     "revertConfirm": "Revert {{paths}}? This cannot be undone.",
     "revertWarning": "This cannot be undone.",
     "commitSuccess": "Changes committed successfully",
@@ -379,6 +381,7 @@
   "toast": {
     "threadArchived": "Thread archived successfully",
     "threadDeleted": "Thread \"{{title}}\" deleted",
+    "threadCreated": "Thread \"{{title}}\" created",
     "projectRenamed": "Project renamed to \"{{name}}\"",
     "projectDeleted": "Project \"{{name}}\" deleted",
     "worktreeDeleted": "Worktree \"{{branch}}\" deleted",
@@ -431,7 +434,10 @@
     "moveToInProgress": "Move to In Progress",
     "moveToReview": "Move to Review",
     "moveToDone": "Move to Done",
-    "emptyColumn": "No threads"
+    "emptyColumn": "No threads",
+    "addThread": "Add thread",
+    "searchProject": "Search project...",
+    "titlePlaceholder": "Thread title..."
   },
   "analytics": {
     "title": "Analytics",

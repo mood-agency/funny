@@ -145,6 +145,12 @@ export const api = {
     images?: ImageAttachment[];
     allowedTools?: string[];
   }) => request<Thread>('/threads', { method: 'POST', body: JSON.stringify(data) }),
+  createIdleThread: (data: {
+    projectId: string;
+    title: string;
+    mode: string;
+    baseBranch?: string;
+  }) => request<Thread>('/threads/idle', { method: 'POST', body: JSON.stringify(data) }),
   sendMessage: (threadId: string, content: string, opts?: { model?: string; permissionMode?: string; allowedTools?: string[] }, images?: ImageAttachment[]) =>
     request<{ ok: boolean }>(`/threads/${threadId}/message`, {
       method: 'POST',
@@ -220,7 +226,7 @@ export const api = {
       body: JSON.stringify(opts ?? {}),
     }),
   generateCommitMessage: (threadId: string) =>
-    request<{ message: string }>(`/git/${threadId}/generate-commit-message`, {
+    request<{ title: string; body: string }>(`/git/${threadId}/generate-commit-message`, {
       method: 'POST',
     }),
   getGitStatuses: (projectId: string) =>

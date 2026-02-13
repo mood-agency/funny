@@ -91,24 +91,96 @@ function SegmentedControl<T extends string>({
   );
 }
 
-/* ── Color palette ── */
-const PROJECT_COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#6366f1', // indigo
-  '#84cc16', // lime
+/* ── Preset pastel colors ── */
+const PASTEL_COLORS = [
+  '#7CB9E8', // pastel blue
+  '#F4A4A4', // pastel red
+  '#A8D5A2', // pastel green
+  '#F9D98C', // pastel amber
+  '#C3A6E0', // pastel violet
+  '#F2A6C8', // pastel pink
+  '#89D4CF', // pastel teal
+  '#F9B97C', // pastel orange
 ];
+
+/* ── Color picker area ── */
+function ProjectColorPicker({ projectId, currentColor }: { projectId: string; currentColor?: string }) {
+  const updateProject = useProjectStore((s) => s.updateProject);
+
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3.5 border-b border-border/50 last:border-b-0">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-foreground">Project Color</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Pick any color for this project</p>
+      </div>
+      {/* Preset pastel colors */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => updateProject(projectId, { color: null })}
+          className={cn(
+            'h-7 w-7 rounded-md border-2 transition-all flex items-center justify-center',
+            !currentColor
+              ? 'border-primary shadow-sm'
+              : 'border-border hover:border-muted-foreground'
+          )}
+          title="No color"
+        >
+          <div className="h-4 w-4 rounded-sm bg-gradient-to-br from-muted-foreground/20 to-muted-foreground/40" />
+        </button>
+        {PASTEL_COLORS.map((color) => (
+          <button
+            key={color}
+            onClick={() => updateProject(projectId, { color })}
+            className={cn(
+              'h-7 w-7 rounded-md border-2 transition-all',
+              currentColor === color
+                ? 'border-primary shadow-sm scale-110'
+                : 'border-transparent hover:border-muted-foreground'
+            )}
+            style={{ backgroundColor: color }}
+            title={color}
+          />
+        ))}
+      </div>
+      {/* Custom color picker */}
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <input
+            type="color"
+            value={currentColor || '#7CB9E8'}
+            onChange={(e) => updateProject(projectId, { color: e.target.value })}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
+          <div
+            className={cn(
+              'h-8 w-8 rounded-lg border-2 shadow-sm cursor-pointer transition-all hover:scale-105',
+              currentColor ? 'border-primary/50' : 'border-border'
+            )}
+            style={{ backgroundColor: currentColor || 'transparent' }}
+          >
+            {!currentColor && (
+              <div className="h-full w-full rounded-md bg-gradient-to-br from-muted-foreground/10 to-muted-foreground/30 flex items-center justify-center">
+                <span className="text-[10px] text-muted-foreground">—</span>
+              </div>
+            )}
+          </div>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          Custom color
+        </span>
+        {currentColor && (
+          <span className="text-xs font-mono text-muted-foreground">
+            {currentColor}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ── General settings content ── */
 function GeneralSettings() {
   const { theme, defaultEditor, defaultThreadMode, allowedTools, setTheme, setDefaultEditor, setDefaultThreadMode, toggleTool, setAllowedTools } = useSettingsStore();
-  const updateProject = useProjectStore((s) => s.updateProject);
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const projects = useAppStore((s) => s.projects);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
@@ -123,41 +195,7 @@ function GeneralSettings() {
             Project
           </h3>
           <div className="rounded-lg border border-border/50 overflow-hidden mb-6">
-            <SettingRow
-              title="Project Color"
-              description="Choose a color for this project's tags in the Kanban board"
-            >
-              <div className="flex items-center gap-1.5">
-                {/* No color option */}
-                <button
-                  onClick={() => updateProject(selectedProject.id, { color: null })}
-                  className={cn(
-                    'h-7 w-7 rounded-md border-2 transition-all flex items-center justify-center',
-                    !selectedProject.color
-                      ? 'border-primary shadow-sm'
-                      : 'border-border hover:border-muted-foreground'
-                  )}
-                  title="No color"
-                >
-                  <div className="h-4 w-4 rounded-sm bg-gradient-to-br from-muted-foreground/20 to-muted-foreground/40" />
-                </button>
-                {/* Color options */}
-                {PROJECT_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => updateProject(selectedProject.id, { color })}
-                    className={cn(
-                      'h-7 w-7 rounded-md border-2 transition-all',
-                      selectedProject.color === color
-                        ? 'border-primary shadow-sm scale-110'
-                        : 'border-transparent hover:border-muted-foreground'
-                    )}
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </SettingRow>
+            <ProjectColorPicker projectId={selectedProject.id} currentColor={selectedProject.color} />
           </div>
         </>
       )}

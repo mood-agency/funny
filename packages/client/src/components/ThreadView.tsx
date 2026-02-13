@@ -438,6 +438,28 @@ export function ThreadView() {
   };
 
   const isRunning = activeThread.status === 'running';
+  const isIdle = activeThread.status === 'idle';
+
+  // Idle thread: show prompt input to start
+  if (isIdle) {
+    return (
+      <div className="flex-1 flex flex-col h-full min-w-0">
+        <ProjectHeader />
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          <div className="text-center">
+            <p className="text-sm font-medium mb-1">{activeThread.title}</p>
+            <p className="text-xs">{t('thread.describeTask')}</p>
+          </div>
+        </div>
+        <PromptInput
+          onSubmit={handleSend}
+          loading={sending}
+          isNewThread
+          projectId={activeThread.projectId}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 relative">
@@ -524,7 +546,7 @@ export function ThreadView() {
                       );
                     })()}
                     {msg.role === 'user' ? (
-                      <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed break-words overflow-x-auto">
+                      <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed break-words overflow-x-auto max-h-80 overflow-y-auto">
                         {msg.content.trim()}
                       </pre>
                     ) : (

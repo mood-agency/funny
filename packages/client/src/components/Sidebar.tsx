@@ -346,7 +346,14 @@ export function AppSidebar() {
           <DragOverlay>
             {activeProject && (
               <div className="px-2 py-1 text-xs bg-sidebar rounded-md shadow-md border border-border flex items-center gap-1.5 cursor-grabbing">
-                <Folder className="h-3.5 w-3.5 flex-shrink-0" />
+                {activeProject.color ? (
+                  <div
+                    className="h-3.5 w-3.5 rounded-sm flex-shrink-0"
+                    style={{ backgroundColor: activeProject.color }}
+                  />
+                ) : (
+                  <Folder className="h-3.5 w-3.5 flex-shrink-0" />
+                )}
                 <span className="truncate font-medium">{activeProject.name}</span>
               </div>
             )}

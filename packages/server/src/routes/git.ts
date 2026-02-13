@@ -235,7 +235,18 @@ gitRoutes.post('/:threadId/generate-commit-message', async (c) => {
     .map(d => `--- ${d.status}: ${d.path} ---\n${d.diff || '(no diff)'}`)
     .join('\n\n');
 
-  const prompt = `You are a commit message generator. Based on the following staged git diff, write a single concise commit message using conventional commits style (e.g. "feat: ...", "fix: ...", "refactor: ..."). Output ONLY the commit message, nothing else. No quotes, no explanation, no markdown.\n\n${diffSummary}`;
+  const prompt = `You are a commit message generator. Based on the following staged git diff, generate a commit title and a commit body.
+
+Rules:
+- The title must use conventional commits style (e.g. "feat: ...", "fix: ...", "refactor: ..."), be concise (max 72 chars), and summarize the change.
+- The body must be a short paragraph (2-4 sentences) explaining what changed and why.
+- Output EXACTLY in this format, with the separator line:
+TITLE: <the title>
+BODY: <the body>
+
+No quotes, no markdown, no extra explanation.
+
+${diffSummary}`;
 
   const binaryPath = getClaudeBinaryPath();
   const { stdout } = await execute(binaryPath, ['--print'], {
@@ -244,7 +255,14 @@ gitRoutes.post('/:threadId/generate-commit-message', async (c) => {
     stdin: prompt,
   });
 
-  return c.json({ message: stdout.trim() });
+  const output = stdout.trim();
+  const titleMatch = output.match(/^TITLE:\s*(.+)/m);
+  const bodyMatch = output.match(/^BODY:\s*([\s\S]+)/m);
+
+  const title = titleMatch?.[1]?.trim() || output.split('\n')[0];
+  const body = bodyMatch?.[1]?.trim() || '';
+
+  return c.json({ title, body });
 });
 
 // POST /api/git/:threadId/merge

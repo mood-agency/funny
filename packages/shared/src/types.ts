@@ -82,7 +82,7 @@ export interface Project {
 // ─── Threads ─────────────────────────────────────────────
 
 export type ThreadMode = 'local' | 'worktree';
-export type ThreadStatus = 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped' | 'interrupted';
+export type ThreadStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped' | 'interrupted';
 export type ThreadStage = 'backlog' | 'in_progress' | 'review' | 'done';
 export type WaitingReason = 'question' | 'plan' | 'permission';
 
@@ -176,6 +176,8 @@ export interface WSToolOutputData {
 
 export interface WSStatusData {
   status: ThreadStatus;
+  waitingReason?: WaitingReason;
+  permissionRequest?: { toolName: string };
 }
 
 export interface WSResultData {

@@ -144,7 +144,7 @@ export function handleWSToolOutput(
 export function handleWSStatus(
   get: Get, set: Set,
   threadId: string,
-  data: { status: string }
+  data: { status: string; waitingReason?: string; permissionRequest?: { toolName: string } }
 ): void {
   const { threadsByProject, activeThread, loadThreadsForProject } = get();
 
@@ -181,7 +181,22 @@ export function handleWSStatus(
   if (activeThread?.id === threadId) {
     const newStatus = transitionThreadStatus(threadId, machineEvent, activeThread.status, activeThread.cost);
     if (newStatus !== activeThread.status) {
-      stateUpdate.activeThread = { ...activeThread, status: newStatus };
+      // If transitioning to waiting, include waitingReason and permissionRequest
+      if (newStatus === 'waiting') {
+        stateUpdate.activeThread = {
+          ...activeThread,
+          status: newStatus,
+          waitingReason: data.waitingReason as any,
+          pendingPermission: data.permissionRequest,
+        };
+      } else {
+        stateUpdate.activeThread = {
+          ...activeThread,
+          status: newStatus,
+          waitingReason: undefined,
+          pendingPermission: undefined,
+        };
+      }
     }
   }
 
@@ -209,7 +224,8 @@ export function handleWSResult(
     return;
   }
 
-  let resultStatus: ThreadStatus = data.status ?? 'completed';
+  const serverStatus: ThreadStatus = data.status ?? 'completed';
+  let resultStatus: ThreadStatus = serverStatus;
   let foundInSidebar = false;
   let updatedProject: { pid: string; threads: Thread[] } | null = null;
 
@@ -219,9 +235,11 @@ export function handleWSResult(
       foundInSidebar = true;
       const t = threads[idx];
       const newStatus = transitionThreadStatus(threadId, machineEvent, t.status, data.cost ?? t.cost);
-      resultStatus = newStatus;
+      // Use server status as authoritative if xstate transition didn't change state
+      // (e.g., actor was in stale state that didn't accept the event)
+      resultStatus = newStatus !== t.status ? newStatus : serverStatus;
       const copy = [...threads];
-      copy[idx] = { ...t, status: newStatus, cost: data.cost ?? t.cost };
+      copy[idx] = { ...t, status: resultStatus, cost: data.cost ?? t.cost };
       updatedProject = { pid, threads: copy };
       break;
     }
@@ -277,7 +295,7 @@ export function handleWSResult(
   }
 
   // Toast notification
-  notifyThreadResult(threadId, resultStatus, updatedProject);
+  notifyThreadResult(threadId, resultStatus, updatedProject, get);
 }
 
 // ── Toast helper ────────────────────────────────────────────────
@@ -285,7 +303,8 @@ export function handleWSResult(
 function notifyThreadResult(
   threadId: string,
   resultStatus: ThreadStatus,
-  updatedProject: { pid: string; threads: Thread[] } | null
+  updatedProject: { pid: string; threads: Thread[] } | null,
+  get: Get
 ): void {
   let threadTitle = 'Thread';
   let projectId: string | null = null;
@@ -294,6 +313,15 @@ function notifyThreadResult(
     if (found) {
       threadTitle = found.title ?? threadTitle;
       projectId = updatedProject.pid;
+    }
+  }
+
+  // Fallback: use activeThread if the thread wasn't found in sidebar data
+  if (threadTitle === 'Thread') {
+    const { activeThread } = get();
+    if (activeThread?.id === threadId) {
+      threadTitle = activeThread.title ?? threadTitle;
+      projectId = projectId ?? activeThread.projectId;
     }
   }
 

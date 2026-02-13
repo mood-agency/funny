@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { statusConfig, timeAgo, getStatusLabels } from '@/lib/thread-utils';
 import { Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { HighlightText } from '@/components/ui/highlight-text';
 import type { Thread, ThreadStatus } from '@a-parallel/shared';
 
 interface ThreadListViewProps {
@@ -185,7 +186,7 @@ export function ThreadListView({
               >
                 <Icon className={cn('h-4 w-4 flex-shrink-0', s.className)} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate">{thread.title}</div>
+                  <HighlightText text={thread.title} query={search} className="text-xs font-medium truncate block" />
                   <div className="flex items-center gap-2 mt-0.5">
                     {renderExtraBadges?.(thread)}
                     {thread.branch && (

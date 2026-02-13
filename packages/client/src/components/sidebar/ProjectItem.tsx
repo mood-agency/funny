@@ -96,7 +96,12 @@ export function ProjectItem({
           "flex-1 flex items-center gap-1.5 px-2 py-1 text-xs text-left text-muted-foreground hover:text-foreground min-w-0 transition-colors",
           isDragging ? "cursor-grabbing" : "cursor-pointer"
         )}>
-          {isExpanded ? (
+          {project.color ? (
+            <div
+              className="h-3.5 w-3.5 rounded-sm flex-shrink-0"
+              style={{ backgroundColor: project.color }}
+            />
+          ) : isExpanded ? (
             <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" />
           ) : (
             <Folder className="h-3.5 w-3.5 flex-shrink-0" />

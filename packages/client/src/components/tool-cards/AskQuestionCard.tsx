@@ -97,7 +97,7 @@ export function AskQuestionCard({ parsed, onRespond, hideLabel }: { parsed: Reco
         )}
 
         {/* Active question */}
-        <div className="px-3 py-2 space-y-2">
+        <div className="px-3 py-2 space-y-2 max-h-80 overflow-y-auto">
           <p className="text-xs text-foreground leading-relaxed">{activeQ.question}</p>
 
           {/* Options */}

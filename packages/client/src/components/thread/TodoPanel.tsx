@@ -125,7 +125,7 @@ export function TodoPanel({ todos, progress, onDismiss }: TodoPanelProps) {
                       todo.status === 'pending' && 'text-muted-foreground'
                     )}
                   >
-                    {todo.status === 'in_progress' ? (todo.activeForm || todo.content) : todo.content}
+                    {todo.content}
                   </span>
                 </motion.div>
               ))}

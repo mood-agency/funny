@@ -4,7 +4,7 @@ import * as pm from '../services/project-manager.js';
 import * as wm from '../services/worktree-manager.js';
 import { startAgent, stopAgent, isAgentRunning } from '../services/agent-runner.js';
 import { nanoid } from 'nanoid';
-import { createThreadSchema, sendMessageSchema, updateThreadSchema, approveToolSchema, validate } from '../validation/schemas.js';
+import { createThreadSchema, createIdleThreadSchema, sendMessageSchema, updateThreadSchema, approveToolSchema, validate } from '../validation/schemas.js';
 import { requireThread, requireThreadWithMessages, requireProject } from '../utils/route-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { notFound } from '@a-parallel/shared/errors';
@@ -49,6 +49,63 @@ threadRoutes.get('/:id', (c) => {
   const result = requireThreadWithMessages(c.req.param('id'));
   if (result.isErr()) return resultToResponse(c, result);
   return c.json(result.value);
+});
+
+// POST /api/threads/idle
+threadRoutes.post('/idle', async (c) => {
+  const raw = await c.req.json();
+  const parsed = validate(createIdleThreadSchema, raw);
+  if (parsed.isErr()) return resultToResponse(c, parsed);
+  const { projectId, title, mode, baseBranch } = parsed.value;
+
+  const projectResult = requireProject(projectId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+  const project = projectResult.value;
+
+  const threadId = nanoid();
+  let worktreePath: string | undefined;
+  let threadBranch: string | undefined;
+
+  // Create worktree if needed
+  const resolvedBaseBranch = baseBranch?.trim() || undefined;
+  if (mode === 'worktree') {
+    const slug = slugifyTitle(title);
+    const projectSlug = slugifyTitle(project.name);
+    const branchName = `${projectSlug}/${slug}-${threadId.slice(0, 6)}`;
+    const wtResult = await wm.createWorktree(project.path, branchName, resolvedBaseBranch);
+    if (wtResult.isErr()) {
+      return c.json({ error: `Failed to create worktree: ${wtResult.error.message}` }, 500);
+    }
+    worktreePath = wtResult.value;
+    threadBranch = branchName;
+  } else {
+    // Local mode: detect the current branch of the project
+    const branchResult = await getCurrentBranch(project.path);
+    if (branchResult.isOk()) {
+      threadBranch = branchResult.value;
+    }
+  }
+
+  const userId = c.get('userId') as string;
+  const thread = {
+    id: threadId,
+    projectId,
+    userId,
+    title,
+    mode,
+    permissionMode: 'autoEdit' as const,
+    status: 'idle' as const,
+    stage: 'backlog' as const,
+    branch: threadBranch,
+    baseBranch: mode === 'worktree' ? resolvedBaseBranch : undefined,
+    worktreePath,
+    cost: 0,
+    createdAt: new Date().toISOString(),
+  };
+
+  tm.createThread(thread);
+
+  return c.json(thread, 201);
 });
 
 // POST /api/threads

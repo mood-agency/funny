@@ -7,6 +7,7 @@ interface UIState {
   settingsOpen: boolean;
   activeSettingsPage: string | null;
   newThreadProjectId: string | null;
+  newThreadIdleOnly: boolean;
   allThreadsProjectId: string | null;
   automationInboxOpen: boolean;
   addProjectOpen: boolean;
@@ -15,7 +16,7 @@ interface UIState {
   setReviewPaneOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setActiveSettingsPage: (page: string | null) => void;
-  startNewThread: (projectId: string) => void;
+  startNewThread: (projectId: string, idleOnly?: boolean) => void;
   cancelNewThread: () => void;
   showAllThreads: (projectId: string) => void;
   closeAllThreads: () => void;
@@ -30,6 +31,7 @@ export const useUIStore = create<UIState>((set) => ({
   settingsOpen: false,
   activeSettingsPage: null,
   newThreadProjectId: null,
+  newThreadIdleOnly: false,
   allThreadsProjectId: null,
   automationInboxOpen: false,
   addProjectOpen: false,
@@ -56,15 +58,15 @@ export const useUIStore = create<UIState>((set) => ({
     }
   },
 
-  startNewThread: (projectId: string) => {
+  startNewThread: (projectId: string, idleOnly?: boolean) => {
     invalidateSelectThread();
     useProjectStore.getState().selectProject(projectId);
     useThreadStore.setState({ selectedThreadId: null, activeThread: null });
-    set({ newThreadProjectId: projectId, allThreadsProjectId: null, automationInboxOpen: false, addProjectOpen: false });
+    set({ newThreadProjectId: projectId, newThreadIdleOnly: idleOnly ?? false, allThreadsProjectId: null, automationInboxOpen: false, addProjectOpen: false });
   },
 
   cancelNewThread: () => {
-    set({ newThreadProjectId: null });
+    set({ newThreadProjectId: null, newThreadIdleOnly: false });
   },
 
   showAllThreads: (projectId: string) => {

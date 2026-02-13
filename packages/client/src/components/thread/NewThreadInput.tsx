@@ -11,6 +11,7 @@ export function NewThreadInput() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const newThreadProjectId = useAppStore(s => s.newThreadProjectId);
+  const newThreadIdleOnly = useAppStore(s => s.newThreadIdleOnly);
   const cancelNewThread = useAppStore(s => s.cancelNewThread);
   const loadThreadsForProject = useAppStore(s => s.loadThreadsForProject);
   const defaultThreadMode = useSettingsStore(s => s.defaultThreadMode);
@@ -26,10 +27,34 @@ export function NewThreadInput() {
     if (!newThreadProjectId || creating) return;
     setCreating(true);
 
+    const threadMode = (opts.threadMode as 'local' | 'worktree') || defaultThreadMode;
+
+    // If idle-only mode, create idle thread without executing
+    if (newThreadIdleOnly) {
+      const result = await api.createIdleThread({
+        projectId: newThreadProjectId,
+        title: prompt.slice(0, 200),
+        mode: threadMode,
+        baseBranch: opts.baseBranch,
+      });
+
+      if (result.isErr()) {
+        toast.error(result.error.message);
+        setCreating(false);
+        return;
+      }
+
+      await loadThreadsForProject(newThreadProjectId);
+      setCreating(false);
+      navigate(`/projects/${newThreadProjectId}/threads/${result.value.id}`);
+      return;
+    }
+
+    // Normal mode: create and execute thread
     const result = await api.createThread({
       projectId: newThreadProjectId,
       title: prompt.slice(0, 200),
-      mode: (opts.threadMode as 'local' | 'worktree') || defaultThreadMode,
+      mode: threadMode,
       model: opts.model,
       permissionMode: opts.mode,
       baseBranch: opts.baseBranch,
