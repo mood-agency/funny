@@ -94,6 +94,7 @@ threadRoutes.post('/idle', async (c) => {
     title,
     mode,
     permissionMode: 'autoEdit' as const,
+    model: 'sonnet' as const,
     status: 'idle' as const,
     stage: 'backlog' as const,
     branch: threadBranch,
@@ -152,6 +153,7 @@ threadRoutes.post('/', async (c) => {
     title: title || prompt,
     mode,
     permissionMode: permissionMode || 'autoEdit',
+    model: model || 'sonnet',
     status: 'pending' as const,
     branch: threadBranch,
     baseBranch: mode === 'worktree' ? resolvedBaseBranch : undefined,
@@ -210,8 +212,20 @@ threadRoutes.post('/:id/message', async (c) => {
   const cwd = thread.worktreePath ?? pm.getProject(thread.projectId)?.path;
   if (!cwd) return c.json({ error: 'Project path not found' }, 404);
 
-  const effectiveModel = (model || 'sonnet') as import('@a-parallel/shared').ClaudeModel;
+  const effectiveModel = (model || thread.model || 'sonnet') as import('@a-parallel/shared').ClaudeModel;
   const effectivePermission = (permissionMode || thread.permissionMode || 'autoEdit') as import('@a-parallel/shared').PermissionMode;
+
+  // Update thread's permission mode and model if they changed
+  const updates: Record<string, any> = {};
+  if (permissionMode && permissionMode !== thread.permissionMode) {
+    updates.permissionMode = permissionMode;
+  }
+  if (model && model !== thread.model) {
+    updates.model = model;
+  }
+  if (Object.keys(updates).length > 0) {
+    tm.updateThread(id, updates);
+  }
 
   // Auto-move idle backlog threads to in_progress when a message is sent
   if (thread.status === 'idle' && thread.stage === 'backlog') {

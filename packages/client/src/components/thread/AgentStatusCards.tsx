@@ -65,3 +65,28 @@ export function AgentInterruptedCard({ onContinue }: { onContinue?: () => void }
     </div>
   );
 }
+
+export function AgentStoppedCard({ onContinue }: { onContinue?: () => void }) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2 text-xs flex items-center gap-3">
+      <XCircle className="h-4 w-4 text-blue-400 flex-shrink-0" />
+      <div>
+        <span className="font-medium text-blue-400">{t('thread.taskStopped')}</span>
+        <p className="text-muted-foreground mt-0.5">
+          {t('thread.manuallyStopped')}
+        </p>
+      </div>
+      {onContinue && (
+        <button
+          onClick={onContinue}
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <Play className="h-3 w-3" />
+          {t('thread.acceptContinue')}
+        </button>
+      )}
+    </div>
+  );
+}

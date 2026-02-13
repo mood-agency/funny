@@ -51,17 +51,12 @@ export function App() {
     const isTauri = !!(window as unknown as { __TAURI_INTERNALS__: unknown })
       .__TAURI_INTERNALS__;
 
-    console.log('[App] Registering keydown handler', new Error().stack);
     const handler = (e: KeyboardEvent) => {
       // Ctrl+K for command palette (toggle)
       if (e.ctrlKey && e.key === 'k') {
         e.preventDefault();
         e.stopPropagation();
-        console.log('[App] Ctrl+K pressed, toggling command palette');
-        setCommandPaletteOpen(prev => {
-          console.log('[App] setCommandPaletteOpen prev=', prev, '-> next=', !prev);
-          return !prev;
-        });
+        setCommandPaletteOpen(prev => !prev);
         return;
       }
 
@@ -101,10 +96,7 @@ export function App() {
       }
     };
     window.addEventListener('keydown', handler);
-    return () => {
-      console.log('[App] Removing keydown handler');
-      window.removeEventListener('keydown', handler);
-    };
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
   return (

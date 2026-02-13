@@ -128,7 +128,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     if (result.isErr()) {
       if (getSelectGeneration() === gen) {
         clearWSBuffer(threadId);
-        set({ activeThread: null, selectedThreadId: null });
+        // Keep selectedThreadId set so the UI knows we tried to load this thread
+        // ThreadView will show loading state or can handle the error
+        set({ activeThread: null });
       }
       return;
     }
@@ -187,11 +189,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   archiveThread: async (threadId, projectId) => {
-    const result = await api.archiveThread(threadId, true);
-    if (result.isErr()) return;
-    cleanupThreadActor(threadId);
+    // Optimistic update: update UI immediately
     const { threadsByProject, activeThread } = get();
     const projectThreads = threadsByProject[projectId] ?? [];
+
     set({
       threadsByProject: {
         ...threadsByProject,
@@ -201,15 +202,36 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       },
       activeThread: activeThread?.id === threadId ? { ...activeThread, archived: true } : activeThread,
     });
+
+    // Make API call in background
+    const result = await api.archiveThread(threadId, true);
+    if (result.isErr()) {
+      // Revert on error
+      const currentState = get();
+      const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
+      set({
+        threadsByProject: {
+          ...currentState.threadsByProject,
+          [projectId]: currentProjectThreads.map((t) =>
+            t.id === threadId ? { ...t, archived: false } : t
+          ),
+        },
+        activeThread: currentState.activeThread?.id === threadId
+          ? { ...currentState.activeThread, archived: false }
+          : currentState.activeThread,
+      });
+      return;
+    }
+    cleanupThreadActor(threadId);
   },
 
   unarchiveThread: async (threadId, projectId, stage) => {
-    const result = await api.archiveThread(threadId, false);
-    if (result.isErr()) return;
-    // Also update the stage
-    await api.updateThreadStage(threadId, stage);
+    // Optimistic update: update UI immediately
     const { threadsByProject, activeThread } = get();
     const projectThreads = threadsByProject[projectId] ?? [];
+    const oldThread = projectThreads.find((t) => t.id === threadId);
+    const oldStage = oldThread?.stage;
+
     set({
       threadsByProject: {
         ...threadsByProject,
@@ -219,13 +241,53 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       },
       activeThread: activeThread?.id === threadId ? { ...activeThread, archived: false, stage } : activeThread,
     });
+
+    // Make API calls in background
+    const archiveResult = await api.archiveThread(threadId, false);
+    if (archiveResult.isErr()) {
+      // Revert on error
+      const currentState = get();
+      const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
+      set({
+        threadsByProject: {
+          ...currentState.threadsByProject,
+          [projectId]: currentProjectThreads.map((t) =>
+            t.id === threadId ? { ...t, archived: true, stage: oldStage } : t
+          ),
+        },
+        activeThread: currentState.activeThread?.id === threadId
+          ? { ...currentState.activeThread, archived: true, stage: oldStage }
+          : currentState.activeThread,
+      });
+      return;
+    }
+
+    const stageResult = await api.updateThreadStage(threadId, stage);
+    if (stageResult.isErr()) {
+      // If stage update fails, keep unarchived but revert stage
+      const currentState = get();
+      const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
+      set({
+        threadsByProject: {
+          ...currentState.threadsByProject,
+          [projectId]: currentProjectThreads.map((t) =>
+            t.id === threadId ? { ...t, stage: oldStage } : t
+          ),
+        },
+        activeThread: currentState.activeThread?.id === threadId
+          ? { ...currentState.activeThread, stage: oldStage }
+          : currentState.activeThread,
+      });
+    }
   },
 
   pinThread: async (threadId, projectId, pinned) => {
-    const result = await api.pinThread(threadId, pinned);
-    if (result.isErr()) return;
+    // Optimistic update: update UI immediately
     const { threadsByProject, activeThread } = get();
     const projectThreads = threadsByProject[projectId] ?? [];
+    const oldThread = projectThreads.find((t) => t.id === threadId);
+    const oldPinned = oldThread?.pinned;
+
     set({
       threadsByProject: {
         ...threadsByProject,
@@ -235,13 +297,34 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       },
       activeThread: activeThread?.id === threadId ? { ...activeThread, pinned } : activeThread,
     });
+
+    // Make API call in background
+    const result = await api.pinThread(threadId, pinned);
+    if (result.isErr()) {
+      // Revert on error
+      const currentState = get();
+      const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
+      set({
+        threadsByProject: {
+          ...currentState.threadsByProject,
+          [projectId]: currentProjectThreads.map((t) =>
+            t.id === threadId ? { ...t, pinned: oldPinned } : t
+          ),
+        },
+        activeThread: currentState.activeThread?.id === threadId
+          ? { ...currentState.activeThread, pinned: oldPinned }
+          : currentState.activeThread,
+      });
+    }
   },
 
   updateThreadStage: async (threadId, projectId, stage) => {
-    const result = await api.updateThreadStage(threadId, stage);
-    if (result.isErr()) return;
+    // Optimistic update: update UI immediately
     const { threadsByProject, activeThread } = get();
     const projectThreads = threadsByProject[projectId] ?? [];
+    const oldThread = projectThreads.find((t) => t.id === threadId);
+    const oldStage = oldThread?.stage;
+
     set({
       threadsByProject: {
         ...threadsByProject,
@@ -251,6 +334,25 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       },
       activeThread: activeThread?.id === threadId ? { ...activeThread, stage } : activeThread,
     });
+
+    // Make API call in background
+    const result = await api.updateThreadStage(threadId, stage);
+    if (result.isErr()) {
+      // Revert on error
+      const currentState = get();
+      const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
+      set({
+        threadsByProject: {
+          ...currentState.threadsByProject,
+          [projectId]: currentProjectThreads.map((t) =>
+            t.id === threadId ? { ...t, stage: oldStage } : t
+          ),
+        },
+        activeThread: currentState.activeThread?.id === threadId
+          ? { ...currentState.activeThread, stage: oldStage }
+          : currentState.activeThread,
+      });
+    }
   },
 
   deleteThread: async (threadId, projectId) => {
@@ -285,6 +387,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           status: newStatus,
           waitingReason: undefined,
           pendingPermission: undefined,
+          permissionMode: permissionMode || activeThread.permissionMode,
           messages: [
             ...activeThread.messages,
             {

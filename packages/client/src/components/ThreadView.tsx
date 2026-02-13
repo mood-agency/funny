@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
-import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion, Play } from 'lucide-react';
+import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -14,9 +14,10 @@ import { ToolCallCard } from './ToolCallCard';
 import { ToolCallGroup } from './ToolCallGroup';
 import { ImageLightbox } from './ImageLightbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 import { ProjectHeader } from './thread/ProjectHeader';
 import { NewThreadInput } from './thread/NewThreadInput';
-import { AgentResultCard, AgentInterruptedCard } from './thread/AgentStatusCards';
+import { AgentResultCard, AgentInterruptedCard, AgentStoppedCard } from './thread/AgentStatusCards';
 import { TodoPanel } from './thread/TodoPanel';
 import { useTodoSnapshots } from '@/hooks/use-todo-panel';
 
@@ -211,7 +212,9 @@ function buildGroupedRenderItems(messages: any[]): RenderItem[] {
   // Flatten all messages into a single stream of items
   const flat: RenderItem[] = [];
   for (const msg of messages) {
-    if (msg.content) {
+    // Only add message bubble if there's actual text content
+    // Tool calls are handled separately below
+    if (msg.content && msg.content.trim()) {
       flat.push({ type: 'message', msg });
     }
     for (const tc of msg.toolCalls ?? []) {
@@ -470,80 +473,7 @@ export function ThreadView() {
   const isRunning = activeThread.status === 'running';
   const isIdle = activeThread.status === 'idle';
 
-  // Idle thread in backlog: show prompt input (with optional start button for saved prompts)
-  if (isIdle && activeThread.stage === 'backlog') {
-    const handleStartTask = async () => {
-      await useThreadStore.getState().updateThreadStage(
-        activeThread.id,
-        activeThread.projectId,
-        'in_progress'
-      );
-    };
-
-    const handleSendFromBacklog = async (prompt: string, opts: { model: string; mode: string }, images?: any[]) => {
-      if (sending) return;
-      setSending(true);
-
-      // Move to in_progress when sending a prompt from backlog
-      await useThreadStore.getState().updateThreadStage(
-        activeThread.id,
-        activeThread.projectId,
-        'in_progress'
-      );
-
-      useAppStore.getState().appendOptimisticMessage(
-        activeThread.id,
-        prompt,
-        images,
-        opts.model as any,
-        opts.mode as any
-      );
-
-      const { allowedTools, disallowedTools } = deriveToolLists(useSettingsStore.getState().toolPermissions);
-      const result = await api.sendMessage(activeThread.id, prompt, { model: opts.model || undefined, permissionMode: opts.mode || undefined, allowedTools, disallowedTools }, images);
-      if (result.isErr()) {
-        console.error('Send failed:', result.error);
-      }
-      setSending(false);
-    };
-
-    return (
-      <div className="flex-1 flex flex-col h-full min-w-0">
-        <ProjectHeader />
-        <div className="flex-1 flex flex-col justify-center px-4">
-          <div className="mx-auto max-w-2xl w-full space-y-4 mb-8">
-            <div className="text-center space-y-2">
-              <p className="text-sm font-medium text-foreground">{activeThread.title}</p>
-              {activeThread.initialPrompt && (
-                <>
-                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">{activeThread.initialPrompt}</p>
-                  <button
-                    onClick={handleStartTask}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                  >
-                    <Play className="h-4 w-4" />
-                    {t('thread.startTask')}
-                  </button>
-                </>
-              )}
-              {!activeThread.initialPrompt && (
-                <p className="text-xs text-muted-foreground">{t('thread.describeTask')}</p>
-              )}
-            </div>
-          </div>
-        </div>
-        <PromptInput
-          onSubmit={handleSendFromBacklog}
-          loading={sending}
-          isNewThread
-          projectId={activeThread.projectId}
-          placeholder={activeThread.initialPrompt ? t('thread.orTypeNewPrompt') : t('thread.describeTask')}
-        />
-      </div>
-    );
-  }
-
-  // Idle thread (not backlog): show prompt input to start
+  // Idle thread (backlog or not): show prompt input to start (pre-loaded with initialPrompt if available)
   if (isIdle) {
     return (
       <div className="flex-1 flex flex-col h-full min-w-0">
@@ -559,6 +489,7 @@ export function ThreadView() {
           loading={sending}
           isNewThread
           projectId={activeThread.projectId}
+          initialPrompt={activeThread.initialPrompt}
         />
       </div>
     );
@@ -649,15 +580,16 @@ export function ThreadView() {
                           {msg.content.trim()}
                         </pre>
                         {(msg.model || msg.permissionMode) && (
-                          <div className="flex gap-1.5 mt-1.5 text-[10px] text-primary-foreground/60 font-medium">
+                          <div className="flex gap-1 mt-1.5">
                             {msg.model && (
-                              <span>{t(`thread.model.${msg.model}`)}</span>
-                            )}
-                            {msg.model && msg.permissionMode && (
-                              <span>·</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-primary-foreground/10 text-primary-foreground/70 border-primary-foreground/20">
+                                {t(`thread.model.${msg.model}`)}
+                              </Badge>
                             )}
                             {msg.permissionMode && (
-                              <span>{t(`prompt.${msg.permissionMode}`)}</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-primary-foreground/10 text-primary-foreground/70 border-primary-foreground/20">
+                                {t(`prompt.${msg.permissionMode}`)}
+                              </Badge>
                             )}
                           </div>
                         )}
@@ -747,7 +679,7 @@ export function ThreadView() {
               transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               <WaitingActions
-                onSend={(text) => handleSend(text, { model: '', mode: '' })}
+                onSend={(text) => handleSend(text, { model: activeThread.model, mode: activeThread.permissionMode })}
               />
             </motion.div>
           )}
@@ -773,7 +705,19 @@ export function ThreadView() {
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               <AgentInterruptedCard
-                onContinue={() => handleSend('Continue', { model: '', mode: '' })}
+                onContinue={() => handleSend('Continue', { model: activeThread.model, mode: activeThread.permissionMode })}
+              />
+            </motion.div>
+          )}
+
+          {activeThread.status === 'stopped' && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+            >
+              <AgentStoppedCard
+                onContinue={() => handleSend('Continue', { model: activeThread.model, mode: activeThread.permissionMode })}
               />
             </motion.div>
           )}

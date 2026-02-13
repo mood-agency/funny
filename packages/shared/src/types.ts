@@ -98,6 +98,7 @@ export interface Thread {
   status: ThreadStatus;
   stage: ThreadStage;
   permissionMode: PermissionMode;
+  model: ClaudeModel;
   branch?: string;
   baseBranch?: string;
   worktreePath?: string;

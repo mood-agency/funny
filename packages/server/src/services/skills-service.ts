@@ -124,7 +124,7 @@ export function listProjectSkills(projectPath: string): Skill[] {
 export async function addSkill(identifier: string): Promise<void> {
   console.log(`[skills-service] Installing skill: ${identifier}`);
 
-  await execute('npx', ['skills', 'add', identifier, '-g', '-y'], {
+  await execute('npx', ['--yes', 'skills', 'add', identifier, '-g', '-y'], {
     cwd: homedir(),
     timeout: 60_000,
   });

@@ -66,6 +66,8 @@
     "taskCompleted": "Tarefa concluída",
     "taskFailed": "Tarefa falhou",
     "taskInterrupted": "Tarefa interrompida",
+    "taskStopped": "Tarefa parada",
+    "manuallyStopped": "Você parou esta tarefa. Envie uma mensagem para continuar.",
     "serverRestarted": "O servidor foi reiniciado enquanto esta tarefa estava em execução. Envie uma mensagem para continuar.",
     "nextPrompt": "O que você quer fazer a seguir?",
     "agentWorkingQueue": "O agente está trabalhando... digite para enfileirar um acompanhamento",
@@ -416,7 +418,7 @@
     "tools": "Ferramentas:"
   },
   "prompt": {
-    "plan": "Plano",
+    "plan": "Modo Plano",
     "autoEdit": "Edição Automática",
     "askBeforeEdits": "Perguntar Antes de Editar",
     "addImage": "Adicionar imagem",

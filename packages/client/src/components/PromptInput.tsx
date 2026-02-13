@@ -300,7 +300,9 @@ interface PromptInputProps {
   queuedCount?: number;
   placeholder?: string;
   isNewThread?: boolean;
+  showBacklog?: boolean;
   projectId?: string;
+  initialPrompt?: string;
 }
 
 export function PromptInput({
@@ -310,7 +312,9 @@ export function PromptInput({
   running = false,
   placeholder,
   isNewThread = false,
+  showBacklog = false,
   projectId: propProjectId,
+  initialPrompt: initialPromptProp,
 }: PromptInputProps) {
   const { t } = useTranslation();
 
@@ -328,10 +332,14 @@ export function PromptInput({
 
   const defaultThreadMode = useSettingsStore(s => s.defaultThreadMode);
 
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(initialPromptProp ?? '');
   const [model, setModel] = useState<string>('opus');
   const [mode, setMode] = useState<string>('autoEdit');
   const [threadMode, setThreadMode] = useState<string>(defaultThreadMode);
+
+  // Sync mode with active thread's permission mode
+  const activeThread = useAppStore(s => s.activeThread);
+  const activeThreadPermissionMode = activeThread?.permissionMode;
   const [newThreadBranches, setNewThreadBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -347,6 +355,11 @@ export function PromptInput({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
+  // Load initial prompt when prop changes (e.g. navigating to a backlog thread)
+  useEffect(() => {
+    if (initialPromptProp) setPrompt(initialPromptProp);
+  }, [initialPromptProp]);
+
   // Slash-command state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsLoaded, setSkillsLoaded] = useState(false);
@@ -357,7 +370,6 @@ export function PromptInput({
   const projects = useAppStore(s => s.projects);
   const selectedProjectId = useAppStore(s => s.selectedProjectId);
   const selectedThreadId = useAppStore(s => s.selectedThreadId);
-  const activeThread = useAppStore(s => s.activeThread);
 
   // Derive project path and manage cwd override
   const projectPath = useMemo(
@@ -378,6 +390,26 @@ export function PromptInput({
     setSkillsLoaded(false);
     setSkills([]);
   }, [selectedProjectId]);
+
+  // Sync mode with active thread's permission mode when thread changes
+  useEffect(() => {
+    if (!isNewThread && activeThreadPermissionMode) {
+      setMode(activeThreadPermissionMode);
+    } else if (isNewThread) {
+      // Reset to default for new threads
+      setMode('autoEdit');
+    }
+  }, [isNewThread, activeThreadPermissionMode]);
+
+  // Sync model with active thread's model when thread changes
+  useEffect(() => {
+    if (!isNewThread && activeThread?.model) {
+      setModel(activeThread.model);
+    } else if (isNewThread) {
+      // Reset to default for new threads
+      setModel('opus');
+    }
+  }, [isNewThread, activeThread?.model]);
 
   // Fetch branches for new thread mode
   const effectiveProjectId = propProjectId || selectedProjectId;
@@ -704,9 +736,8 @@ export function PromptInput({
             onChange={handleFileSelect}
             disabled={loading || running}
           />
-          {/* Mobile: two rows — Desktop: single row */}
-          <div className="px-2 py-2 space-y-2 md:space-y-0">
-            {/* Row 1 on mobile / only row on desktop: config + actions */}
+          {/* Bottom toolbar — single row, wraps naturally */}
+          <div className="px-2 py-1.5">
             <div className="flex items-center gap-1 flex-wrap">
               {!isNewThread && effectiveCwd && selectedProjectId && (
                 activeThread?.mode === 'worktree' ? (
@@ -716,19 +747,19 @@ export function PromptInput({
                     onChange={setCwdOverride}
                   />
                 ) : (activeThread?.branch || localCurrentBranch) ? (
-                  <span className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground truncate max-w-[300px]">
+                  <button className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[300px]" disabled>
                     <GitBranch className="h-3 w-3 shrink-0" />
                     <span className="truncate font-mono">{activeThread?.branch || localCurrentBranch}</span>
-                  </span>
+                  </button>
                 ) : null
               )}
               {isNewThread && (
                 <>
-                  <div className="flex items-center gap-0.5 border border-border rounded-md overflow-hidden">
+                  <div className="flex items-center gap-0.5 border border-border rounded-md overflow-hidden shrink-0">
                     <button
                       onClick={() => setThreadMode('local')}
                       className={cn(
-                        'px-2 py-1 text-sm flex items-center gap-1 transition-colors',
+                        'px-2 py-1 text-xs flex items-center gap-1 transition-colors',
                         threadMode === 'local' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
                       )}
                     >
@@ -738,7 +769,7 @@ export function PromptInput({
                     <button
                       onClick={() => setThreadMode('worktree')}
                       className={cn(
-                        'px-2 py-1 text-sm flex items-center gap-1 transition-colors',
+                        'px-2 py-1 text-xs flex items-center gap-1 transition-colors',
                         threadMode === 'worktree' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
                       )}
                     >
@@ -747,10 +778,10 @@ export function PromptInput({
                     </button>
                   </div>
                   {threadMode === 'local' && newThreadCurrentBranch && (
-                    <span className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground truncate max-w-[300px]">
+                    <button className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[200px]" disabled>
                       <GitBranch className="h-3 w-3 shrink-0" />
                       <span className="truncate font-mono">{newThreadCurrentBranch}</span>
-                    </span>
+                    </button>
                   )}
                   {threadMode === 'worktree' && newThreadBranches.length > 0 && (
                     <BranchPicker
@@ -762,7 +793,7 @@ export function PromptInput({
                 </>
               )}
               <Select value={model} onValueChange={setModel}>
-                <SelectTrigger className="h-7 w-[100px] text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                <SelectTrigger className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -774,7 +805,7 @@ export function PromptInput({
                 </SelectContent>
               </Select>
               <Select value={mode} onValueChange={setMode}>
-                <SelectTrigger className="h-7 w-[140px] text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                <SelectTrigger className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -785,11 +816,11 @@ export function PromptInput({
                   ))}
                 </SelectContent>
               </Select>
-              {isNewThread && (
+              {showBacklog && (
                 <button
                   onClick={() => setSendToBacklog((v) => !v)}
                   className={cn(
-                    'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+                    'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors shrink-0',
                     sendToBacklog
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -800,8 +831,8 @@ export function PromptInput({
                   {t('prompt.backlog')}
                 </button>
               )}
-              {/* On desktop: image + send stay in this row */}
-              <div className="hidden md:flex items-center gap-1 ml-auto">
+              {/* Image + send — always visible, pushed right */}
+              <div className="flex items-center gap-1 ml-auto shrink-0">
                 <Button
                   onClick={() => fileInputRef.current?.click()}
                   variant="ghost"
@@ -835,44 +866,6 @@ export function PromptInput({
                   </Button>
                 )}
               </div>
-            </div>
-            {/* Row 2 on mobile only: image + send */}
-            <div className="flex items-center gap-1.5 md:hidden">
-              <div className="flex-1" />
-              <Button
-                onClick={() => fileInputRef.current?.click()}
-                variant="ghost"
-                size="icon-sm"
-                title={t('prompt.addImage')}
-                disabled={loading || running}
-                className="text-muted-foreground hover:text-foreground shrink-0"
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
-              {running ? (
-                <Button
-                  onClick={onStop}
-                  variant="destructive"
-                  size="icon-sm"
-                  title={t('prompt.stopAgent')}
-                  className="shrink-0"
-                >
-                  <Square className="h-3.5 w-3.5" />
-                </Button>
-              ) : (
-                <Button
-                  onClick={handleSubmit}
-                  disabled={(!prompt.trim() && images.length === 0) || loading}
-                  size="icon-sm"
-                  className="shrink-0"
-                >
-                  {loading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ArrowUp className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              )}
             </div>
           </div>
         </div>

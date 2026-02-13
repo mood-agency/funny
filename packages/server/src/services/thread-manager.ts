@@ -1,4 +1,4 @@
-import { eq, and, or, desc, inArray, like, count as drizzleCount, sql } from 'drizzle-orm';
+import { eq, and, or, asc, desc, inArray, like, count as drizzleCount, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db, schema } from '../db/index.js';
 
@@ -114,6 +114,7 @@ export function getThreadWithMessages(id: string) {
     .select()
     .from(schema.messages)
     .where(eq(schema.messages.threadId, id))
+    .orderBy(asc(schema.messages.timestamp))
     .all();
 
   const messageIds = messages.map((m) => m.id);
@@ -157,6 +158,8 @@ export function updateThread(
     branch: string | null;
     baseBranch: string | null;
     worktreePath: string | null;
+    permissionMode: string;
+    model: string;
   }>
 ) {
   // If stage is being updated, record the transition

@@ -253,6 +253,13 @@ export function autoMigrate() {
     // Column already exists
   }
 
+  // Add model column to threads to persist the Claude model selection
+  try {
+    db.run(sql`ALTER TABLE threads ADD COLUMN model TEXT NOT NULL DEFAULT 'sonnet'`);
+  } catch {
+    // Column already exists
+  }
+
   // Backfill existing threads based on their current status
   db.run(sql`UPDATE threads SET stage = 'in_progress' WHERE status IN ('running', 'waiting') AND stage = 'backlog'`);
   db.run(sql`UPDATE threads SET stage = 'review' WHERE status IN ('completed', 'failed', 'stopped', 'interrupted') AND stage = 'backlog'`);

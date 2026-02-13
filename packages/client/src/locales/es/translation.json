@@ -66,6 +66,8 @@
     "taskCompleted": "Tarea completada",
     "taskFailed": "Tarea fallida",
     "taskInterrupted": "Tarea interrumpida",
+    "taskStopped": "Tarea detenida",
+    "manuallyStopped": "Detuviste esta tarea. Envía un mensaje para continuar.",
     "serverRestarted": "El servidor se reinició mientras esta tarea se ejecutaba. Envía un mensaje para continuar.",
     "nextPrompt": "¿Qué quieres hacer a continuación?",
     "agentWorkingQueue": "El agente está trabajando... escribe para encolar un seguimiento",
@@ -420,7 +422,7 @@
     "tools": "Herramientas:"
   },
   "prompt": {
-    "plan": "Plan",
+    "plan": "Modo Plan",
     "autoEdit": "Edición Automática",
     "askBeforeEdits": "Preguntar Antes de Editar",
     "addImage": "Agregar imagen",

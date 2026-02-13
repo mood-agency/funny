@@ -66,6 +66,8 @@
     "taskCompleted": "Task completed",
     "taskFailed": "Task failed",
     "taskInterrupted": "Task interrupted",
+    "taskStopped": "Task stopped",
+    "manuallyStopped": "You stopped this task. Send a message to continue.",
     "serverRestarted": "The server was restarted while this task was running. Send a message to continue.",
     "nextPrompt": "What do you want to do next?",
     "agentWorkingQueue": "Agent is working... type to queue a follow-up",
@@ -420,7 +422,7 @@
     "tools": "Tools:"
   },
   "prompt": {
-    "plan": "Plan",
+    "plan": "Plan Mode",
     "autoEdit": "Auto Edit",
     "askBeforeEdits": "Ask Before Edits",
     "addImage": "Add image",

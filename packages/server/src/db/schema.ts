@@ -28,6 +28,7 @@ export const threads = sqliteTable('threads', {
   archived: integer('archived').notNull().default(0),
   pinned: integer('pinned').notNull().default(0),
   stage: text('stage').notNull().default('backlog'), // 'backlog' | 'in_progress' | 'review' | 'done'
+  model: text('model').notNull().default('sonnet'), // 'sonnet' | 'opus' | 'haiku'
   initialPrompt: text('initial_prompt'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),

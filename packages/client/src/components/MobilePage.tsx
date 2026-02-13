@@ -26,6 +26,7 @@ import { StatusBadge } from './StatusBadge';
 import { MessageContent, CopyButton, WaitingActions } from './ThreadView';
 import { AgentResultCard, AgentInterruptedCard } from './thread/AgentStatusCards';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 import type { Project, Thread } from '@a-parallel/shared';
 
 type MobileView =
@@ -291,6 +292,7 @@ function NewThreadView({
         onSubmit={handleCreate}
         loading={creating}
         isNewThread
+        showBacklog
         projectId={projectId}
       />
     </>
@@ -464,15 +466,16 @@ function ChatView({
                           {msg.content.trim()}
                         </pre>
                         {(msg.model || msg.permissionMode) && (
-                          <div className="flex gap-1.5 mt-1.5 text-[10px] text-primary-foreground/60 font-medium">
+                          <div className="flex gap-1 mt-1.5">
                             {msg.model && (
-                              <span>{t(`thread.model.${msg.model}`)}</span>
-                            )}
-                            {msg.model && msg.permissionMode && (
-                              <span>·</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-primary-foreground/10 text-primary-foreground/70 border-primary-foreground/20">
+                                {t(`thread.model.${msg.model}`)}
+                              </Badge>
                             )}
                             {msg.permissionMode && (
-                              <span>{t(`prompt.${msg.permissionMode}`)}</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-primary-foreground/10 text-primary-foreground/70 border-primary-foreground/20">
+                                {t(`prompt.${msg.permissionMode}`)}
+                              </Badge>
                             )}
                           </div>
                         )}

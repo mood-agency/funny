@@ -93,6 +93,7 @@ export function NewThreadInput() {
         onSubmit={handleCreate}
         loading={creating}
         isNewThread
+        showBacklog
         projectId={newThreadProjectId || undefined}
       />
     </>

@@ -310,12 +310,16 @@ export class AgentRunner {
         }
       }
 
+      // Get the updated thread to include the current stage in WebSocket event
+      const threadWithStage = this.threadManager.getThread(threadId);
+
       // Emit agent:result which already contains the final status.
       this.emitWS(threadId, 'agent:result', {
         result: msg.result ? decodeUnicodeEscapes(msg.result) : msg.result,
         cost: msg.total_cost_usd,
         duration: msg.duration_ms,
         status: finalStatus,
+        stage: threadWithStage?.stage,
         ...(waitingReason ? { waitingReason } : {}),
         ...(permReq ? { permissionRequest: { toolName: permReq.toolName } } : {}),
       });
@@ -452,9 +456,12 @@ export class AgentRunner {
     const existing = this.activeAgents.get(threadId);
     if (existing && !existing.exited) {
       const waitingReason = this.pendingUserInput.get(threadId);
+      const hasPendingCanUseTool = this.pendingCanUseTool.has(threadId);
 
       // If we are waiting for a question answer, this prompt IS the answer.
-      if (waitingReason === 'question' || waitingReason === 'permission' || waitingReason === 'plan') {
+      // Also check pendingCanUseTool directly — the result handler may have cleared
+      // pendingUserInput while can_use_tool is still being held.
+      if (waitingReason === 'question' || waitingReason === 'permission' || waitingReason === 'plan' || hasPendingCanUseTool) {
         console.log(`[agent] Resuming existing thread=${threadId} with user input`);
 
         // Save user message to DB
@@ -525,7 +532,9 @@ export class AgentRunner {
       this.threadManager.updateThread(threadId, { stage: 'in_progress' });
     }
 
-    this.emitWS(threadId, 'agent:status', { status: 'running' });
+    // Get the updated thread to include the current stage in WebSocket event
+    const updatedThread = this.threadManager.getThread(threadId);
+    this.emitWS(threadId, 'agent:status', { status: 'running', stage: updatedThread?.stage });
 
     // Save user message
     this.threadManager.insertMessage({
