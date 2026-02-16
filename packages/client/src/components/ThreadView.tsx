@@ -1,11 +1,14 @@
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
-import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion, FileText } from 'lucide-react';
+import { timeAgo } from '@/lib/thread-utils';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { api } from '@/lib/api';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -20,7 +23,20 @@ import { NewThreadInput } from './thread/NewThreadInput';
 import { AgentResultCard, AgentInterruptedCard, AgentStoppedCard } from './thread/AgentStatusCards';
 import { TodoPanel } from './thread/TodoPanel';
 import { StickyUserMessage } from './thread/StickyUserMessage';
+import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 import { useTodoSnapshots } from '@/hooks/use-todo-panel';
+
+const D4C_FRAMES = ['🐇', '🌀', '🐰', '⭐'];
+const D4C_INTERVAL = 600;
+
+function D4CAnimation() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % D4C_FRAMES.length), D4C_INTERVAL);
+    return () => clearInterval(id);
+  }, []);
+  return <span className="inline-block text-base leading-none w-5 text-center">{D4C_FRAMES[frame]}</span>;
+}
 
 // Regex to match file paths like /foo/bar.ts, C:\foo\bar.ts, or file_path:line_number patterns
 const FILE_PATH_RE = /(?:[A-Za-z]:[\\\/]|\/)[^\s:*?"<>|,()]+(?::\d+)?/g;
@@ -83,7 +99,7 @@ export function CopyButton({ content }: { content: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+      className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
       aria-label="Copy message"
     >
       {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -132,7 +148,7 @@ export function WaitingActions({ onSend }: { onSend: (text: string) => void }) {
       </div>
 
       <div className="flex gap-2">
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={input}
@@ -144,7 +160,7 @@ export function WaitingActions({ onSend }: { onSend: (text: string) => void }) {
             }
           }}
           placeholder={t('thread.waitingInputPlaceholder')}
-          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 h-auto py-1.5"
         />
         <button
           onClick={handleSubmitInput}
@@ -205,7 +221,7 @@ export function PlanWaitingActions({ onSend }: { onSend: (text: string) => void 
       </div>
 
       <div className="flex gap-2">
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={input}
@@ -217,7 +233,7 @@ export function PlanWaitingActions({ onSend }: { onSend: (text: string) => void 
             }
           }}
           placeholder={t('thread.waitingInputPlaceholder')}
-          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 h-auto py-1.5"
         />
         <button
           onClick={handleSubmitInput}
@@ -320,7 +336,7 @@ function buildGroupedRenderItems(messages: any[]): RenderItem[] {
   }
 
   // Tool calls that should never be grouped (interactive, need individual response, or need per-item scroll tracking)
-  const noGroup = new Set(['AskUserQuestion', 'ExitPlanMode', 'TodoWrite']);
+  const noGroup = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
   // Group consecutive same-type tool calls (across message boundaries)
   const grouped: RenderItem[] = [];
@@ -343,9 +359,34 @@ function buildGroupedRenderItems(messages: any[]): RenderItem[] {
     }
   }
 
+  // Deduplicate TodoWrite: only keep the last one (the floating panel handles history).
+  // For TodoWrite groups, replace with a single toolcall using the last call's data.
+  let lastTodoIdx = -1;
+  for (let i = grouped.length - 1; i >= 0; i--) {
+    const g = grouped[i];
+    if ((g.type === 'toolcall' && g.tc.name === 'TodoWrite') ||
+        (g.type === 'toolcall-group' && g.name === 'TodoWrite')) {
+      lastTodoIdx = i;
+      break;
+    }
+  }
+  const deduped: RenderItem[] = [];
+  for (let i = 0; i < grouped.length; i++) {
+    const g = grouped[i];
+    const isTodoItem = (g.type === 'toolcall' && g.tc.name === 'TodoWrite') ||
+                       (g.type === 'toolcall-group' && g.name === 'TodoWrite');
+    if (isTodoItem && i !== lastTodoIdx) continue; // skip earlier TodoWrites
+    if (isTodoItem && g.type === 'toolcall-group') {
+      // Replace group with just the last call
+      deduped.push({ type: 'toolcall', tc: g.calls[g.calls.length - 1] });
+    } else {
+      deduped.push(g);
+    }
+  }
+
   // Wrap consecutive tool call items into a single toolcall-run for tighter spacing
   const final: RenderItem[] = [];
-  for (const item of grouped) {
+  for (const item of deduped) {
     if (item.type === 'toolcall' || item.type === 'toolcall-group') {
       const last = final[final.length - 1];
       if (last?.type === 'toolcall-run') {
@@ -365,13 +406,19 @@ function buildGroupedRenderItems(messages: any[]): RenderItem[] {
 
 export function ThreadView() {
   const { t } = useTranslation();
+  useMinuteTick(); // re-render every 60s so timeAgo stays fresh
   const activeThread = useAppStore(s => s.activeThread);
   const selectedThreadId = useAppStore(s => s.selectedThreadId);
   const selectedProjectId = useAppStore(s => s.selectedProjectId);
   const newThreadProjectId = useAppStore(s => s.newThreadProjectId);
+  const loadOlderMessages = useAppStore(s => s.loadOlderMessages);
+  const hasMore = activeThread?.hasMore ?? false;
+  const loadingMore = activeThread?.loadingMore ?? false;
   const [sending, setSending] = useState(false);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const userHasScrolledUp = useRef(false);
+  const prevOldestIdRef = useRef<string | null>(null);
+  const prevScrollHeightRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<{ src: string; alt: string }[]>([]);
@@ -379,6 +426,27 @@ export function ThreadView() {
   const [todoPanelDismissed, setTodoPanelDismissed] = useState(false);
   const [currentSnapshotIdx, setCurrentSnapshotIdx] = useState(-1);
   const [stickyUserMsgId, setStickyUserMsgId] = useState<string | null>(null);
+  // Track which message/tool-call IDs existed when the thread was loaded.
+  // Messages in this set skip entrance animations to prevent CLS.
+  const knownIdsRef = useRef<Set<string>>(new Set());
+  const prevThreadIdRef = useRef<string | null>(null);
+
+  // Populate knownIdsRef synchronously during render (not in useEffect) so the
+  // very first render already knows which IDs to skip animations for.
+  if (activeThread?.id !== prevThreadIdRef.current) {
+    prevThreadIdRef.current = activeThread?.id ?? null;
+    const ids = new Set<string>();
+    if (activeThread?.messages) {
+      for (const m of activeThread.messages) {
+        ids.add(m.id);
+        if (m.toolCalls) {
+          for (const tc of m.toolCalls) ids.add(tc.id);
+        }
+      }
+    }
+    knownIdsRef.current = ids;
+  }
+
   const snapshots = useTodoSnapshots();
 
   // Map tool call IDs to snapshot indices for data-attribute lookup
@@ -395,13 +463,17 @@ export function ThreadView() {
     setStickyUserMsgId(null);
   }, [activeThread?.id]);
 
-  // Scroll to bottom when opening or switching threads
-  useEffect(() => {
+  // Scroll to bottom when opening or switching threads.
+  // useLayoutEffect fires before browser paint, preventing CLS from scroll jumps.
+  useLayoutEffect(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport || !activeThread) return;
 
-    // Reset the scroll-up flag and scroll to bottom
+    // Reset the scroll-up flag and pagination refs, then scroll to bottom
     userHasScrolledUp.current = false;
+    prevOldestIdRef.current = null;
+    prevScrollHeightRef.current = 0;
+    // Scroll immediately (before paint) to prevent layout shift
     viewport.scrollTop = viewport.scrollHeight;
   }, [activeThread?.id]);
 
@@ -439,6 +511,11 @@ export function ThreadView() {
       const isAtBottom = scrollHeight - scrollTop - clientHeight <= 80;
       userHasScrolledUp.current = !isAtBottom;
       setShowScrollDown(hasOverflow && !isAtBottom);
+
+      // Load older messages when scrolled near the top
+      if (scrollTop < 200 && hasMore && !loadingMore) {
+        loadOlderMessages();
+      }
 
       const viewportRect = viewport.getBoundingClientRect();
 
@@ -494,11 +571,12 @@ export function ThreadView() {
 
     viewport.addEventListener('scroll', handleScroll, { passive: true });
     return () => viewport.removeEventListener('scroll', handleScroll);
-  }, [activeThread?.id]);
+  }, [activeThread?.id, hasMore, loadingMore, loadOlderMessages]);
 
   // Scroll to bottom whenever the fingerprint changes (new messages, status changes).
   // Only scrolls if the user is already at the bottom (sticky behavior).
-  useEffect(() => {
+  // useLayoutEffect prevents CLS by scrolling before the browser paints.
+  useLayoutEffect(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
 
@@ -511,6 +589,27 @@ export function ThreadView() {
       setShowScrollDown(false);
     }
   }, [scrollFingerprint]);
+
+  // Preserve scroll position when older messages are prepended
+  useLayoutEffect(() => {
+    const oldestId = activeThread?.messages?.[0]?.id ?? null;
+    const viewport = scrollViewportRef.current;
+
+    if (
+      viewport &&
+      prevOldestIdRef.current &&
+      oldestId &&
+      prevOldestIdRef.current !== oldestId
+    ) {
+      const addedHeight = viewport.scrollHeight - prevScrollHeightRef.current;
+      viewport.scrollTop += addedHeight;
+    }
+
+    prevOldestIdRef.current = oldestId;
+    if (viewport) {
+      prevScrollHeightRef.current = viewport.scrollHeight;
+    }
+  }, [activeThread?.messages?.[0]?.id]);
 
   const scrollToBottom = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -602,6 +701,7 @@ export function ThreadView() {
   };
 
   const isRunning = activeThread.status === 'running';
+  const isExternal = activeThread.provider === 'external';
   const isIdle = activeThread.status === 'idle';
 
   // Idle thread (backlog or not): show prompt input to start (pre-loaded with initialPrompt if available)
@@ -659,8 +759,23 @@ export function ThreadView() {
         )}
       </AnimatePresence>
 
-      <ScrollArea className="h-full px-4" viewportRef={scrollViewportRef}>
-        <div className="mx-auto max-w-3xl min-w-[320px] space-y-4 overflow-hidden py-4">
+      <ScrollArea className="h-full px-4 [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:!flex-col [&_[data-radix-scroll-area-viewport]>div]:min-h-full" viewportRef={scrollViewportRef}>
+        <div className="mx-auto max-w-3xl min-w-[320px] space-y-4 overflow-hidden py-4 mt-auto">
+          {loadingMore && (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-xs text-muted-foreground">
+                {t('thread.loadingOlder', 'Loading older messages...')}
+              </span>
+            </div>
+          )}
+          {!hasMore && !loadingMore && activeThread.messages.length > 0 && (
+            <div className="text-center py-2">
+              <span className="text-xs text-muted-foreground">
+                {t('thread.beginningOfConversation', 'Beginning of conversation')}
+              </span>
+            </div>
+          )}
           {activeThread.initInfo && (
             <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
               <div className="flex items-center gap-2">
@@ -691,7 +806,7 @@ export function ThreadView() {
                   return (
                     <motion.div
                       key={tc.id}
-                      initial={{ opacity: 0, y: 6 }}
+                      initial={knownIdsRef.current.has(tc.id) ? false : { opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                       className={(tc.name === 'AskUserQuestion' || tc.name === 'ExitPlanMode' || tc.name === 'TodoWrite') ? 'border border-border rounded-lg' : undefined}
@@ -713,7 +828,7 @@ export function ThreadView() {
                   return (
                     <motion.div
                       key={ti.calls[0].id}
-                      initial={{ opacity: 0, y: 6 }}
+                      initial={knownIdsRef.current.has(ti.calls[0].id) ? false : { opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                       className={(ti.name === 'AskUserQuestion' || ti.name === 'ExitPlanMode' || ti.name === 'TodoWrite') ? 'border border-border rounded-lg' : undefined}
@@ -737,7 +852,7 @@ export function ThreadView() {
                 return (
                   <motion.div
                     key={msg.id}
-                    initial={{ opacity: 0, y: 8 }}
+                    initial={knownIdsRef.current.has(msg.id) ? false : { opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, ease: 'easeOut' }}
                     className={cn(
@@ -748,9 +863,6 @@ export function ThreadView() {
                     )}
                     {...(msg.role === 'user' ? { 'data-user-msg': msg.id } : {})}
                   >
-                    {msg.role !== 'user' && (
-                      <CopyButton content={msg.content} />
-                    )}
                     {msg.images && msg.images.length > 0 && (() => {
                       const allImages = msg.images!.map((i: any, j: number) => ({
                         src: `data:${i.source.media_type};base64,${i.source.data}`,
@@ -771,28 +883,57 @@ export function ThreadView() {
                       );
                     })()}
                     {msg.role === 'user' ? (
-                      <>
-                        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed break-words overflow-x-auto max-h-80 overflow-y-auto">
-                          {msg.content.trim()}
-                        </pre>
-                        {(msg.model || msg.permissionMode) && (
-                          <div className="flex gap-1 mt-1.5">
-                            {msg.model && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-foreground/5 text-muted-foreground border-foreground/10">
-                                {t(`thread.model.${msg.model}`)}
-                              </Badge>
+                      (() => {
+                        const { files, cleanContent } = parseReferencedFiles(msg.content);
+                        return (
+                          <>
+                            {files.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-1.5">
+                                {files.map((file) => (
+                                  <span
+                                    key={file}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-mono bg-muted rounded text-muted-foreground"
+                                    title={file}
+                                  >
+                                    <FileText className="h-3 w-3 shrink-0" />
+                                    {file.split('/').pop()}
+                                  </span>
+                                ))}
+                              </div>
                             )}
-                            {msg.permissionMode && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-foreground/5 text-muted-foreground border-foreground/10">
-                                {t(`prompt.${msg.permissionMode}`)}
-                              </Badge>
+                            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed break-words overflow-x-auto max-h-80 overflow-y-auto">
+                              {cleanContent.trim()}
+                            </pre>
+                            {(msg.model || msg.permissionMode) && (
+                              <div className="flex gap-1 mt-1.5">
+                                {msg.model && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-foreground/5 text-muted-foreground border-foreground/10">
+                                    {t(`thread.model.${msg.model}`)}
+                                  </Badge>
+                                )}
+                                {msg.permissionMode && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-foreground/5 text-muted-foreground border-foreground/10">
+                                    {t(`prompt.${msg.permissionMode}`)}
+                                  </Badge>
+                                )}
+                              </div>
                             )}
-                          </div>
-                        )}
-                      </>
+                          </>
+                        );
+                      })()
                     ) : (
                       <div className="text-sm leading-relaxed break-words overflow-x-auto">
-                        <MessageContent content={msg.content.trim()} />
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <MessageContent content={msg.content.trim()} />
+                          </div>
+                          <CopyButton content={msg.content} />
+                        </div>
+                        <div className="mt-1">
+                          <span className="text-[10px] text-muted-foreground/60 select-none">
+                            {timeAgo(msg.timestamp, t)}
+                          </span>
+                        </div>
                       </div>
                     )}
                   </motion.div>
@@ -811,7 +952,19 @@ export function ThreadView() {
               return null;
             })}
 
-          {isRunning && (
+          {isRunning && !isExternal && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              className="flex items-center gap-2.5 text-muted-foreground text-sm py-1"
+            >
+              <D4CAnimation />
+              <span className="text-xs">{t('thread.agentWorking')}</span>
+            </motion.div>
+          )}
+
+          {isRunning && isExternal && (
             <motion.div
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -823,7 +976,7 @@ export function ThreadView() {
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.2s_infinite]" />
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.4s_infinite]" />
               </div>
-              <span className="text-xs">{t('thread.agentWorking')}</span>
+              <span className="text-xs">{t('thread.runningExternally', 'Running externally...')}</span>
             </motion.div>
           )}
 
@@ -865,7 +1018,7 @@ export function ThreadView() {
             </motion.div>
           )}
 
-          {activeThread.status === 'waiting' && activeThread.waitingReason === 'followup' && (
+          {activeThread.status === 'waiting' && !activeThread.waitingReason && (
             <motion.div
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -937,7 +1090,7 @@ export function ThreadView() {
         onSubmit={handleSend}
         onStop={handleStop}
         loading={sending}
-        running={isRunning}
+        running={isRunning && !isExternal}
         placeholder={t('thread.nextPrompt')}
       />
 

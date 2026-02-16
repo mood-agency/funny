@@ -36,6 +36,18 @@ type MobileView =
   | { screen: 'chat'; projectId: string; threadId: string }
   | { screen: 'newThread'; projectId: string };
 
+const D4C_FRAMES = ['🐇', '🌀', '🐰', '⭐'];
+const D4C_INTERVAL = 600;
+
+function D4CAnimation() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % D4C_FRAMES.length), D4C_INTERVAL);
+    return () => clearInterval(id);
+  }, []);
+  return <span className="inline-block text-base leading-none w-5 text-center">{D4C_FRAMES[frame]}</span>;
+}
+
 export function MobilePage() {
   const { t } = useTranslation();
   const [view, setView] = useState<MobileView>({ screen: 'projects' });
@@ -443,11 +455,13 @@ function ChatView({
                         : 'bg-secondary text-secondary-foreground'
                     )}
                   >
-                    {msg.role !== 'user' && <CopyButton content={msg.content} />}
                     {msg.role !== 'user' && (
-                      <span className="text-xs font-medium uppercase text-muted-foreground block mb-0.5">
-                        {msg.role}
-                      </span>
+                      <div className="flex items-start gap-2 mb-0.5">
+                        <span className="text-xs font-medium uppercase text-muted-foreground flex-1">
+                          {msg.role}
+                        </span>
+                        <CopyButton content={msg.content} />
+                      </div>
                     )}
                     {msg.images && msg.images.length > 0 && (
                       <div className="flex flex-wrap gap-2 mb-2">
@@ -505,11 +519,7 @@ function ChatView({
 
               {isRunning && (
                 <div className="flex items-center gap-2.5 text-muted-foreground text-sm py-1">
-                  <div className="flex items-center gap-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_infinite]" />
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.2s_infinite]" />
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.4s_infinite]" />
-                  </div>
+                  <D4CAnimation />
                   <span className="text-xs">{t('thread.agentWorking')}</span>
                 </div>
               )}

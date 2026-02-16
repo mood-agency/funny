@@ -3,7 +3,7 @@ import { getAuthMode } from '../lib/auth-mode.js';
 import { validateToken } from '../services/auth-service.js';
 
 /** Paths that skip authentication entirely */
-const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/mode']);
+const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/mode', '/api/bootstrap']);
 
 /**
  * Dual-mode authentication middleware.

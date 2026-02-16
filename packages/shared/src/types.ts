@@ -86,7 +86,7 @@ export type ThreadStatus = 'idle' | 'pending' | 'running' | 'waiting' | 'complet
 export type ThreadStage = 'backlog' | 'in_progress' | 'review' | 'done' | 'archived';
 export type WaitingReason = 'question' | 'plan' | 'permission';
 
-export type AgentProvider = 'claude' | 'codex';
+export type AgentProvider = 'claude' | 'codex' | 'external';
 
 export type ClaudeModel = 'sonnet' | 'opus' | 'haiku';
 export type CodexModel = 'o3' | 'o4-mini' | 'codex-mini';
@@ -113,6 +113,7 @@ export interface Thread {
   archived?: boolean;
   pinned?: boolean;
   automationId?: string;
+  externalRequestId?: string;
   commentCount?: number;
   createdAt: string;
   completedAt?: string;
@@ -161,6 +162,12 @@ export interface Message {
 
 export interface ThreadWithMessages extends Thread {
   messages: (Message & { toolCalls?: ToolCall[] })[];
+  hasMore?: boolean;
+}
+
+export interface PaginatedMessages {
+  messages: (Message & { toolCalls?: ToolCall[] })[];
+  hasMore: boolean;
 }
 
 // ─── Tool Calls ──────────────────────────────────────────
@@ -203,6 +210,7 @@ export interface WSStatusData {
   status: ThreadStatus;
   waitingReason?: WaitingReason;
   permissionRequest?: { toolName: string };
+  permissionMode?: PermissionMode;
 }
 
 export interface WSResultData {

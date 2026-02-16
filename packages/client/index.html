@@ -3,10 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐇</text></svg>" />
     <title>a-parallel</title>
+    <link rel="preconnect" href="/api" />
   </head>
   <body class="min-h-screen bg-background text-foreground antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Inline skeleton rendered before JS loads — replaced by React on mount -->
+      <div style="display:flex;height:100vh;background:hsl(240 10% 3.9%)">
+        <div style="width:20rem;border-right:1px solid hsl(240 3.7% 15.9%);background:hsl(240 5.9% 10%)"></div>
+        <div style="flex:1"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

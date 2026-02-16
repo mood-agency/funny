@@ -63,6 +63,7 @@ export type PipelineEventType =
   | 'pipeline.failed'
   | 'pipeline.stopped'
   | 'pipeline.message'
+  | 'pipeline.cli_message'
   // Director events
   | 'director.activated'
   | 'director.integration.dispatched'

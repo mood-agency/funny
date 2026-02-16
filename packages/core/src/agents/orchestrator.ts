@@ -29,6 +29,8 @@ export interface StartAgentOptions {
   maxTurns?: number;
   /** MCP servers to pass to the agent process (e.g., CDP browser tools) */
   mcpServers?: Record<string, any>;
+  /** Custom spawn function for sandboxed execution (e.g., Podman container) */
+  spawnClaudeCodeProcess?: (options: any) => any;
 }
 
 export interface OrchestratorEvents {
@@ -68,6 +70,7 @@ export class AgentOrchestrator extends EventEmitter {
       sessionId,
       maxTurns = 200,
       mcpServers,
+      spawnClaudeCodeProcess,
     } = options;
 
     console.log(`[orchestrator] start thread=${threadId} provider=${provider} model=${model} cwd=${cwd}`);
@@ -116,6 +119,7 @@ export class AgentOrchestrator extends EventEmitter {
         images,
         provider,
         mcpServers,
+        spawnClaudeCodeProcess,
       });
 
       this.activeAgents.set(threadId, proc);
@@ -151,7 +155,9 @@ export class AgentOrchestrator extends EventEmitter {
           this.emit('agent:unexpected-exit', threadId, code);
         }
 
-        this.resultReceived.delete(threadId);
+        // Defer cleanup so the error handler can still check resultReceived
+        // if an error event fires shortly after exit (e.g., container teardown).
+        setTimeout(() => this.resultReceived.delete(threadId), 1000);
       });
 
       return proc;

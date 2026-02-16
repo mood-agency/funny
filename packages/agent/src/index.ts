@@ -70,6 +70,17 @@ const adapterManager = new AdapterManager(eventBus, dlq, config.adapters.retry_i
 for (const webhookConfig of config.adapters.webhooks) {
   adapterManager.register(new WebhookAdapter(webhookConfig));
 }
+
+// Auto-register the built-in ingest webhook so pipeline events reach the UI.
+// Configure via INGEST_WEBHOOK_URL in .env, or defaults to http://localhost:3001/api/ingest/webhook
+const ingestUrl = process.env.INGEST_WEBHOOK_URL ?? `http://localhost:${process.env.SERVER_PORT ?? '3001'}/api/ingest/webhook`;
+const ingestSecret = process.env.INGEST_WEBHOOK_SECRET;
+adapterManager.register(new WebhookAdapter({
+  url: ingestUrl,
+  secret: ingestSecret,
+}));
+logger.info({ url: ingestUrl }, 'Registered built-in ingest webhook adapter');
+
 adapterManager.start();
 
 // Start Director scheduler (0 = disabled)
@@ -152,8 +163,10 @@ eventBus.on('event', async (event: PipelineEvent) => {
   }
 });
 
-// Container cleanup: when pipeline finishes, stop containers + dispose browser
-eventBus.on('event', async (event: PipelineEvent) => {
+// Container cleanup: when pipeline finishes, stop containers + dispose browser.
+// Delay cleanup to let the SDK process exit cleanly before killing the container —
+// otherwise the child process exits with code 1 and triggers a spurious pipeline.failed.
+eventBus.on('event', (event: PipelineEvent) => {
   if (
     event.event_type !== 'pipeline.completed' &&
     event.event_type !== 'pipeline.failed' &&
@@ -162,9 +175,11 @@ eventBus.on('event', async (event: PipelineEvent) => {
 
   const worktreePath = (event.data as Record<string, any>).worktree_path;
   if (worktreePath) {
-    await containerManager.cleanup(worktreePath).catch((err: any) => {
-      logger.error({ err: err.message, worktreePath }, 'Container cleanup failed');
-    });
+    setTimeout(() => {
+      containerManager.cleanup(worktreePath, event.request_id).catch((err: any) => {
+        logger.error({ err: err.message, worktreePath }, 'Container cleanup failed');
+      });
+    }, 3000);
   }
 });
 

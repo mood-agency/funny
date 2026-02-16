@@ -1,8 +1,8 @@
 import { wsBroker } from './ws-broker.js';
 import * as tm from './thread-manager.js';
 import type { WSEvent, AgentProvider, AgentModel, PermissionMode } from '@a-parallel/shared';
-import { SDKClaudeProcess, CodexProcess, AgentOrchestrator } from '@a-parallel/core/agents';
-import type { IAgentProcessFactory, IAgentProcess, AgentProcessOptions } from '@a-parallel/core/agents';
+import { AgentOrchestrator, defaultProcessFactory } from '@a-parallel/core/agents';
+import type { IAgentProcessFactory } from '@a-parallel/core/agents';
 import type { IThreadManager, IWSBroker } from './server-interfaces.js';
 import { AgentStateTracker } from './agent-state.js';
 import { AgentMessageHandler } from './agent-message-handler.js';
@@ -97,9 +97,6 @@ export class AgentRunner {
       });
     }
 
-    const updatedThread = this.threadManager.getThread(threadId);
-    this.emitWS(threadId, 'agent:status', { status: 'running', stage: updatedThread?.stage });
-
     // Save user message in DB
     this.threadManager.insertMessage({
       threadId,
@@ -112,6 +109,20 @@ export class AgentRunner {
 
     // Read session ID from DB for resume
     const thread = this.threadManager.getThread(threadId);
+
+    // When resuming a plan-mode thread, the orchestrator downgrades to autoEdit.
+    // Sync the DB and notify the client so the PromptInput dropdown updates.
+    const isPlanResume = thread?.sessionId && permissionMode === 'plan';
+    if (isPlanResume) {
+      this.threadManager.updateThread(threadId, { permissionMode: 'autoEdit' });
+    }
+
+    const updatedThread = this.threadManager.getThread(threadId);
+    this.emitWS(threadId, 'agent:status', {
+      status: 'running',
+      stage: updatedThread?.stage,
+      ...(isPlanResume ? { permissionMode: 'autoEdit' as PermissionMode } : {}),
+    });
 
     // Delegate lifecycle to orchestrator
     try {
@@ -149,6 +160,8 @@ export class AgentRunner {
   }
 
   async stopAgent(threadId: string): Promise<void> {
+    const thread = this.threadManager.getThread(threadId);
+    if (thread?.provider === 'external') return;
     await this.orchestrator.stopAgent(threadId);
   }
 
@@ -179,15 +192,7 @@ export class AgentRunner {
 const defaultRunner = new AgentRunner(
   tm,
   wsBroker,
-  {
-    create(opts: AgentProcessOptions): IAgentProcess {
-      if (opts.provider === 'codex') {
-        return new CodexProcess(opts);
-      }
-      // Default: Claude
-      return new SDKClaudeProcess(opts);
-    },
-  },
+  defaultProcessFactory,
 );
 
 export const startAgent = defaultRunner.startAgent.bind(defaultRunner);

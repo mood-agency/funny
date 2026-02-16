@@ -78,13 +78,13 @@ export const ToolCallCard = memo(function ToolCallCard({ name, input, output, on
               <a
                 href={toVscodeUri(filePath)}
                 onClick={(e) => e.stopPropagation()}
-                className="text-muted-foreground truncate font-mono text-sm min-w-0 hover:text-primary hover:underline"
+                className="text-muted-foreground truncate font-mono text-xs min-w-0 hover:text-primary hover:underline"
                 title={t('tools.openInVSCode', { path: filePath })}
               >
                 {summary}
               </a>
             ) : (
-              <span className="text-muted-foreground truncate font-mono text-sm min-w-0">
+              <span className="text-muted-foreground truncate font-mono text-xs min-w-0">
                 {summary}
               </span>
             )

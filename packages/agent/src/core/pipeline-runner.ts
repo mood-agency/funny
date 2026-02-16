@@ -5,8 +5,8 @@
  * Translates CLIMessages into PipelineEvents and publishes them on the EventBus.
  */
 
-import { AgentOrchestrator, SDKClaudeProcess } from '@a-parallel/core/agents';
-import type { IAgentProcessFactory, IAgentProcess, AgentProcessOptions } from '@a-parallel/core/agents';
+import { AgentOrchestrator, defaultProcessFactory } from '@a-parallel/core/agents';
+import type { IAgentProcessFactory } from '@a-parallel/core/agents';
 import type {
   PipelineRequest,
   PipelineState,
@@ -25,14 +25,6 @@ import type { ContainerManager } from '../infrastructure/container-manager.js';
 import type { PipelineServiceConfig } from '../config/schema.js';
 import { logger } from '../infrastructure/logger.js';
 
-// ── Default process factory (Claude SDK) ────────────────────────
-
-const defaultFactory: IAgentProcessFactory = {
-  create(opts: AgentProcessOptions): IAgentProcess {
-    return new SDKClaudeProcess(opts);
-  },
-};
-
 // ── PipelineRunner ──────────────────────────────────────────────
 
 export class PipelineRunner {
@@ -46,18 +38,37 @@ export class PipelineRunner {
     private config: PipelineServiceConfig,
     private circuitBreakers?: CircuitBreakers,
     private requestLogger?: RequestLogger,
-    processFactory: IAgentProcessFactory = defaultFactory,
+    processFactory: IAgentProcessFactory = defaultProcessFactory,
     private containerManager?: ContainerManager,
   ) {
     this.orchestrator = new AgentOrchestrator(processFactory);
 
     // Wire orchestrator events → pipeline events
     this.orchestrator.on('agent:message', (requestId: string, msg: any) => {
+      logger.info({ requestId, msgType: msg.type, msgSubtype: msg.subtype }, 'agent:message received');
+
+      // Forward EVERY CLIMessage as a raw cli_message event so the UI
+      // can render tool cards, bash output, etc. — the same as regular threads.
+      this.eventBus.publish({
+        event_type: 'pipeline.cli_message',
+        request_id: requestId,
+        timestamp: new Date().toISOString(),
+        data: { cli_message: msg },
+      });
+
       const mapper = this.mappers.get(requestId);
-      if (!mapper) return;
+      if (!mapper) {
+        logger.warn({ requestId }, 'No mapper found for request, dropping message');
+        return;
+      }
 
       const event = mapper.map(msg);
       if (event) {
+        // Increment events_count
+        const state = this.states.get(requestId);
+        if (state) {
+          this.updateState(requestId, { events_count: state.events_count + 1 });
+        }
         // Handle correction cycle detection
         if (event.event_type === 'pipeline.correcting') {
           this.transitionStatus(requestId, 'correcting');
@@ -193,51 +204,56 @@ export class PipelineRunner {
       logger.info({ requestId: request_id, tier, stats }, 'Tier classified');
       this.requestLogger?.info('pipeline.runner', request_id, 'tier_classified', `Classified as ${tier}`, { tier, stats });
 
-      // 2. Container infrastructure (Paso 0) — detect compose, start, health, CDP
+      // 2. Container infrastructure — ALWAYS start sandbox (Podman required)
       let mcpServers: Record<string, any> | undefined;
+      let spawnClaudeCodeProcess: ((options: any) => any) | undefined;
+
       if (this.containerManager) {
-        try {
-          mcpServers = await this.containerManager.setup(request.worktree_path, request_id);
-          if (mcpServers) {
-            await this.eventBus.publish({
-              event_type: 'pipeline.containers.ready',
-              request_id,
-              timestamp: new Date().toISOString(),
-              data: { worktree_path: request.worktree_path },
-            });
-            this.requestLogger?.info('pipeline.runner', request_id, 'containers_ready', 'Containers healthy, CDP browser created');
-          }
-        } catch (containerErr: any) {
-          logger.warn({ requestId: request_id, err: containerErr.message }, 'Container setup failed — continuing without browser tools');
-          this.requestLogger?.warn('pipeline.runner', request_id, 'containers_failed', containerErr.message);
-        }
+        const containerResult = await this.containerManager.setup(request.worktree_path, request_id);
+        spawnClaudeCodeProcess = containerResult.spawnClaudeCodeProcess;
+        mcpServers = containerResult.mcpServers;
+
+        await this.eventBus.publish({
+          event_type: 'pipeline.containers.ready',
+          request_id,
+          timestamp: new Date().toISOString(),
+          data: { worktree_path: request.worktree_path, has_browser: !!mcpServers },
+        });
+        this.requestLogger?.info('pipeline.runner', request_id, 'containers_ready', 'Sandbox ready' + (mcpServers ? ', CDP browser created' : ''));
       }
 
+      // 4. Start the agent via orchestrator (wrapped in circuit breaker)
+      // cwd is /workspace inside the container (worktree is mounted there)
+      const { model, permissionMode, maxTurns } = this.config.agents.pipeline;
+      const agentCwd = spawnClaudeCodeProcess ? '/workspace' : request.worktree_path;
+
       // 3. Build prompt using config agent lists
+      // Use the effective cwd in the prompt so the agent sees /workspace, not the host path
       const tierAgents: Record<Tier, AgentName[]> = {
         small: this.config.tiers.small.agents as AgentName[],
         medium: this.config.tiers.medium.agents as AgentName[],
         large: this.config.tiers.large.agents as AgentName[],
       };
+      const promptRequest = spawnClaudeCodeProcess
+        ? { ...request, worktree_path: agentCwd }
+        : request;
       const prompt = buildPipelinePrompt(
-        request,
+        promptRequest,
         tier,
         tierAgents,
         this.config.auto_correction.max_attempts,
         pipelinePrefix,
         !!mcpServers,
       );
-
-      // 4. Start the agent via orchestrator (wrapped in circuit breaker)
-      const { model, permissionMode, maxTurns } = this.config.agents.pipeline;
       const startAgent = () => this.orchestrator.startAgent({
         threadId: request_id,
         prompt,
-        cwd: request.worktree_path,
+        cwd: agentCwd,
         model: (request.config?.model as any) ?? model,
         permissionMode: permissionMode as any,
         maxTurns: request.config?.maxTurns ?? maxTurns,
         mcpServers,
+        spawnClaudeCodeProcess,
       });
 
       if (this.circuitBreakers) {
@@ -268,6 +284,10 @@ export class PipelineRunner {
 
   isRunning(requestId: string): boolean {
     return this.orchestrator.isRunning(requestId);
+  }
+
+  listAll(): PipelineState[] {
+    return Array.from(this.states.values());
   }
 
   async stopAll(): Promise<void> {

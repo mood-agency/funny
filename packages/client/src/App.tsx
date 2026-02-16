@@ -132,7 +132,7 @@ export function App() {
         keyboardShortcut={false}
         style={
           {
-            '--sidebar-width': '38.4rem',
+            '--sidebar-width': '50vw',
           } as React.CSSProperties
         }
         className="!min-h-0 !w-auto"

@@ -144,7 +144,7 @@ export function handleWSToolOutput(
 export function handleWSStatus(
   get: Get, set: Set,
   threadId: string,
-  data: { status: string; waitingReason?: string; permissionRequest?: { toolName: string }; stage?: string }
+  data: { status: string; waitingReason?: string; permissionRequest?: { toolName: string }; stage?: string; permissionMode?: string }
 ): void {
   const { threadsByProject, activeThread, loadThreadsForProject } = get();
 
@@ -163,9 +163,9 @@ export function handleWSStatus(
       foundInSidebar = true;
       const t = threads[idx];
       const newStatus = transitionThreadStatus(threadId, machineEvent, t.status, t.cost);
-      if (newStatus !== t.status || (data.stage && data.stage !== t.stage)) {
+      if (newStatus !== t.status || (data.stage && data.stage !== t.stage) || (data.permissionMode && data.permissionMode !== t.permissionMode)) {
         const copy = [...threads];
-        copy[idx] = { ...t, status: newStatus, ...(data.stage ? { stage: data.stage as any } : {}) };
+        copy[idx] = { ...t, status: newStatus, ...(data.stage ? { stage: data.stage as any } : {}), ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}) };
         updatedProject = { pid, threads: copy };
       }
       break;
@@ -180,7 +180,7 @@ export function handleWSStatus(
 
   if (activeThread?.id === threadId) {
     const newStatus = transitionThreadStatus(threadId, machineEvent, activeThread.status, activeThread.cost);
-    if (newStatus !== activeThread.status || (data.stage && data.stage !== activeThread.stage)) {
+    if (newStatus !== activeThread.status || (data.stage && data.stage !== activeThread.stage) || (data.permissionMode && data.permissionMode !== activeThread.permissionMode)) {
       // If transitioning to waiting, include waitingReason and permissionRequest
       if (newStatus === 'waiting') {
         stateUpdate.activeThread = {
@@ -189,6 +189,7 @@ export function handleWSStatus(
           waitingReason: data.waitingReason as any,
           pendingPermission: data.permissionRequest,
           ...(data.stage ? { stage: data.stage as any } : {}),
+          ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}),
         };
       } else {
         stateUpdate.activeThread = {
@@ -198,6 +199,7 @@ export function handleWSStatus(
           pendingPermission: undefined,
           ...(newStatus === 'stopped' || newStatus === 'interrupted' ? { resultInfo: undefined } : {}),
           ...(data.stage ? { stage: data.stage as any } : {}),
+          ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}),
         };
       }
     }

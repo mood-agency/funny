@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/app-store';
 import { useAutomationStore } from '@/stores/automation-store';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -401,8 +402,8 @@ export function AutomationSettings() {
           <div className="space-y-3">
             <div>
               <label className="text-xs text-muted-foreground block mb-1">Name</label>
-              <input
-                className={inputClass}
+              <Input
+                className="h-auto py-1.5"
                 placeholder="e.g. Daily Issue Triage"
                 value={form.name}
                 onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
@@ -438,8 +439,8 @@ export function AutomationSettings() {
                   </SelectContent>
                 </Select>
                 {!SCHEDULE_PRESETS.some(p => p.value === form.schedule) && (
-                  <input
-                    className={`${inputClass} mt-1.5 font-mono text-xs`}
+                  <Input
+                    className="h-auto py-1.5 mt-1.5 font-mono text-xs"
                     placeholder="*/30 * * * *"
                     value={form.schedule}
                     onChange={(e) => setForm(f => ({ ...f, schedule: e.target.value }))}

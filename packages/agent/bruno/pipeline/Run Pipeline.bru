@@ -12,13 +12,17 @@ post {
 
 body:json {
   {
-    "branch": "feature/my-branch",
-    "worktree_path": "{{worktreePath}}",
+    "branch": "master",
+    "worktree_path": "C:/Users/argen/Documents/GitHub/.a-parallel-worktrees/a-parallel/a-parallel-esto-es-una-prueba-fR1k90",
     "config": {
       "tier": "small",
       "agents": ["tests", "types"]
     }
   }
+}
+
+vars:pre-request {
+  baseUrl: http://localhost:3002
 }
 
 vars:post-response {
@@ -27,21 +31,21 @@ vars:post-response {
 
 docs {
   ## Run Pipeline
-
+  
   Envía una rama al pipeline para evaluación de calidad.
-
+  
   **Flujo:**
   1. Clasifica el tier del cambio (small/medium/large)
   2. Levanta containers si hay compose.yml (Paso 0)
   3. Crea rama `pipeline/{branch}`
   4. Ejecuta agentes de calidad en paralelo
   5. Auto-corrige si es necesario
-
+  
   **Tiers:**
   - `small` — 2 agentes: tests, style
   - `medium` — 5 agentes: tests, security, architecture, style, types
   - `large` — 8 agentes: todos
-
+  
   **Respuesta:** 202 Accepted con `request_id` para tracking.
   Si ya hay un pipeline corriendo para esa rama: 200 OK con el ID existente.
 }

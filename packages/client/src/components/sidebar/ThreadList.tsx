@@ -5,6 +5,7 @@ import { useThreadStore } from '@/stores/thread-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { timeAgo } from '@/lib/thread-utils';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { ThreadItem } from './ThreadItem';
 import type { Thread, ThreadStatus } from '@a-parallel/shared';
 
@@ -24,6 +25,7 @@ interface ThreadListProps {
 
 export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps) {
   const { t } = useTranslation();
+  useMinuteTick(); // re-render every 60s so timeAgo stays fresh
   const navigate = useNavigate();
   const threadsByProject = useThreadStore(s => s.threadsByProject);
   const selectedThreadId = useThreadStore(s => s.selectedThreadId);
@@ -57,10 +59,8 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
       return new Date(dateB).getTime() - new Date(dateA).getTime();
     });
 
-    // Limit finished threads to 5, keep all running
-    const running = result.filter(t => RUNNING_STATUSES.has(t.status));
-    const finished = result.filter(t => !RUNNING_STATUSES.has(t.status)).slice(0, 5);
-    return [...running, ...finished];
+    // Always show at most 5 threads total, prioritizing running ones
+    return result.slice(0, 5);
   }, [threadsByProject, projects]);
 
   if (threads.length === 0) return null;

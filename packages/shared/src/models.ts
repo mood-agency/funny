@@ -23,7 +23,7 @@ const CODEX_MODEL_IDS: Record<CodexModel, string> = {
 
 const CLAUDE_PERMISSION_MAP: Record<PermissionMode, string> = {
   plan: 'plan',
-  autoEdit: 'acceptEdits',
+  autoEdit: 'bypassPermissions',
   confirmEdit: 'default',
 };
 

@@ -5,7 +5,7 @@ import { useTerminalStore } from '@/stores/terminal-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { editorLabels, type Editor } from '@/stores/settings-store';
 import { usePreviewWindow } from '@/hooks/use-preview-window';
-import { GitCommit, GitCompare, Globe, Terminal, ExternalLink, Pin, PinOff, Rocket, Play, Square, Loader2 } from 'lucide-react';
+import { GitCompare, Globe, Terminal, ExternalLink, Pin, PinOff, Rocket, Play, Square, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
@@ -35,33 +35,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
-import { CommitDialog } from './CommitDialog';
 import type { StartupCommand } from '@a-parallel/shared';
 
-function CommitButton({ disabled }: { disabled?: boolean }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
 
-  return (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setOpen(true)}
-            disabled={disabled}
-            className={open ? 'text-primary' : 'text-muted-foreground'}
-          >
-            <GitCommit className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('review.commitTooltip', 'Commit')}</TooltipContent>
-      </Tooltip>
-      <CommitDialog open={open} onOpenChange={setOpen} />
-    </>
-  );
-}
 
 function StartupCommandsPopover({ projectId }: { projectId: string }) {
   const { t } = useTranslation();
@@ -206,7 +182,8 @@ export const ProjectHeader = memo(function ProjectHeader() {
 
   const handleOpenInEditor = async (editor: Editor) => {
     if (!project) return;
-    const result = await api.openInEditor(project.path, editor);
+    const folderPath = activeThread?.worktreePath || project.path;
+    const result = await api.openInEditor(folderPath, editor);
     if (result.isErr()) {
       toast.error(t('sidebar.openInEditorError', 'Failed to open in editor'));
     }
@@ -314,7 +291,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
               </TooltipContent>
             </Tooltip>
           )}
-          <CommitButton disabled={!gitStatus || gitStatus.dirtyFileCount === 0} />
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -358,7 +334,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
                 className={`${showGitStats ? 'h-8 px-2' : 'h-8 w-8'} ${reviewPaneOpen ? 'text-primary' : 'text-muted-foreground'}`}
               >
                 {showGitStats ? (
-                  <div className="flex items-center gap-2 text-xs font-semibold">
+                  <div className="flex items-center gap-2 text-xs font-mono font-semibold">
                     <span className="text-status-success">+{gitStatus.linesAdded}</span>
                     <span className="text-status-error">-{gitStatus.linesDeleted}</span>
                   </div>

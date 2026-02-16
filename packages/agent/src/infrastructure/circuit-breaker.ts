@@ -7,9 +7,10 @@
  */
 
 import {
-  CircuitBreakerPolicy,
+  type CircuitBreakerPolicy,
   ConsecutiveBreaker,
   handleAll,
+  circuitBreaker,
 } from 'cockatiel';
 import { logger } from './logger.js';
 
@@ -24,10 +25,10 @@ export interface CircuitBreakers {
 }
 
 export function createCircuitBreakers(config: CircuitBreakerConfig): CircuitBreakers {
-  const claude = new CircuitBreakerPolicy(
-    handleAll,
-    new ConsecutiveBreaker(config.claude.failure_threshold),
-  );
+  const claude = circuitBreaker(handleAll, {
+    halfOpenAfter: config.claude.reset_timeout_ms,
+    breaker: new ConsecutiveBreaker(config.claude.failure_threshold),
+  });
 
   claude.onBreak(() => {
     logger.error({ service: 'claude', threshold: config.claude.failure_threshold }, 'Circuit OPEN — Claude agent calls blocked');
@@ -39,10 +40,10 @@ export function createCircuitBreakers(config: CircuitBreakerConfig): CircuitBrea
     logger.info({ service: 'claude' }, 'Circuit HALF-OPEN — testing Claude agent');
   });
 
-  const github = new CircuitBreakerPolicy(
-    handleAll,
-    new ConsecutiveBreaker(config.github.failure_threshold),
-  );
+  const github = circuitBreaker(handleAll, {
+    halfOpenAfter: config.github.reset_timeout_ms,
+    breaker: new ConsecutiveBreaker(config.github.failure_threshold),
+  });
 
   github.onBreak(() => {
     logger.error({ service: 'github', threshold: config.github.failure_threshold }, 'Circuit OPEN — GitHub API calls blocked');

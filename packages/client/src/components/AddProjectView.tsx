@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -117,8 +118,7 @@ export function AddProjectView() {
               <label className="text-sm font-medium mb-1.5 block">
                 {t('sidebar.projectName')}
               </label>
-              <input
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+              <Input
                 placeholder={t('sidebar.projectName')}
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
@@ -130,8 +130,8 @@ export function AddProjectView() {
                 {t('sidebar.absolutePath')}
               </label>
               <div className="flex gap-2">
-                <input
-                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+                <Input
+                  className="flex-1"
                   placeholder={t('sidebar.absolutePath')}
                   value={newProjectPath}
                   onChange={(e) => setNewProjectPath(e.target.value)}

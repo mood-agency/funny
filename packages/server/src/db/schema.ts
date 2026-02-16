@@ -31,6 +31,7 @@ export const threads = sqliteTable('threads', {
   stage: text('stage').notNull().default('backlog'), // 'backlog' | 'in_progress' | 'review' | 'done'
   model: text('model').notNull().default('sonnet'), // 'sonnet' | 'opus' | 'haiku'
   initialPrompt: text('initial_prompt'),
+  externalRequestId: text('external_request_id'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 });

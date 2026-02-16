@@ -34,3 +34,25 @@ export interface ContainerServiceOptions {
   /** Interval between health check polls (default: 2_000ms) */
   healthCheckIntervalMs?: number;
 }
+
+// ── Sandbox types ──────────────────────────────────────────────
+
+export type SandboxStatus =
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'failed';
+
+export interface SandboxState {
+  containerId: string;
+  containerName: string;
+  requestId: string;
+  worktreePath: string;
+  status: SandboxStatus;
+}
+
+export interface SandboxManagerOptions {
+  /** Podman image name (default: 'a-parallel-sandbox') */
+  imageName?: string;
+}

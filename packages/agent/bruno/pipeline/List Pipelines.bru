@@ -1,0 +1,19 @@
+meta {
+  name: List Pipelines
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/pipeline/list
+  body: none
+  auth: none
+}
+
+docs {
+  ## List Pipelines
+
+  Returns all pipelines (running, completed, failed, etc.).
+
+  Each entry includes `request_id`, `status`, `tier`, `pipeline_branch`, `started_at`, `corrections_count`, etc.
+}

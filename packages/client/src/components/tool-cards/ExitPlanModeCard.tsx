@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileCode2, CheckCircle2, XCircle, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 
 export function ExitPlanModeCard({ onRespond }: { onRespond?: (answer: string) => void }) {
   const { t } = useTranslation();
@@ -67,7 +68,7 @@ export function ExitPlanModeCard({ onRespond }: { onRespond?: (answer: string) =
           </div>
 
           <div className="flex gap-2">
-            <input
+            <Input
               ref={inputRef}
               type="text"
               value={input}
@@ -79,7 +80,7 @@ export function ExitPlanModeCard({ onRespond }: { onRespond?: (answer: string) =
                 }
               }}
               placeholder={t('thread.waitingInputPlaceholder')}
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="flex-1 h-auto py-1.5"
             />
             <button
               onClick={handleSubmitInput}

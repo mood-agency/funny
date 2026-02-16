@@ -1,54 +1,54 @@
 # Tech Stack: Pipeline Service
 
-Este documento define las librerias, frameworks, y herramientas especificas para implementar el Pipeline Service descrito en [SAD.md](SAD.md).
+This document defines the specific libraries, frameworks, and tools for implementing the Pipeline Service described in [SAD.md](SAD.md).
 
 ---
 
-## 1. Runtime y Lenguaje
+## 1. Runtime and Language
 
-| Componente | Eleccion | Version |
+| Component | Choice | Version |
 |---|---|---|
 | **Runtime** | Bun | >= 1.2 |
-| **Lenguaje** | TypeScript | (built-in de Bun) |
+| **Language** | TypeScript | (Bun built-in) |
 | **Package Manager** | bun (built-in) | — |
 | **Module System** | ESM | — |
 
-**Por que Bun:**
-- Ejecuta TypeScript nativamente — sin `tsc`, sin `tsx`, sin paso de compilacion para desarrollo
-- Package manager integrado — `bun install` es ~25x mas rapido que `npm install`
-- `Bun.file()` y `Bun.write()` — API de filesystem optimizada, mas rapida que `node:fs/promises`
-- `Bun.spawn()` — Para lanzar procesos (git, Claude Code CLI como fallback)
-- `fetch` global nativo
-- Lee `.env` automaticamente — sin `dotenv`
-- Test runner integrado (`bun test`) — sin Vitest ni Jest
-- Compatible con el ecosistema npm — todas las librerias de Node.js funcionan
+**Why Bun:**
+- Runs TypeScript natively — no `tsc`, no `tsx`, no compilation step for development
+- Integrated package manager — `bun install` is ~25x faster than `npm install`
+- `Bun.file()` and `Bun.write()` — Optimized filesystem API, faster than `node:fs/promises`
+- `Bun.spawn()` — For launching processes (git, Claude Code CLI as fallback)
+- Native global `fetch`
+- Reads `.env` automatically — no `dotenv`
+- Integrated test runner (`bun test`) — no Vitest or Jest
+- Compatible with the npm ecosystem — all Node.js libraries work
 
-**Por que TypeScript:**
-- Todo el sistema depende de contratos tipados (`PipelineRequest`, `PipelineEvent`)
-- Los adapters implementan interfaces — TypeScript lo hace verificable en compile time
-- Los patrones de diseno (Strategy, Command, State Machine) se expresan naturalmente con tipos
+**Why TypeScript:**
+- The entire system relies on typed contracts (`PipelineRequest`, `PipelineEvent`)
+- Adapters implement interfaces — TypeScript makes this verifiable at compile time
+- Design patterns (Strategy, Command, State Machine) are expressed naturally with types
 
-**Lo que Bun elimina del stack:**
-| Herramienta | Reemplazado por |
+**What Bun eliminates from the stack:**
+| Tool | Replaced by |
 |---|---|
-| `tsx` | Bun ejecuta `.ts` directamente |
-| `dotenv` | Bun lee `.env` automaticamente |
-| `@types/node` | Bun incluye sus propios tipos |
+| `tsx` | Bun runs `.ts` directly |
+| `dotenv` | Bun reads `.env` automatically |
+| `@types/node` | Bun includes its own types |
 | `vitest` / `jest` | `bun test` |
-| `node:fs/promises` | `Bun.file()` / `Bun.write()` (aunque `node:fs` tambien funciona) |
+| `node:fs/promises` | `Bun.file()` / `Bun.write()` (though `node:fs` also works) |
 
 ---
 
 ## 2. HTTP Server
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
 | **Framework** | Hono | ^4 |
-| **Validacion** | `@hono/zod-validator` | ^0.4 |
+| **Validation** | `@hono/zod-validator` | ^0.4 |
 
-Hono incluye todo lo que necesitamos como middleware built-in — no hay plugins externos:
+Hono includes everything we need as built-in middleware — no external plugins:
 
-| Funcionalidad | Hono | Donde |
+| Feature | Hono | Where |
 |---|---|---|
 | CORS | `hono/cors` | Built-in |
 | Bearer Auth | `hono/bearer-auth` | Built-in |
@@ -56,23 +56,23 @@ Hono incluye todo lo que necesitamos como middleware built-in — no hay plugins
 | Logger | `hono/logger` | Built-in |
 | ETag | `hono/etag` | Built-in |
 
-**Por que Hono:**
+**Why Hono:**
 
 | | Express | Fastify | Hono |
 |---|---|---|---|
-| Tamano | ~200kb | ~100kb | ~14kb |
-| TypeScript | Manual | Bueno | Nativo (escrito en TS) |
-| Validacion | Externo | JSON Schema (Ajv) | Zod via `@hono/zod-validator` |
+| Size | ~200kb | ~100kb | ~14kb |
+| TypeScript | Manual | Good | Native (written in TS) |
+| Validation | External | JSON Schema (Ajv) | Zod via `@hono/zod-validator` |
 | SSE | Manual | Plugin | Built-in (`streamSSE`) |
-| CORS | Externo | Plugin | Built-in |
-| Auth | Externo | Plugin | Built-in |
-| Bun support | Funciona | Funciona | Optimizado para Bun |
-| API | Callbacks | Async/await | Method chaining, tipado end-to-end |
+| CORS | External | Plugin | Built-in |
+| Auth | External | Plugin | Built-in |
+| Bun support | Works | Works | Optimized for Bun |
+| API | Callbacks | Async/await | Method chaining, end-to-end typing |
 | Runtimes | Node.js | Node.js | Bun, Node, Deno, Workers, Lambda |
 
-Hono esta disenado para runtimes modernos. Con Bun, no necesita adaptador — corre directo. Ademas, con `@hono/zod-validator`, la validacion usa Zod en vez de JSON Schema, lo que significa **un solo sistema de validacion** (Zod) para HTTP y logica de negocio.
+Hono is designed for modern runtimes. With Bun, it doesn't need an adapter — it runs directly. Additionally, with `@hono/zod-validator`, validation uses Zod instead of JSON Schema, which means **a single validation system** (Zod) for both HTTP and business logic.
 
-### Configuracion del server
+### Server configuration
 
 ```typescript
 import { Hono } from 'hono'
@@ -87,7 +87,7 @@ app.use('*', logger())
 app.use('*', bearerAuth({ token: process.env.API_TOKEN! }))
 ```
 
-### Validacion con Zod (unico sistema de validacion)
+### Validation with Zod (single validation system)
 
 ```typescript
 import { zValidator } from '@hono/zod-validator'
@@ -110,10 +110,10 @@ const PipelineRunSchema = z.object({
 app.post('/pipeline/run',
   zValidator('json', PipelineRunSchema),
   async (c) => {
-    const body = c.req.valid('json')  // ← tipado automatico desde el schema Zod
+    const body = c.req.valid('json')  // ← automatic typing from the Zod schema
     const requestId = crypto.randomUUID()
 
-    // ... crear PipelineRequest y lanzar pipeline
+    // ... create PipelineRequest and launch pipeline
 
     return c.json({
       request_id: requestId,
@@ -125,9 +125,9 @@ app.post('/pipeline/run',
 )
 ```
 
-Hono + Zod validan el body y lo tipan automaticamente. Si el body no cumple el schema, responde `400` sin tocar el handler. **Un solo schema** valida estructura y negocio — no hay Ajv + Zod como en Fastify.
+Hono + Zod validate the body and type it automatically. If the body doesn't match the schema, it responds with `400` without touching the handler. **A single schema** validates structure and business rules — no Ajv + Zod like in Fastify.
 
-### SSE para streaming de eventos
+### SSE for event streaming
 
 ```typescript
 import { streamSSE } from 'hono/streaming'
@@ -148,7 +148,7 @@ app.get('/pipeline/:requestId/events', (c) => {
       eventBus.off(`pipeline.${requestId}`, handler)
     })
 
-    // Mantener el stream abierto
+    // Keep the stream open
     while (true) {
       await stream.sleep(30_000)
       await stream.writeSSE({ event: 'ping', data: '' })
@@ -157,7 +157,7 @@ app.get('/pipeline/:requestId/events', (c) => {
 })
 ```
 
-### Levantar el server con Bun
+### Starting the server with Bun
 
 ```typescript
 // src/server.ts
@@ -172,45 +172,45 @@ export default {
 }
 ```
 
-Bun detecta el `export default` con `fetch` y levanta el server automaticamente. Sin `app.listen()`, sin callbacks, sin boilerplate.
+Bun detects the `export default` with `fetch` and starts the server automatically. No `app.listen()`, no callbacks, no boilerplate.
 
-Para desarrollo: `bun --watch src/server.ts`
-Para produccion: `bun src/server.ts`
+For development: `bun --watch src/server.ts`
+For production: `bun src/server.ts`
 
 ---
 
-## 3. Integracion con Claude Code
+## 3. Claude Code Integration
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
 | **SDK** | `@anthropic-ai/claude-code` | latest |
 
 ### Claude Agent SDK vs CLI subprocess
 
-El documento de arquitectura define que el Service "spawna Claude Code como subprocess" (`claude -p "..."`). Hay dos formas de hacerlo:
+The architecture document defines that the Service "spawns Claude Code as a subprocess" (`claude -p "..."`). There are two ways to do this:
 
 | | CLI subprocess (`Bun.spawn`) | Claude Agent SDK |
 |---|---|---|
-| Invocacion | `Bun.spawn(['claude', '-p', prompt])` | `claude(prompt, { options })` |
-| Tipos | Sin tipado | TypeScript nativo |
-| Streaming | Parsear stdout manualmente | Eventos tipados (`AssistantMessage`, `ToolUse`) |
-| Sesion | Nueva sesion cada vez | Se puede reanudar con `sessionId` |
-| Herramientas | Lo que tenga instalado el CLI | Se pueden pasar `allowedTools` |
-| Errores | Exit codes y stderr | Excepciones tipadas |
-| Subagentes | El CLI los maneja internamente | Visibilidad en los eventos |
+| Invocation | `Bun.spawn(['claude', '-p', prompt])` | `claude(prompt, { options })` |
+| Types | No typing | Native TypeScript |
+| Streaming | Parse stdout manually | Typed events (`AssistantMessage`, `ToolUse`) |
+| Session | New session every time | Can resume with `sessionId` |
+| Tools | Whatever the CLI has installed | Can pass `allowedTools` |
+| Errors | Exit codes and stderr | Typed exceptions |
+| Subagents | The CLI handles them internally | Visibility in events |
 
-**Eleccion: Claude Agent SDK (`@anthropic-ai/claude-code`).**
+**Choice: Claude Agent SDK (`@anthropic-ai/claude-code`).**
 
-El SDK da control programatico completo. El Service puede:
-- Lanzar agentes con prompts especificos
-- Recibir eventos en streaming (saber cuando un agente usa una herramienta)
-- Limitar herramientas permitidas por agente
-- Manejar errores con tipos
-- Reutilizar sesiones
+The SDK provides full programmatic control. The Service can:
+- Launch agents with specific prompts
+- Receive streaming events (know when an agent uses a tool)
+- Limit allowed tools per agent
+- Handle errors with types
+- Reuse sessions
 
-### Como se ejecuta el Pipeline Core
+### How the Pipeline Core runs
 
-El Pipeline Core es un proceso de Claude Code. El Service lo lanza con el SDK:
+The Pipeline Core is a Claude Code process. The Service launches it with the SDK:
 
 ```typescript
 import { claude, type MessageEvent } from '@anthropic-ai/claude-code'
@@ -221,13 +221,13 @@ async function runPipeline(request: PipelineRequest): Promise<void> {
   const events = claude(prompt, {
     cwd: request.worktree_path,
     allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Task'],
-    model: 'sonnet',  // Sonnet para los agentes (balance costo/calidad)
+    model: 'sonnet',  // Sonnet for agents (cost/quality balance)
     maxTurns: 50,
-    // Las skills del pipeline estan en el CLAUDE.md del worktree
+    // Pipeline skills are in the worktree's CLAUDE.md
   })
 
   for await (const event of events) {
-    // Cada evento del SDK se traduce a PipelineEvent y se emite al Event Bus
+    // Each SDK event is translated to a PipelineEvent and emitted to the Event Bus
     if (event.type === 'assistant' && event.message) {
       eventBus.emit('pipeline.progress', {
         request_id: request.request_id,
@@ -236,7 +236,7 @@ async function runPipeline(request: PipelineRequest): Promise<void> {
     }
 
     if (event.type === 'result') {
-      // Parsear resultado final del agente
+      // Parse final agent result
       const result = parsePipelineResult(event.result)
       eventBus.emit('pipeline.completed', {
         request_id: request.request_id,
@@ -247,54 +247,54 @@ async function runPipeline(request: PipelineRequest): Promise<void> {
 }
 ```
 
-### Como se ejecutan los 8 agentes en paralelo
+### How the 8 agents run in parallel
 
-Claude Code soporta ejecucion de agentes en paralelo nativamente via el **Task tool**. El Service lanza **un solo proceso de Claude Code** (el Pipeline Core), y este proceso usa `Task` para lanzar los 8 agentes como subagentes concurrentes.
+Claude Code natively supports parallel agent execution via the **Task tool**. The Service launches **a single Claude Code process** (the Pipeline Core), and this process uses `Task` to launch the 8 agents as concurrent subagents.
 
 ```
 Service (Bun)
-    │
-    │  claude(prompt, { allowedTools: ['Task', ...] })
-    │
-    ▼
-Pipeline Core (1 proceso Claude Code)
-    │
-    │  Usa el Task tool para lanzar 8 subagentes en paralelo
-    │
-    ├── Task(security-audit)         ──┐
-    ├── Task(architecture-eval)      ──┤
-    ├── Task(webapp-testing)         ──┤
-    ├── Task(performance)            ──┼── PARALELO (Claude Code los ejecuta concurrentemente)
-    ├── Task(dependency-audit)       ──┤
-    ├── Task(code-quality)           ──┤
-    ├── Task(web-design-guidelines)  ──┤
-    └── Task(documentation-check)   ──┘
-                                       │
-                                       ▼
-                              Core consolida resultados
+    |
+    |  claude(prompt, { allowedTools: ['Task', ...] })
+    |
+    v
+Pipeline Core (1 Claude Code process)
+    |
+    |  Uses the Task tool to launch 8 subagents in parallel
+    |
+    +-- Task(security-audit)         --+
+    +-- Task(architecture-eval)      --+
+    +-- Task(webapp-testing)         --+
+    +-- Task(performance)            --+-- PARALLEL (Claude Code runs them concurrently)
+    +-- Task(dependency-audit)       --+
+    +-- Task(code-quality)           --+
+    +-- Task(web-design-guidelines)  --+
+    +-- Task(documentation-check)   --+
+                                       |
+                                       v
+                              Core consolidates results
 ```
 
-**Por que un solo proceso y no 8 instancias del SDK:**
+**Why a single process and not 8 SDK instances:**
 
-| | 8 instancias del SDK | 1 proceso + Task tool |
+| | 8 SDK instances | 1 process + Task tool |
 |---|---|---|
-| Procesos | 8 procesos Claude Code separados | 1 proceso, N subagentes internos |
-| Coordinacion | Manual (`Promise.allSettled`) en el Service | Claude Code coordina internamente |
-| Consolidacion | El Service parsea 8 resultados | El Core consolida y decide |
-| Auto-correccion | El Service debe relanzar agentes | El Core reintenta internamente |
-| Contexto compartido | Cada agente arranca sin contexto | Los subagentes heredan contexto del Core |
-| Skills | Hay que pasar skills a cada instancia | Las skills estan en el worktree (`CLAUDE.md`) |
+| Processes | 8 separate Claude Code processes | 1 process, N internal subagents |
+| Coordination | Manual (`Promise.allSettled`) in the Service | Claude Code coordinates internally |
+| Consolidation | The Service parses 8 results | The Core consolidates and decides |
+| Auto-correction | The Service must relaunch agents | The Core retries internally |
+| Shared context | Each agent starts without context | Subagents inherit context from the Core |
+| Skills | Must pass skills to each instance | Skills are in the worktree (`CLAUDE.md`) |
 
-El Pipeline Core es un agente de Claude Code que **sabe como correr el pipeline**. Su prompt le dice: "analiza este worktree, clasifica el tier, lanza los agentes necesarios via Task, consolida resultados, auto-corrige si es necesario". El SDK del Service solo lanza este proceso y escucha los eventos.
+The Pipeline Core is a Claude Code agent that **knows how to run the pipeline**. Its prompt tells it: "analyze this worktree, classify the tier, launch the necessary agents via Task, consolidate results, auto-correct if needed". The Service SDK only launches this process and listens to events.
 
-### Prompt del Pipeline Core
+### Pipeline Core prompt
 
-El prompt que el Service le pasa al Pipeline Core incluye toda la informacion del `PipelineRequest`:
+The prompt that the Service passes to the Pipeline Core includes all the `PipelineRequest` information:
 
 ```typescript
 function buildPipelinePrompt(request: PipelineRequest): string {
   return `
-Eres el Pipeline Core. Tu trabajo es ejecutar el pipeline de calidad sobre este worktree.
+You are the Pipeline Core. Your job is to run the quality pipeline on this worktree.
 
 ## Request
 - Branch: ${request.branch}
@@ -304,33 +304,33 @@ Eres el Pipeline Core. Tu trabajo es ejecutar el pipeline de calidad sobre este 
 - Auto-correct: ${request.config.auto_correct}
 - Max correction attempts: ${request.config.max_correction_attempts}
 
-## Instrucciones
-1. Crea la rama pipeline/${request.branch} desde ${request.branch}
-2. Analiza el cambio (git diff --stat) y clasifica el tier (Small/Medium/Large)
-3. Lanza los agentes del tier usando el Task tool — TODOS EN PARALELO
-4. Si hay agentes bloqueantes que fallan, auto-corrige en la rama pipeline/
-5. Re-ejecuta solo los agentes que fallaron (max ${request.config.max_correction_attempts} intentos)
-6. Cuando todo pase, haz merge back de pipeline/ a la rama original
-7. Reporta el resultado final en formato JSON
+## Instructions
+1. Create the branch pipeline/${request.branch} from ${request.branch}
+2. Analyze the change (git diff --stat) and classify the tier (Small/Medium/Large)
+3. Launch the tier's agents using the Task tool — ALL IN PARALLEL
+4. If blocking agents fail, auto-correct on the pipeline/ branch
+5. Re-run only the failed agents (max ${request.config.max_correction_attempts} attempts)
+6. When everything passes, merge back from pipeline/ to the original branch
+7. Report the final result in JSON format
 
-## Agentes disponibles (via Task tool)
-- security-audit: Analisis de seguridad (BLOQUEANTE)
-- webapp-testing: Tests (BLOQUEANTE)
-- architecture-eval: Evaluacion arquitectonica (BLOQUEANTE, tier medium+)
-- dependency-audit: Auditoria de dependencias (BLOQUEANTE, tier medium+)
+## Available agents (via Task tool)
+- security-audit: Security analysis (BLOCKING)
+- webapp-testing: Tests (BLOCKING)
+- architecture-eval: Architecture evaluation (BLOCKING, tier medium+)
+- dependency-audit: Dependency audit (BLOCKING, tier medium+)
 - code-quality: Code quality (tier medium+)
 - performance: Performance (tier large)
-- web-design-guidelines: Accesibilidad (tier large, solo si hay cambios UI)
-- documentation-check: Documentacion (tier large)
+- web-design-guidelines: Accessibility (tier large, only if there are UI changes)
+- documentation-check: Documentation (tier large)
 
-Lanza multiples Tasks en paralelo en un solo mensaje.
+Launch multiple Tasks in parallel in a single message.
   `.trim()
 }
 ```
 
-### Lo que el Service ve via el SDK
+### What the Service sees via the SDK
 
-El Service no ve los subagentes directamente. Ve los eventos de alto nivel del proceso de Claude Code:
+The Service doesn't see the subagents directly. It sees the high-level events from the Claude Code process:
 
 ```typescript
 async function runPipeline(request: PipelineRequest): Promise<void> {
@@ -344,9 +344,9 @@ async function runPipeline(request: PipelineRequest): Promise<void> {
   })
 
   for await (const event of events) {
-    // El SDK emite eventos cuando el Core usa herramientas
+    // The SDK emits events when the Core uses tools
     if (event.type === 'tool_use' && event.tool === 'Task') {
-      // Un subagente fue lanzado
+      // A subagent was launched
       eventBus.publish({
         event_type: 'pipeline.agent.started',
         request_id: request.request_id,
@@ -366,12 +366,12 @@ async function runPipeline(request: PipelineRequest): Promise<void> {
 }
 ```
 
-### Como se ejecutan el Director y el Integrador
+### How the Director and Integrator run
 
-El Director y el Integrador tambien son procesos de Claude Code, pero con prompts diferentes y herramientas diferentes:
+The Director and Integrator are also Claude Code processes, but with different prompts and different tools:
 
 ```typescript
-// Director — lee manifest, decide que integrar
+// Director — reads manifest, decides what to integrate
 async function runDirector(): Promise<void> {
   const result = await claude(DIRECTOR_PROMPT, {
     cwd: projectRoot,
@@ -380,93 +380,93 @@ async function runDirector(): Promise<void> {
     maxTurns: 30,
   })
 
-  // Parsear decisiones del Director y ejecutar
+  // Parse Director decisions and execute
 }
 
-// Integrador — crea PRs, resuelve conflictos
+// Integrator — creates PRs, resolves conflicts
 async function runIntegrator(branch: string): Promise<void> {
   const result = await claude(buildIntegratorPrompt(branch), {
     cwd: projectRoot,
     allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-    model: 'opus',  // Opus para resoluciones complejas (conflictos, deduplicacion)
+    model: 'opus',  // Opus for complex resolutions (conflicts, deduplication)
     maxTurns: 40,
   })
 }
 ```
 
-### Modelo por componente
+### Model per component
 
-| Componente | Modelo | Razon |
+| Component | Model | Reason |
 |---|---|---|
-| **Agentes de calidad** (8) | Sonnet | Balance costo/velocidad. Tareas bien definidas con skills. |
-| **Auto-correccion** | Sonnet | Aplica fixes especificos basados en hallazgos claros. |
-| **Director** | Sonnet | Logica de decision sobre manifest + deps. No requiere razonamiento profundo. |
-| **Integrador** | Opus | Resolucion de conflictos, deduplicacion, analisis semantico. Requiere razonamiento complejo. |
+| **Quality agents** (8) | Sonnet | Cost/speed balance. Well-defined tasks with skills. |
+| **Auto-correction** | Sonnet | Applies specific fixes based on clear findings. |
+| **Director** | Sonnet | Decision logic on manifest + deps. Doesn't require deep reasoning. |
+| **Integrator** | Opus | Conflict resolution, deduplication, semantic analysis. Requires complex reasoning. |
 
-### Costos de ejecucion
+### Execution costs
 
-Cada pipeline ejecuta multiples llamadas a Claude. Los agentes corren en paralelo, lo que reduce tiempo pero no tokens.
+Each pipeline runs multiple Claude calls. Agents run in parallel, which reduces time but not tokens.
 
-| Tier | Agentes | Llamadas Claude (approx) | Modelo |
+| Tier | Agents | Claude calls (approx) | Model |
 |---|---|---|---|
-| Small | 2 | 2 agentes + 0-3 correcciones | Sonnet |
-| Medium | 5 | 5 agentes + 0-3 correcciones | Sonnet |
-| Large | 8 | 8 agentes + 0-3 correcciones | Sonnet |
-| Integrador | 1 | 1 por rama | Opus |
+| Small | 2 | 2 agents + 0-3 corrections | Sonnet |
+| Medium | 5 | 5 agents + 0-3 corrections | Sonnet |
+| Large | 8 | 8 agents + 0-3 corrections | Sonnet |
+| Integrator | 1 | 1 per branch | Opus |
 
 ---
 
 ## 4. Git Operations
 
-| Componente | Libreria | Uso |
+| Component | Library | Usage |
 |---|---|---|
-| **Git programatico** | `simple-git` | ^3 |
+| **Programmatic Git** | `simple-git` | ^3 |
 | **GitHub API** | `@octokit/rest` | ^21 |
 
-### Por que `simple-git` y no `Bun.spawn` + `git`
+### Why `simple-git` and not `Bun.spawn` + `git`
 
-| | `Bun.spawn` + git raw | `simple-git` |
+| | `Bun.spawn` + raw git | `simple-git` |
 |---|---|---|
-| Interfaz | Strings (parsear stdout) | Metodos tipados |
-| Errores | Exit codes | Excepciones con contexto |
+| Interface | Strings (parse stdout) | Typed methods |
+| Errors | Exit codes | Exceptions with context |
 | Branch | `Bun.spawn(['git', 'checkout', '-b', name])` | `git.checkoutBranch(name, start)` |
-| Diff | Parsear `git diff --stat` manualmente | `git.diffSummary()` → objeto tipado |
-| Log | Parsear `git log --format=...` | `git.log({ maxCount: 10 })` → array |
+| Diff | Parse `git diff --stat` manually | `git.diffSummary()` → typed object |
+| Log | Parse `git log --format=...` | `git.log({ maxCount: 10 })` → array |
 | Merge | `Bun.spawn(['git', 'merge', '--no-ff', branch])` | `git.merge([branch, '--no-ff'])` |
 
-`simple-git` envuelve el binario `git` del sistema (no es una reimplementacion). Usa el `git` instalado, pero da una interfaz TypeScript sobre los resultados.
+`simple-git` wraps the system's `git` binary (it's not a reimplementation). It uses the installed `git`, but provides a TypeScript interface over the results.
 
-### Uso en el Pipeline
+### Usage in the Pipeline
 
 ```typescript
 import simpleGit from 'simple-git'
 
 const git = simpleGit(worktreePath)
 
-// Clasificacion de tier
+// Tier classification
 const diff = await git.diffSummary(['main...HEAD'])
 const tier = classifyTier(diff.files.length, diff.insertions + diff.deletions)
 
-// Crear rama de pipeline
+// Create pipeline branch
 await git.checkoutBranch(`pipeline/${branch}`, branch)
 
-// Merge back despues de pipeline
+// Merge back after pipeline
 await git.checkout(branch)
 await git.merge([`pipeline/${branch}`, '--no-ff'])
 
-// Para el Integrador
+// For the Integrator
 await git.checkoutBranch(`integration/${branch}`, 'main')
 await git.merge([`pipeline/${branch}`, '--no-ff'])
 ```
 
-### GitHub API con @octokit/rest
+### GitHub API with @octokit/rest
 
 ```typescript
 import { Octokit } from '@octokit/rest'
 
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN })
 
-// Crear PR (Integrador)
+// Create PR (Integrator)
 const { data: pr } = await octokit.pulls.create({
   owner, repo,
   title: `Integrate: ${branch}`,
@@ -475,14 +475,14 @@ const { data: pr } = await octokit.pulls.create({
   body: generatePRBody(pipelineResults)
 })
 
-// Comentar en PR
+// Comment on PR
 await octokit.issues.createComment({
   owner, repo,
   issue_number: pr.number,
   body: '✅ Pipeline passed. Ready for review.'
 })
 
-// Agregar labels
+// Add labels
 await octokit.issues.addLabels({
   owner, repo,
   issue_number: pr.number,
@@ -490,41 +490,41 @@ await octokit.issues.addLabels({
 })
 ```
 
-### Cuando usar `@octokit` vs `simple-git`
+### When to use `@octokit` vs `simple-git`
 
-| Operacion | Herramienta | Razon |
+| Operation | Tool | Reason |
 |---|---|---|
-| Crear PR | `@octokit/rest` | Respuesta tipada, control total del body |
-| Comentar PR | `@octokit/rest` | Programatico, sin parsear stdout |
-| Verificar PR status | `@octokit/rest` | JSON tipado |
-| Force push con lease | `simple-git` | `git push --force-with-lease` (no es API de GitHub) |
-| Recibir webhooks | Hono (el server) | El Service expone endpoint, GitHub hace POST |
+| Create PR | `@octokit/rest` | Typed response, full control over body |
+| Comment on PR | `@octokit/rest` | Programmatic, no stdout parsing |
+| Check PR status | `@octokit/rest` | Typed JSON |
+| Force push with lease | `simple-git` | `git push --force-with-lease` (not a GitHub API) |
+| Receive webhooks | Hono (the server) | The Service exposes an endpoint, GitHub sends POST |
 
-**Regla:** Usar `@octokit/rest` para todo lo que sea GitHub API. Usar `simple-git` para operaciones git locales.
+**Rule:** Use `@octokit/rest` for everything that is GitHub API. Use `simple-git` for local git operations.
 
 ---
 
 ## 5. Event Bus
 
-| Componente | Libreria | Uso |
+| Component | Library | Usage |
 |---|---|---|
-| **Local** | `eventemitter3` | Event Bus en memoria |
-| **Persistencia** | `Bun.write()` / `Bun.file()` | Escribir/leer JSONL |
-| **Escalable (opcional)** | `ioredis` | Redis Pub/Sub |
-| **Escalable (opcional)** | `nats` | NATS messaging |
+| **Local** | `eventemitter3` | In-memory Event Bus |
+| **Persistence** | `Bun.write()` / `Bun.file()` | Write/read JSONL |
+| **Scalable (optional)** | `ioredis` | Redis Pub/Sub |
+| **Scalable (optional)** | `nats` | NATS messaging |
 
-### Por que `eventemitter3` y no `node:events`
+### Why `eventemitter3` and not `node:events`
 
 | | `node:events` | `eventemitter3` |
 |---|---|---|
-| Performance | Buena | ~3x mas rapida |
-| TypeScript | Generics basicos | Generics completos |
-| Memory leaks | Warning a 10 listeners | Sin limite artificial |
-| Bun compat | Si | Si |
+| Performance | Good | ~3x faster |
+| TypeScript | Basic generics | Full generics |
+| Memory leaks | Warning at 10 listeners | No artificial limit |
+| Bun compat | Yes | Yes |
 
-`eventemitter3` es un drop-in replacement de `EventEmitter` con mejor performance y tipado. El API es identico.
+`eventemitter3` is a drop-in replacement for `EventEmitter` with better performance and typing. The API is identical.
 
-### Implementacion del Event Bus
+### Event Bus implementation
 
 ```typescript
 import EventEmitter from 'eventemitter3'
@@ -541,7 +541,7 @@ interface EventBusEvents {
   'director.activated':           (event: PipelineEvent) => void
   'integration.pr.created':       (event: PipelineEvent) => void
   'integration.pr.merged':        (event: PipelineEvent) => void
-  // ... todos los eventos del catalogo
+  // ... all events from the catalog
 }
 
 class PipelineEventBus extends EventEmitter<EventBusEvents> {
@@ -553,20 +553,20 @@ class PipelineEventBus extends EventEmitter<EventBusEvents> {
   }
 
   async publish(event: PipelineEvent): Promise<void> {
-    // 1. Persistir en JSONL (Bun.write con append)
+    // 1. Persist to JSONL (Bun.write with append)
     const file = Bun.file(`${this.persistPath}/${event.request_id}.jsonl`)
     const existing = await file.exists() ? await file.text() : ''
     await Bun.write(file, existing + JSON.stringify(event) + '\n')
 
-    // 2. Emitir a todos los suscriptores en memoria
+    // 2. Emit to all in-memory subscribers
     this.emit(event.event_type as keyof EventBusEvents, event)
   }
 }
 ```
 
-### Escalado a Redis (cuando se necesite)
+### Scaling to Redis (when needed)
 
-Si el Service necesita correr en multiples instancias, el Event Bus se puede cambiar a Redis sin modificar los adapters:
+If the Service needs to run on multiple instances, the Event Bus can be switched to Redis without modifying the adapters:
 
 ```typescript
 import Redis from 'ioredis'
@@ -592,31 +592,31 @@ class RedisEventBus extends EventEmitter<EventBusEvents> {
 }
 ```
 
-El cambio es un adapter — los componentes que usan `eventBus.on()` y `eventBus.publish()` no cambian.
+The change is an adapter — the components that use `eventBus.on()` and `eventBus.publish()` don't change.
 
 ---
 
 ## 6. Logging
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
 | **Logger** | Pino | ^9 |
 | **Pretty print (dev)** | `pino-pretty` | ^13 |
 
-### Por que Pino
+### Why Pino
 
 | | Winston | Pino | Bunyan |
 |---|---|---|---|
 | Performance | ~5k logs/s | ~100k logs/s | ~10k logs/s |
-| Formato nativo | String → JSON (transform) | JSON nativo | JSON nativo |
-| Overhead en prod | Alto (formatters) | Minimo (solo JSON.stringify) | Medio |
-| Child loggers | Si | Si, con campos heredados | Si |
+| Native format | String → JSON (transform) | Native JSON | Native JSON |
+| Overhead in prod | High (formatters) | Minimal (only JSON.stringify) | Medium |
+| Child loggers | Yes | Yes, with inherited fields | Yes |
 
-Pino produce JSON por defecto — exactamente el formato que definimos en la arquitectura. No hay transformacion. Cada log entry es una linea JSON.
+Pino produces JSON by default — exactly the format we defined in the architecture. No transformation. Each log entry is a JSON line.
 
-### Integracion con el sistema de logging
+### Integration with the logging system
 
-El formato de log definido en la arquitectura es:
+The log format defined in the architecture is:
 
 ```json
 {
@@ -631,27 +631,27 @@ El formato de log definido en la arquitectura es:
 }
 ```
 
-Pino soporta esto nativamente con child loggers:
+Pino supports this natively with child loggers:
 
 ```typescript
 import pino from 'pino'
 
-// Logger base del sistema
+// System base logger
 const systemLogger = pino({
   level: config.logging.level,
   timestamp: pino.stdTimeFunctions.isoTime,
-  base: undefined,  // No incluir hostname/pid
+  base: undefined,  // Don't include hostname/pid
   formatters: {
     level(label) { return { level: label } }
   }
 })
 
-// Child logger para un pipeline especifico
+// Child logger for a specific pipeline
 function createPipelineLogger(requestId: string): pino.Logger {
   return systemLogger.child({ request_id: requestId })
 }
 
-// Child logger para un componente especifico
+// Child logger for a specific component
 function createSourceLogger(source: string, requestId?: string): pino.Logger {
   return systemLogger.child({
     source,
@@ -659,18 +659,18 @@ function createSourceLogger(source: string, requestId?: string): pino.Logger {
   })
 }
 
-// Uso
+// Usage
 const log = createSourceLogger('core.agent.security', 'abc-123')
 log.info({ action: 'scan.file', data: { file: 'src/auth.ts' }, duration_ms: 3200 }, 'Scanning auth.ts')
-// Produce: {"timestamp":"2026-...","level":"info","source":"core.agent.security","request_id":"abc-123","action":"scan.file","message":"Scanning auth.ts","data":{"file":"src/auth.ts"},"duration_ms":3200}
+// Produces: {"timestamp":"2026-...","level":"info","source":"core.agent.security","request_id":"abc-123","action":"scan.file","message":"Scanning auth.ts","data":{"file":"src/auth.ts"},"duration_ms":3200}
 ```
 
-### Escritura a archivos por request_id
+### Writing to files by request_id
 
-Pino escribe a stdout por defecto. Para separar logs por `request_id` + sistema, usamos un transport custom:
+Pino writes to stdout by default. To separate logs by `request_id` + system, we use a custom transport:
 
 ```typescript
-// Transport custom que separa por request_id
+// Custom transport that separates by request_id
 const transport = pino.transport({
   target: './log-splitter.ts',
   options: {
@@ -682,7 +682,7 @@ const logger = pino(transport)
 ```
 
 ```typescript
-// log-splitter.ts — Pino transport custom
+// log-splitter.ts — Custom Pino transport
 import { mkdir } from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import build from 'pino-abstract-transport'
@@ -710,17 +710,17 @@ export default async function(opts: { basePath: string }) {
 }
 ```
 
-### Middleware de Hono para HTTP logging
+### Hono middleware for HTTP logging
 
-Hono tiene un `logger()` middleware que loggea requests HTTP. Para integrarlo con Pino:
+Hono has a `logger()` middleware that logs HTTP requests. To integrate it with Pino:
 
 ```typescript
 import { logger as honoLogger } from 'hono/logger'
 
-// Opcion 1: usar el logger built-in de Hono (simple, a stdout)
+// Option 1: use Hono's built-in logger (simple, to stdout)
 app.use('*', honoLogger())
 
-// Opcion 2: custom middleware que usa Pino
+// Option 2: custom middleware that uses Pino
 app.use('*', async (c, next) => {
   const start = Date.now()
   await next()
@@ -741,19 +741,19 @@ app.use('*', async (c, next) => {
 
 ---
 
-## 7. Patrones de Diseno: Librerias por Patron
+## 7. Design Patterns: Libraries per Pattern
 
-### 7.1 Adapter — Sin libreria
+### 7.1 Adapter — No library
 
-Los adapters son codigo propio. Son clases TypeScript que implementan una interfaz. No necesitan libreria.
+Adapters are custom code. They are TypeScript classes that implement an interface. They don't need a library.
 
 ```typescript
-// Puerto (interfaz)
+// Port (interface)
 interface InboundPort {
   toPipelineRequest(raw: unknown): PipelineRequest
 }
 
-// Adapter concreto
+// Concrete adapter
 class RestAdapter implements InboundPort {
   toPipelineRequest(raw: unknown): PipelineRequest {
     return {
@@ -766,15 +766,15 @@ class RestAdapter implements InboundPort {
 }
 ```
 
-No hay libreria porque el patron es una estructura de codigo, no una herramienta.
+No library is needed because the pattern is a code structure, not a tool.
 
 ### 7.2 Observer / Pub-Sub — `eventemitter3`
 
-Ya cubierto en la seccion 5 (Event Bus). `eventemitter3` es toda la libreria que necesitamos.
+Already covered in section 5 (Event Bus). `eventemitter3` is all the library we need.
 
-### 7.3 Command — Sin libreria
+### 7.3 Command — No library
 
-`PipelineRequest` es el comando. Es un objeto JSON plano que se serializa, persiste, y encola. No necesita libreria.
+`PipelineRequest` is the command. It's a plain JSON object that is serialized, persisted, and queued. It doesn't need a library.
 
 ```typescript
 interface PipelineRequest {
@@ -787,9 +787,9 @@ interface PipelineRequest {
 }
 ```
 
-### 7.4 Strategy — Sin libreria
+### 7.4 Strategy — No library
 
-El patron Strategy se implementa con un map de funciones:
+The Strategy pattern is implemented with a function map:
 
 ```typescript
 type TierStrategy = {
@@ -811,22 +811,22 @@ function selectTier(diff: DiffSummary, override?: string): TierStrategy {
 }
 ```
 
-No necesita libreria. Es logica pura.
+No library needed. It's pure logic.
 
 ### 7.5 State Machine — `xstate`
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
 | **State Machine** | `xstate` | ^5 |
 
-**Por que `xstate`:**
-- Es el estandar de la industria para state machines en JavaScript/TypeScript
-- Previene transiciones invalidas por definicion
-- Visualizable (hay herramientas para generar diagramas del statechart)
-- Persiste el estado actual (para recovery despues de crash)
-- TypeScript-first desde v5
+**Why `xstate`:**
+- It's the industry standard for state machines in JavaScript/TypeScript
+- Prevents invalid transitions by definition
+- Visualizable (there are tools to generate diagrams from the statechart)
+- Persists current state (for recovery after crash)
+- TypeScript-first since v5
 
-**Maquina de estados del manifiesto:**
+**Manifest state machine:**
 
 ```typescript
 import { createMachine, createActor } from 'xstate'
@@ -849,35 +849,35 @@ const branchMachine = createMachine({
     pending_merge: {
       on: {
         'PR_MERGED':   'merge_history',
-        'PR_CLOSED':   'ready',        // Reintentar
-        'PR_STALE':    'pending_merge'  // Rebase y seguir en pending
+        'PR_CLOSED':   'ready',        // Retry
+        'PR_STALE':    'pending_merge'  // Rebase and stay in pending
       }
     },
     merge_history: {
       type: 'final'
     },
     failed: {
-      // Terminal — requiere intervencion
+      // Terminal — requires intervention
     }
   }
 })
 
-// Uso
+// Usage
 const actor = createActor(branchMachine).start()
 actor.send({ type: 'PIPELINE_APPROVED' })
 console.log(actor.getSnapshot().value) // 'ready'
 
-// Transicion invalida → no hace nada (safe by design)
-actor.send({ type: 'PR_MERGED' }) // Ignorado — no hay transicion ready → merge_history
+// Invalid transition → does nothing (safe by design)
+actor.send({ type: 'PR_MERGED' }) // Ignored — there's no ready → merge_history transition
 ```
 
-**Persistencia del estado:**
+**State persistence:**
 
-`xstate` puede serializar el estado con `actor.getPersistedSnapshot()` y restaurarlo con `createActor(machine, { snapshot })`. Esto permite recovery despues de un crash del Service.
+`xstate` can serialize state with `actor.getPersistedSnapshot()` and restore it with `createActor(machine, { snapshot })`. This allows recovery after a Service crash.
 
-### 7.6 Saga — Implementacion propia
+### 7.6 Saga — Custom implementation
 
-No hay una libreria de Sagas para Node.js/Bun que encaje en nuestro flujo. Las librerias existentes estan orientadas a microservicios con message brokers. Nuestro caso es mas simple: un proceso secuencial con compensacion.
+There's no Saga library for Node.js/Bun that fits our flow. Existing libraries are oriented toward microservices with message brokers. Our case is simpler: a sequential process with compensation.
 
 ```typescript
 interface SagaStep {
@@ -913,7 +913,7 @@ class Saga {
   }
 
   private async compensate(): Promise<void> {
-    // Compensar en orden inverso
+    // Compensate in reverse order
     for (const stepName of [...this.completedSteps].reverse()) {
       const step = this.steps.find(s => s.name === stepName)
       if (step) {
@@ -932,7 +932,7 @@ class Saga {
 }
 ```
 
-**Uso en el pipeline:**
+**Usage in the pipeline:**
 
 ```typescript
 const saga = new Saga(request.request_id, config.saga.persistence_path)
@@ -952,15 +952,15 @@ saga.addStep({
 saga.addStep({
   name: 'merge_back',
   execute: () => git.checkout(branch).then(() => git.merge([`pipeline/${branch}`])),
-  compensate: () => {} // Mantener pipeline/ para debug
+  compensate: () => {} // Keep pipeline/ for debugging
 })
 
 await saga.execute()
 ```
 
-### 7.7 Idempotencia — `Map` en memoria + archivo
+### 7.7 Idempotency — In-memory `Map` + file
 
-No necesita libreria. Es un `Map<string, string>` que mapea `branch` a `request_id`:
+No library needed. It's a `Map<string, string>` that maps `branch` to `request_id`:
 
 ```typescript
 class IdempotencyGuard {
@@ -984,34 +984,34 @@ class IdempotencyGuard {
 }
 ```
 
-Se persiste periodicamente con `Bun.write('.pipeline/active-pipelines.json', ...)` para recovery despues de crash.
+It's periodically persisted with `Bun.write('.pipeline/active-pipelines.json', ...)` for recovery after crash.
 
 ### 7.8 Circuit Breaker — `cockatiel`
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
 | **Circuit Breaker** | `cockatiel` | ^3 |
 
-**Por que `cockatiel` y no `opossum`:**
+**Why `cockatiel` and not `opossum`:**
 
 | | `opossum` | `cockatiel` |
 |---|---|---|
-| TypeScript | Tipado basico | TypeScript-first, generics completos |
+| TypeScript | Basic typing | TypeScript-first, full generics |
 | API | Class-based (new CircuitBreaker(fn)) | Composable policies (wrap) |
-| Retry | Separado | Integrado en la misma libreria |
-| Bulkhead | No | Si |
-| Tamano | 25kb | 12kb |
-| Mantenimiento | Activo | Activo (Microsoft) |
+| Retry | Separate | Integrated in the same library |
+| Bulkhead | No | Yes |
+| Size | 25kb | 12kb |
+| Maintenance | Active | Active (Microsoft) |
 
-`cockatiel` no solo da Circuit Breaker — tambien da Retry, Timeout, y Bulkhead. Son los patrones de resiliencia que necesitamos, todos en una sola libreria.
+`cockatiel` doesn't just provide Circuit Breaker — it also provides Retry, Timeout, and Bulkhead. These are the resilience patterns we need, all in a single library.
 
 ```typescript
 import { CircuitBreakerPolicy, ConsecutiveBreaker, retry, handleAll, wrap } from 'cockatiel'
 
-// Circuit breaker para Claude Code
+// Circuit breaker for Claude Code
 const claudeBreaker = new CircuitBreakerPolicy(
   handleAll,
-  new ConsecutiveBreaker(3)    // Abrir despues de 3 fallos consecutivos
+  new ConsecutiveBreaker(3)    // Open after 3 consecutive failures
 )
 
 claudeBreaker.onBreak(() => {
@@ -1022,27 +1022,27 @@ claudeBreaker.onReset(() => {
   logger.info({ source: 'circuit-breaker', action: 'circuit.closed' }, 'Claude Code circuit CLOSED')
 })
 
-// Circuit breaker para GitHub API
+// Circuit breaker for GitHub API
 const githubBreaker = new CircuitBreakerPolicy(
   handleAll,
   new ConsecutiveBreaker(5)
 )
 
-// Retry + Circuit breaker combinados
+// Retry + Circuit breaker combined
 const githubPolicy = wrap(
   retry(handleAll, { maxAttempts: 3 }),
   githubBreaker
 )
 
-// Uso
+// Usage
 const pr = await githubPolicy.execute(() =>
   octokit.pulls.create({ owner, repo, title, head, base, body })
 )
 ```
 
-### 7.9 Dead Letter Queue — Implementacion propia + `Bun.file()`
+### 7.9 Dead Letter Queue — Custom implementation + `Bun.file()`
 
-No hay librerias de DLQ standalone (las DLQ viven dentro de message brokers como RabbitMQ). Nuestra DLQ es basada en archivos:
+There are no standalone DLQ libraries (DLQs live inside message brokers like RabbitMQ). Our DLQ is file-based:
 
 ```typescript
 import { readdir, mkdir } from 'node:fs/promises'
@@ -1096,7 +1096,7 @@ class DeadLetterQueue {
       if (new Date(latest.next_retry_at) <= new Date()) {
         try {
           await deliverFn(latest.event)
-          await Bun.write(`${dir}/${fileName}`, '') // Entregado — vaciar
+          await Bun.write(`${dir}/${fileName}`, '') // Delivered — clear
         } catch (retryError) {
           const delay = this.baseDelay * Math.pow(3, latest.retry_count) // Exponential backoff
           const retryEntry = {
@@ -1115,32 +1115,32 @@ class DeadLetterQueue {
 
 ---
 
-## 8. Configuracion
+## 8. Configuration
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
 | **YAML parser** | `yaml` | ^2 |
-| **Validacion** | `zod` | ^3 |
-| **Variables de entorno** | Bun (built-in) | — |
+| **Validation** | `zod` | ^3 |
+| **Environment variables** | Bun (built-in) | — |
 
-Bun lee `.env` automaticamente. No necesitamos `dotenv`.
+Bun reads `.env` automatically. We don't need `dotenv`.
 
-### Por que `yaml` y no `js-yaml`
+### Why `yaml` and not `js-yaml`
 
 | | `js-yaml` | `yaml` |
 |---|---|---|
-| Spec | YAML 1.1 | YAML 1.2 (estandar actual) |
-| TypeScript | Tipos externos | TypeScript nativo |
-| Preserve comments | No | Si |
-| Mantenimiento | Activo | Activo |
+| Spec | YAML 1.1 | YAML 1.2 (current standard) |
+| TypeScript | External types | Native TypeScript |
+| Preserve comments | No | Yes |
+| Maintenance | Active | Active |
 
-### Flujo de configuracion
+### Configuration flow
 
 ```typescript
 import { parse } from 'yaml'
 import { z } from 'zod'
 
-// Schema de configuracion con Zod
+// Configuration schema with Zod
 const ConfigSchema = z.object({
   pipeline: z.object({
     branch: z.object({
@@ -1164,7 +1164,7 @@ const ConfigSchema = z.object({
         agents: z.array(z.string()),
       }),
     }),
-    // ... resto del schema
+    // ... rest of the schema
   })
 })
 
@@ -1175,17 +1175,17 @@ async function loadConfig(projectRoot: string): Promise<PipelineConfig> {
   const raw = await file.text()
   const parsed = parse(raw)
 
-  // Resolver variables de entorno (${VAR_NAME})
+  // Resolve environment variables (${VAR_NAME})
   const resolved = resolveEnvVars(parsed)
 
-  // Validar contra el schema
+  // Validate against the schema
   return ConfigSchema.parse(resolved)
 }
 ```
 
-### Resolucion de variables de entorno
+### Environment variable resolution
 
-El config.yaml usa `${VAR_NAME}` para secretos. Se resuelven al cargar. Bun ya tiene las variables de `.env` en `process.env`:
+The config.yaml uses `${VAR_NAME}` for secrets. They are resolved at load time. Bun already has the `.env` variables in `process.env`:
 
 ```typescript
 function resolveEnvVars(obj: unknown): unknown {
@@ -1204,16 +1204,16 @@ function resolveEnvVars(obj: unknown): unknown {
 
 ---
 
-## 9. Validacion de Schemas
+## 9. Schema Validation
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
-| **Toda la validacion** | `zod` | ^3 |
+| **All validation** | `zod` | ^3 |
 
-Con Hono + `@hono/zod-validator`, **Zod es el unico sistema de validacion**. No hay dos niveles (Ajv + Zod como en Fastify). Un solo schema Zod valida tanto la estructura HTTP como las reglas de negocio.
+With Hono + `@hono/zod-validator`, **Zod is the single validation system**. There are no two levels (Ajv + Zod like in Fastify). A single Zod schema validates both HTTP structure and business rules.
 
 ```typescript
-// Un solo schema — valida estructura Y negocio
+// A single schema — validates structure AND business rules
 const PipelineRunSchema = z.object({
   branch: z.string().min(1).refine(
     branch => !branch.startsWith('pipeline/'),
@@ -1227,7 +1227,7 @@ const PipelineRunSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 })
 
-// Se usa en el endpoint directamente
+// Used directly in the endpoint
 app.post('/pipeline/run', zValidator('json', PipelineRunSchema), handler)
 ```
 
@@ -1235,14 +1235,14 @@ app.post('/pipeline/run', zValidator('json', PipelineRunSchema), handler)
 
 ## 10. Webhook HTTP Client
 
-| Componente | Libreria | Version |
+| Component | Library | Version |
 |---|---|---|
-| **HTTP client** | `fetch` (global en Bun) | — |
+| **HTTP client** | `fetch` (Bun global) | — |
 
-Bun tiene `fetch` global nativo. No necesitamos `axios`, `got`, ni `node-fetch`.
+Bun has a native global `fetch`. We don't need `axios`, `got`, or `node-fetch`.
 
 ```typescript
-// Enviar webhook al cliente
+// Send webhook to client
 async function sendWebhook(url: string, event: PipelineEvent, token: string): Promise<void> {
   const response = await fetch(url, {
     method: 'POST',
@@ -1264,25 +1264,25 @@ async function sendWebhook(url: string, event: PipelineEvent, token: string): Pr
 
 ---
 
-## 11. Filesystem y JSONL
+## 11. Filesystem and JSONL
 
-| Componente | Herramienta | Detalle |
+| Component | Tool | Detail |
 |---|---|---|
-| **File I/O** | `Bun.file()` / `Bun.write()` | API optimizada de Bun |
-| **JSONL parsing** | Implementacion propia | — |
+| **File I/O** | `Bun.file()` / `Bun.write()` | Bun's optimized API |
+| **JSONL parsing** | Custom implementation | — |
 | **File watching** | `chokidar` | ^4 |
 
-### JSONL read/write con Bun
+### JSONL read/write with Bun
 
 ```typescript
-// Escribir (append)
+// Write (append)
 async function appendJsonl(path: string, obj: unknown): Promise<void> {
   const file = Bun.file(path)
   const existing = await file.exists() ? await file.text() : ''
   await Bun.write(file, existing + JSON.stringify(obj) + '\n')
 }
 
-// Leer
+// Read
 async function readJsonl<T>(path: string): Promise<T[]> {
   const file = Bun.file(path)
   if (!await file.exists()) return []
@@ -1290,7 +1290,7 @@ async function readJsonl<T>(path: string): Promise<T[]> {
   return content.trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as T)
 }
 
-// Leer por streaming (archivos grandes)
+// Read by streaming (large files)
 async function* streamJsonl<T>(path: string): AsyncGenerator<T> {
   const file = Bun.file(path)
   const stream = file.stream()
@@ -1311,15 +1311,15 @@ async function* streamJsonl<T>(path: string): AsyncGenerator<T> {
 }
 ```
 
-### File watching con `chokidar`
+### File watching with `chokidar`
 
-Para detectar cuando el manifest.json cambia (util si procesos externos lo modifican):
+To detect when manifest.json changes (useful if external processes modify it):
 
 ```typescript
 import chokidar from 'chokidar'
 
 chokidar.watch('.pipeline/manifest.json').on('change', () => {
-  // Re-leer manifest y notificar al Director
+  // Re-read manifest and notify the Director
 })
 ```
 
@@ -1327,27 +1327,27 @@ chokidar.watch('.pipeline/manifest.json').on('change', () => {
 
 ## 12. Testing
 
-| Componente | Herramienta | Detalle |
+| Component | Tool | Detail |
 |---|---|---|
 | **Test runner** | `bun test` (built-in) | — |
-| **HTTP testing** | `app.request()` (built-in de Hono) | — |
+| **HTTP testing** | `app.request()` (Hono built-in) | — |
 | **Mocks** | `bun:test` (built-in) | `mock`, `spyOn` |
 
-### Por que `bun test`
+### Why `bun test`
 
-Bun incluye un test runner que es compatible con la sintaxis de Jest/Vitest. No se necesita instalar nada.
+Bun includes a test runner that is compatible with Jest/Vitest syntax. Nothing needs to be installed.
 
 | | Jest | Vitest | `bun test` |
 |---|---|---|---|
-| TypeScript | Via ts-jest | Via esbuild | Nativo |
-| Velocidad | Lenta | Rapida | Mas rapida (nativa) |
-| Instalacion | `npm i jest ts-jest` | `npm i vitest` | Ya incluido |
-| Mocks | `jest.mock()` | `vi.mock()` | `mock()` de `bun:test` |
+| TypeScript | Via ts-jest | Via esbuild | Native |
+| Speed | Slow | Fast | Faster (native) |
+| Installation | `npm i jest ts-jest` | `npm i vitest` | Already included |
+| Mocks | `jest.mock()` | `vi.mock()` | `mock()` from `bun:test` |
 | Watch | `--watch` | `--watch` (HMR) | `--watch` |
 
-### Testing del HTTP server
+### HTTP server testing
 
-Hono incluye `app.request()` para testear endpoints sin levantar el server:
+Hono includes `app.request()` for testing endpoints without starting the server:
 
 ```typescript
 import { test, expect } from 'bun:test'
@@ -1372,7 +1372,7 @@ test('POST /pipeline/run returns 202', async () => {
 })
 ```
 
-### Testing de patrones
+### Pattern testing
 
 ```typescript
 import { test, expect } from 'bun:test'
@@ -1381,9 +1381,9 @@ import { test, expect } from 'bun:test'
 test('branch cannot skip from ready to merge_history', () => {
   const actor = createActor(branchMachine).start()
   actor.send({ type: 'PIPELINE_APPROVED' }) // → ready
-  actor.send({ type: 'PR_MERGED' })         // Transicion invalida
+  actor.send({ type: 'PR_MERGED' })         // Invalid transition
 
-  expect(actor.getSnapshot().value).toBe('ready') // No cambio
+  expect(actor.getSnapshot().value).toBe('ready') // Didn't change
 })
 
 // Circuit Breaker
@@ -1416,48 +1416,48 @@ test('saga compensates on failure', async () => {
   })
 
   expect(saga.execute()).rejects.toThrow('boom')
-  expect(compensated).toEqual(['step1']) // step2 nunca se ejecuto, step1 se compenso
+  expect(compensated).toEqual(['step1']) // step2 was never executed, step1 was compensated
 })
 ```
 
 ---
 
-## 13. Resumen de Dependencias
+## 13. Dependency Summary
 
-### Dependencias de produccion
+### Production dependencies
 
-| Libreria | Version | Patron / Componente | Proposito |
+| Library | Version | Pattern / Component | Purpose |
 |---|---|---|---|
-| `hono` | ^4 | HTTP Server | Framework web ultraligero |
-| `@hono/zod-validator` | ^0.4 | Validacion HTTP | Validacion Zod en endpoints |
-| `@anthropic-ai/claude-code` | latest | Claude Code | SDK para lanzar agentes de Claude Code |
-| `simple-git` | ^3 | Git | Operaciones git programaticas |
-| `@octokit/rest` | ^21 | GitHub | API de GitHub (PRs, comments, labels) |
-| `eventemitter3` | ^5 | Observer/Pub-Sub | Event Bus en memoria |
-| `pino` | ^9 | Logging | Logging estructurado JSON |
-| `xstate` | ^5 | State Machine | Maquina de estados del manifiesto |
-| `cockatiel` | ^3 | Circuit Breaker | Resiliencia (circuit breaker + retry) |
-| `yaml` | ^2 | Configuracion | Parser YAML 1.2 |
-| `zod` | ^3 | Validacion | Validacion de schemas en runtime |
-| `chokidar` | ^4 | Filesystem | Watch de archivos |
+| `hono` | ^4 | HTTP Server | Ultra-lightweight web framework |
+| `@hono/zod-validator` | ^0.4 | HTTP Validation | Zod validation in endpoints |
+| `@anthropic-ai/claude-code` | latest | Claude Code | SDK for launching Claude Code agents |
+| `simple-git` | ^3 | Git | Programmatic git operations |
+| `@octokit/rest` | ^21 | GitHub | GitHub API (PRs, comments, labels) |
+| `eventemitter3` | ^5 | Observer/Pub-Sub | In-memory Event Bus |
+| `pino` | ^9 | Logging | Structured JSON logging |
+| `xstate` | ^5 | State Machine | Manifest state machine |
+| `cockatiel` | ^3 | Circuit Breaker | Resilience (circuit breaker + retry) |
+| `yaml` | ^2 | Configuration | YAML 1.2 parser |
+| `zod` | ^3 | Validation | Runtime schema validation |
+| `chokidar` | ^4 | Filesystem | File watching |
 
-### Dependencias de desarrollo
+### Development dependencies
 
-| Libreria | Version | Proposito |
+| Library | Version | Purpose |
 |---|---|---|
-| `pino-pretty` | ^13 | Pretty print de logs en desarrollo |
-| `pino-abstract-transport` | ^2 | Base para transport custom de Pino |
+| `pino-pretty` | ^13 | Pretty print of logs in development |
+| `pino-abstract-transport` | ^2 | Base for custom Pino transport |
 
-### Dependencias opcionales (escalado)
+### Optional dependencies (scaling)
 
-| Libreria | Version | Cuando | Proposito |
+| Library | Version | When | Purpose |
 |---|---|---|---|
-| `ioredis` | ^5 | Event Bus distribuido | Redis Pub/Sub |
-| `nats` | ^2 | Event Bus enterprise | NATS messaging |
+| `ioredis` | ^5 | Distributed Event Bus | Redis Pub/Sub |
+| `nats` | ^2 | Enterprise Event Bus | NATS messaging |
 
 ---
 
-## 14. Diagrama de Dependencias
+## 14. Dependency Diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -1465,39 +1465,39 @@ test('saga compensates on failure', async () => {
 │                                                                          │
 │  ┌─ SERVER ───────────────────────────────────────────────────────────┐  │
 │  │  hono + @hono/zod-validator                                        │  │
-│  │  (CORS, Auth, SSE, Logger → built-in de Hono)                     │  │
+│  │  (CORS, Auth, SSE, Logger → Hono built-in)                        │  │
 │  └────────────────────────────────────┬───────────────────────────────┘  │
 │                                       │                                  │
 │  ┌─ CORE ─────────────────────────────┼────────────────────────────┐    │
 │  │                                    │                             │    │
-│  │  @anthropic-ai/claude-code ────── Lanza agentes                 │    │
-│  │  simple-git ──────────────────── Operaciones git                │    │
+│  │  @anthropic-ai/claude-code ────── Launches agents               │    │
+│  │  simple-git ──────────────────── Git operations                 │    │
 │  │  @octokit/rest ───────────────── GitHub API                     │    │
-│  │  zod ─────────────────────────── Validacion de negocio          │    │
+│  │  zod ─────────────────────────── Business validation            │    │
 │  │                                                                  │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                       │                                  │
 │  ┌─ EVENT BUS ────────────────────────┼────────────────────────────┐    │
-│  │  eventemitter3 ───────────────── Pub/Sub en memoria              │    │
-│  │  Bun.file() / Bun.write() ────── Persistencia JSONL             │    │
+│  │  eventemitter3 ───────────────── In-memory Pub/Sub              │    │
+│  │  Bun.file() / Bun.write() ────── JSONL persistence             │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                       │                                  │
 │  ┌─ PATTERNS ─────────────────────────┼────────────────────────────┐    │
-│  │  xstate ──────────────────────── State machine del manifiesto   │    │
+│  │  xstate ──────────────────────── Manifest state machine         │    │
 │  │  cockatiel ───────────────────── Circuit breaker + retry         │    │
-│  │  (propio) ────────────────────── Saga, Idempotencia, DLQ        │    │
+│  │  (custom) ────────────────────── Saga, Idempotency, DLQ         │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                       │                                  │
 │  ┌─ CONFIG ───────────────────────────┼────────────────────────────┐    │
-│  │  yaml ────────────────────────── Parser config.yaml              │    │
-│  │  Bun (.env) ──────────────────── Variables de entorno            │    │
+│  │  yaml ────────────────────────── config.yaml parser             │    │
+│  │  Bun (.env) ──────────────────── Environment variables          │    │
 │  │  zod ─────────────────────────── Schema validation               │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                       │                                  │
 │  ┌─ LOGGING ──────────────────────────┼────────────────────────────┐    │
-│  │  pino ────────────────────────── Logger JSON                     │    │
-│  │  pino-pretty ─────────────────── Desarrollo                      │    │
-│  │  (custom transport) ─────────── Separar logs por request_id      │    │
+│  │  pino ────────────────────────── JSON logger                    │    │
+│  │  pino-pretty ─────────────────── Development                     │    │
+│  │  (custom transport) ─────────── Separate logs by request_id      │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -1540,4 +1540,4 @@ test('saga compensates on failure', async () => {
 }
 ```
 
-**Total: 12 dependencias de produccion, 2 de desarrollo.** Bun elimina 6 dependencias que Node.js necesitaba (`dotenv`, `tsx`, `typescript`, `@types/node`, `vitest`, los plugins de Fastify). Hono elimina 3 mas (CORS, Auth, SSE como plugins).
+**Total: 12 production dependencies, 2 development dependencies.** Bun eliminates 6 dependencies that Node.js needed (`dotenv`, `tsx`, `typescript`, `@types/node`, `vitest`, Fastify plugins). Hono eliminates 3 more (CORS, Auth, SSE as plugins).

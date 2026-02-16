@@ -91,7 +91,7 @@
     @apply border-border;
   }
   body {
-    font-family: 'Geist Sans Variable', sans-serif;
+    font-family: 'Geist Sans', sans-serif;
     @apply bg-background text-foreground;
   }
 
@@ -213,7 +213,7 @@
 
 .code-viewer .shiki code {
   display: block;
-  font-family: 'Geist Mono Variable', ui-monospace, monospace;
+  font-family: 'Geist Mono', ui-monospace, monospace;
 }
 
 .code-viewer .shiki code .line {

@@ -6,8 +6,8 @@ const config: Config = {
   theme: {
   	extend: {
   		fontFamily: {
-  			sans: ['Geist Sans Variable', 'sans-serif'],
-  			mono: ['Geist Mono Variable', 'ui-monospace', 'monospace']
+  			sans: ['Geist Sans', 'sans-serif'],
+  			mono: ['Geist Mono', 'ui-monospace', 'monospace']
   		},
   		colors: {
   			border: 'hsl(var(--border))',

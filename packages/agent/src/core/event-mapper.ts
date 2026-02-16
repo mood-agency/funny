@@ -3,6 +3,11 @@
  *
  * PipelineEventMapper is stateful per-request: it tracks whether agents
  * have been started and detects correction cycles from assistant text.
+ *
+ * NOTE: UI rendering is handled by pipeline.cli_message events (raw CLIMessages
+ * forwarded to the server's ingest mapper). This mapper only produces
+ * LIFECYCLE events used internally by the pipeline service (cleanup,
+ * manifest writer, idempotency release, etc.).
  */
 
 import type { CLIMessage } from '@a-parallel/core/agents';
@@ -58,7 +63,9 @@ export class PipelineEventMapper {
 
   /**
    * Translate a CLIMessage into zero or one PipelineEvent.
-   * Returns null if the message doesn't map to a pipeline event.
+   *
+   * Only produces LIFECYCLE events (started, completed, failed, correcting,
+   * agent.started). UI-facing events are handled via pipeline.cli_message.
    */
   map(msg: CLIMessage): PipelineEvent | null {
     switch (msg.type) {
@@ -72,21 +79,15 @@ export class PipelineEventMapper {
         return null;
 
       case 'assistant': {
-        // Check for Task tool_use — indicates a sub-agent is being launched
         const toolUses = msg.message.content.filter(
           (c): c is { type: 'tool_use'; id: string; name: string; input: unknown } =>
             c.type === 'tool_use',
         );
 
+        // Track sub-agent launches for correction detection
         for (const tu of toolUses) {
           if (tu.name === 'Task' || tu.name === 'dispatch_agent') {
             this.agentsStarted++;
-
-            // If we were in a correction cycle, the agent re-launch confirms it
-            if (this.inCorrectionCycle) {
-              // Correction cycle is actively running agents now
-            }
-
             return makeEvent('pipeline.agent.started', this.requestId, {
               tool_use_id: tu.id,
               agent_name: tu.name,
@@ -95,30 +96,24 @@ export class PipelineEventMapper {
           }
         }
 
-        // Regular assistant text — check for correction cycle signals
+        // Detect correction cycle from text content
         const textBlocks = msg.message.content.filter(
           (c): c is { type: 'text'; text: string } => c.type === 'text',
         );
-        if (textBlocks.length > 0) {
+        if (textBlocks.length > 0 && this.agentsStarted > 0) {
           const fullText = textBlocks.map((t) => t.text).join('\n');
-
-          // Detect correction cycle: agents have run and text signals re-running
-          if (this.agentsStarted > 0 && isCorrectingText(fullText)) {
-            if (!this.inCorrectionCycle) {
-              this.inCorrectionCycle = true;
-              this.correctionCount++;
-              return makeEvent('pipeline.correcting', this.requestId, {
-                correction_number: this.correctionCount,
-                text: fullText,
-              });
-            }
+          if (isCorrectingText(fullText) && !this.inCorrectionCycle) {
+            this.inCorrectionCycle = true;
+            this.correctionCount++;
+            return makeEvent('pipeline.correcting', this.requestId, {
+              correction_number: this.correctionCount,
+              text: fullText,
+            });
           }
-
-          return makeEvent('pipeline.message', this.requestId, {
-            message_id: msg.message.id,
-            text: fullText,
-          });
         }
+
+        // No lifecycle event for regular assistant messages —
+        // UI rendering is handled by pipeline.cli_message
         return null;
       }
 
@@ -146,7 +141,7 @@ export class PipelineEventMapper {
         });
 
       case 'user':
-        // Tool results from sub-agents — not mapped to pipeline events
+        // Tool results — no lifecycle event needed
         return null;
 
       default:

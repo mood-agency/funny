@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { FolderPicker } from './FolderPicker';
 import { api } from '@/lib/api';
@@ -335,8 +336,8 @@ export function CloneRepoView() {
         {/* Search */}
         <div className="relative mb-3">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          <Input
+            className="w-full h-auto pl-8 pr-3 py-1.5"
             placeholder={t('github.repos.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -432,8 +433,8 @@ export function CloneRepoView() {
             {t('github.clone.destination')}
           </label>
           <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            <Input
+              className="flex-1"
               placeholder={t('github.clone.destinationDesc')}
               value={destinationPath}
               onChange={(e) => setDestinationPath(e.target.value)}
@@ -453,8 +454,7 @@ export function CloneRepoView() {
           <label className="text-sm font-medium mb-1.5 block">
             {t('github.clone.projectName')}
           </label>
-          <input
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          <Input
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
           />

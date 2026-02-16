@@ -5,6 +5,7 @@ import { useGitStatusStore } from '@/stores/git-status-store';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 import {
   GitBranch,
   GitCommit,
@@ -422,9 +423,8 @@ export function CommitDialog({ open, onOpenChange }: CommitDialogProps) {
 
           {/* Commit Title and Body Section */}
           <div className="space-y-3">
-            <input
+            <Input
               type="text"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
               placeholder={t('review.commitTitle')}
               value={commitTitle}
               onChange={(e) => setCommitTitle(e.target.value)}

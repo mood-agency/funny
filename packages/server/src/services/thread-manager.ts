@@ -1,4 +1,4 @@
-import { eq, and, or, asc, desc, inArray, like, count as drizzleCount, sql } from 'drizzle-orm';
+import { eq, and, or, ne, asc, desc, lt, inArray, like, count as drizzleCount, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { db, schema } from '../db/index.js';
 
@@ -112,34 +112,82 @@ export function getThread(id: string) {
   return db.select().from(schema.threads).where(eq(schema.threads.id, id)).get();
 }
 
-/** Get a thread with its messages and tool calls */
-export function getThreadWithMessages(id: string) {
-  const thread = db.select().from(schema.threads).where(eq(schema.threads.id, id)).get();
-  if (!thread) return null;
-
-  const messages = db
-    .select()
-    .from(schema.messages)
-    .where(eq(schema.messages.threadId, id))
-    .orderBy(asc(schema.messages.timestamp))
-    .all();
-
+/** Enrich raw message rows with parsed images and their tool calls */
+function enrichMessages(messages: (typeof schema.messages.$inferSelect)[], allToolCalls?: (typeof schema.toolCalls.$inferSelect)[]) {
   const messageIds = messages.map((m) => m.id);
-  const toolCalls = messageIds.length > 0
+  const toolCalls = allToolCalls ?? (messageIds.length > 0
     ? db.select().from(schema.toolCalls).where(
         messageIds.length === 1
           ? eq(schema.toolCalls.messageId, messageIds[0])
           : inArray(schema.toolCalls.messageId, messageIds)
       ).all()
-    : [];
+    : []);
 
-  const messagesWithTools = messages.map((msg) => ({
+  return messages.map((msg) => ({
     ...msg,
     images: msg.images ? JSON.parse(msg.images) : undefined,
     toolCalls: toolCalls.filter((tc) => tc.messageId === msg.id),
   }));
+}
 
-  return { ...thread, messages: messagesWithTools };
+/** Get a thread with its messages and tool calls.
+ *  When messageLimit is provided, returns only the N most recent messages
+ *  plus a hasMore flag. */
+export function getThreadWithMessages(id: string, messageLimit?: number) {
+  const thread = db.select().from(schema.threads).where(eq(schema.threads.id, id)).get();
+  if (!thread) return null;
+
+  let messages;
+  let hasMore = false;
+
+  if (messageLimit) {
+    const rows = db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.threadId, id))
+      .orderBy(desc(schema.messages.timestamp))
+      .limit(messageLimit + 1)
+      .all();
+
+    hasMore = rows.length > messageLimit;
+    messages = (hasMore ? rows.slice(0, messageLimit) : rows).reverse();
+  } else {
+    messages = db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.threadId, id))
+      .orderBy(asc(schema.messages.timestamp))
+      .all();
+  }
+
+  return { ...thread, messages: enrichMessages(messages), hasMore };
+}
+
+/** Get paginated messages for a thread, older than cursor.
+ *  Returns messages in ASC order (oldest first). */
+export function getThreadMessages(opts: {
+  threadId: string;
+  cursor?: string;
+  limit: number;
+}): { messages: ReturnType<typeof enrichMessages>; hasMore: boolean } {
+  const { threadId, cursor, limit } = opts;
+
+  const rows = db
+    .select()
+    .from(schema.messages)
+    .where(
+      cursor
+        ? and(eq(schema.messages.threadId, threadId), lt(schema.messages.timestamp, cursor))
+        : eq(schema.messages.threadId, threadId)
+    )
+    .orderBy(desc(schema.messages.timestamp))
+    .limit(limit + 1)
+    .all();
+
+  const hasMore = rows.length > limit;
+  const sliced = (hasMore ? rows.slice(0, limit) : rows).reverse();
+
+  return { messages: enrichMessages(sliced), hasMore };
 }
 
 /** Insert a new thread */
@@ -167,6 +215,7 @@ export function updateThread(
     worktreePath: string | null;
     permissionMode: string;
     model: string;
+    provider: string;
   }>
 ) {
   // If stage is being updated, record the transition
@@ -207,9 +256,12 @@ export function deleteThread(id: string) {
 
 /** Mark stale (running/waiting) threads as interrupted. Called on server startup. */
 export function markStaleThreadsInterrupted(): void {
-  const staleCondition = or(
-    eq(schema.threads.status, 'running'),
-    eq(schema.threads.status, 'waiting'),
+  const staleCondition = and(
+    or(
+      eq(schema.threads.status, 'running'),
+      eq(schema.threads.status, 'waiting'),
+    ),
+    ne(schema.threads.provider, 'external'),
   );
 
   const stale = db.select({ id: schema.threads.id })

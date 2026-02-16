@@ -22,6 +22,7 @@ import type {
   UserProfile,
   UpdateProfileRequest,
   GitHubRepo,
+  PaginatedMessages,
 } from '@a-parallel/shared';
 
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
@@ -47,6 +48,14 @@ export function initAuth(): Promise<void> {
     }
   })();
   return _initAuthPromise;
+}
+
+/** Set the auth token directly (used by bootstrap endpoint). */
+export function setAuthToken(token: string) {
+  authToken = token;
+  if (!_initAuthPromise) {
+    _initAuthPromise = Promise.resolve();
+  }
 }
 
 /** Get the current auth token (for WebSocket connections). */
@@ -160,7 +169,14 @@ export const api = {
     const qs = params.toString();
     return request<Thread[]>(`/threads${qs ? `?${qs}` : ''}`);
   },
-  getThread: (id: string) => request<ThreadWithMessages>(`/threads/${id}`),
+  getThread: (id: string, messageLimit?: number) => {
+    const params = messageLimit ? `?messageLimit=${messageLimit}` : '';
+    return request<ThreadWithMessages>(`/threads/${id}${params}`);
+  },
+  getThreadMessages: (threadId: string, cursor: string, limit = 50) => {
+    const params = new URLSearchParams({ cursor, limit: String(limit) });
+    return request<PaginatedMessages>(`/threads/${threadId}/messages?${params.toString()}`);
+  },
   createThread: (data: {
     projectId: string;
     title: string;

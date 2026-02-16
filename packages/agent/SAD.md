@@ -48,10 +48,11 @@ El sistema completo es un **Pipeline Service** — un servicio independiente que
 │   ┌─────────────────┐     ┌──────────────────────────┐     ┌──────────────────────────────────┐   │
 │   │ DIRECTOR         │     │ INTEGRADOR               │     │ INFRAESTRUCTURA                   │   │
 │   │                  │     │                          │     │                                  │   │
-│   │ Lee manifest     │────►│ Crea PR hacia main       │     │  ContainerManager (Podman)       │   │
-│   │ Reacciona a      │     │ Resuelve conflictos      │     │  CDP Browser (Playwright)        │   │
-│   │ eventos          │     │ Deduplica                │     │  Circuit Breakers, DLQ, Idem.    │   │
-│   └─────────────────┘     └──────────────────────────┘     └──────────────────────────────────┘   │
+│   │ Lee manifest     │────►│ Crea PR hacia main       │     │  SandboxManager (Podman, OBLIG.) │   │
+│   │ Reacciona a      │     │ Resuelve conflictos      │     │  ContainerService (compose, OPC.)│   │
+│   │ eventos          │     │ Deduplica                │     │  CDP Browser (Playwright)        │   │
+│   └─────────────────┘     └──────────────────────────┘     │  Circuit Breakers, DLQ, Idem.    │   │
+│                                                             └──────────────────────────────────┘   │
 │                                                                                                   │
 └───────────────────────────────────────────────────────────────────────────────────────────────────┘
 
@@ -69,7 +70,7 @@ El Pipeline Service:
 - **Corre como un servicio** — Se levanta una vez, escucha requests. No se "spawna por request".
 - **Expone un REST API** — Los clientes externos solo hacen HTTP POST. Reciben `202 Accepted` y listo.
 - **Gestiona todo internamente** — Adapters, Core, Event Bus, Director, Integrador, Containers, Browser. Todo vive dentro.
-- **Levanta infraestructura on-demand** — Si el proyecto tiene `compose.yml`, levanta containers y un browser (Playwright) automaticamente antes de correr los agentes. Si no hay compose, continua sin containers.
+- **Levanta infraestructura obligatoria** — **Siempre** crea un sandbox container Podman para cada pipeline (requisito obligatorio — sin Podman el pipeline falla). Los archivos del worktree se copian al container y se inicializa un repo git fresco. Adicionalmente, si el proyecto tiene `compose.yml`, levanta containers de proyecto y un browser (Playwright CDP). Si no hay compose, continua sin containers de proyecto pero el sandbox siempre existe.
 - **Notifica via outbound** — Cuando algo pasa, los outbound adapters llaman a los clientes registrados via webhooks.
 
 ### Lo que un cliente externo necesita hacer
@@ -101,7 +102,7 @@ El Pipeline Service es un servidor HTTP que corre permanentemente. Expone un RES
 
 ### Nivel 1: Pipeline Core (Infraestructura + Ejecucion + Validacion)
 
-Dentro del Service, el Core recibe un `PipelineRequest`, clasifica el tier del cambio, y ejecuta un **Paso 0 de infraestructura**: detecta si el worktree tiene un `compose.yml`, levanta containers via Podman, espera health checks, y crea un browser headless (Playwright CDP) con herramientas MCP (`cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`). Luego crea la rama de pipeline (`pipeline/{branch}`), ejecuta los 8 agentes de calidad en paralelo — con acceso a browser si hay containers — auto-corrige si es necesario, y emite eventos con los resultados. Al finalizar, limpia containers y browser. Si no hay `compose.yml`, el pipeline corre sin containers (degradacion graceful). Es completamente stateless — no guarda estado entre ejecuciones.
+Dentro del Service, el Core recibe un `PipelineRequest`, clasifica el tier del cambio, y ejecuta un **Paso 0 de infraestructura**: **siempre** crea un sandbox container Podman donde corre el agente (requisito obligatorio). Los archivos del worktree se copian al container y se inicializa un repositorio git fresco via `git clone --no-checkout`. Opcionalmente, si el worktree tiene un `compose.yml`, tambien levanta containers de proyecto, espera health checks, y crea un browser headless (Playwright CDP) con herramientas MCP (`cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`). Luego crea la rama de pipeline (`pipeline/{branch}`), ejecuta los 8 agentes de calidad en paralelo — con acceso a browser si hay containers de proyecto — auto-corrige si es necesario, y emite eventos con los resultados (incluyendo `pipeline.cli_message` con cada mensaje raw del agente para renderizado en la UI). Al finalizar, limpia sandbox, containers de proyecto, y browser. Es completamente stateless — no guarda estado entre ejecuciones.
 
 ### Nivel 2: Director (Coordinacion)
 
@@ -181,42 +182,41 @@ El Core emite eventos a traves del Event Bus. Cada evento tiene un tipo, un time
 
 ### Catalogo completo de eventos
 
+**Nota:** Este es el catalogo conceptual del SAD. La implementacion real tiene un catalogo ligeramente diferente — ver Apendice §A.9 y §A.13 para las diferencias.
+
 | Evento | Cuando se emite | Data |
 |---|---|---|
-| `pipeline.started` | El Core recibio el request y comenzo a trabajar | `{ branch, pipeline_branch, worktree_path, tier }` |
-| `pipeline.containers.ready` | Containers levantados y browser disponible (Paso 0) | `{ containers: "ready", worktree_path, app_url }` |
-| `pipeline.branch.created` | Se creo la rama `pipeline/{branch}` | `{ branch, pipeline_branch }` |
-| `pipeline.agents.started` | Los agentes del tier comenzaron a ejecutarse en paralelo | `{ agents: ["tests", "security", ...], tier }` |
+| `pipeline.accepted` | El Service acepto el request (antes de clasificar tier) | `{ branch, worktree_path }` |
+| `pipeline.tier_classified` | Tier clasificado via git diff --stat | `{ tier, stats }` |
+| `pipeline.started` | El agente Claude inicio (session init) | `{ session_id, model }` |
+| `pipeline.containers.ready` | Sandbox listo, y opcionalmente containers de proyecto + browser | `{ worktree_path, has_browser }` |
+| `pipeline.agent.started` | Un sub-agente (Task tool) fue lanzado | `{ tool_use_id, agent_name, input }` |
 | `pipeline.agent.completed` | Un agente individual termino | `{ agent, status, details, duration_ms }` |
-| `pipeline.round.completed` | Todos los agentes de una ronda terminaron | `{ round, results: {...}, blocking_failures: [...] }` |
-| `pipeline.correction.started` | Comenzo auto-correccion de un problema | `{ attempt, agent, issue }` |
-| `pipeline.correction.completed` | Termino un intento de auto-correccion | `{ attempt, agent, success, diff }` |
-| `pipeline.completed` | Pipeline termino exitosamente (todos los bloqueantes pasan) | `{ results, approved: true, corrections_applied: [...], main_sha_at_start }` |
-| `pipeline.failed` | Pipeline fallo despues de agotar intentos de auto-correccion | `{ results, approved: false, failures: [...], attempts_used }` |
-| `pipeline.error` | Error inesperado (no relacionado a calidad del codigo) | `{ error, stack_trace }` |
+| `pipeline.correcting` | Se detecto un ciclo de correccion en el texto del agente | `{ correction_number, text }` |
+| `pipeline.cli_message` | Cada CLIMessage raw del agente (para renderizado en la UI) | `{ cli_message }` |
+| `pipeline.completed` | Pipeline termino exitosamente (todos los bloqueantes pasan) | `{ result, duration_ms, num_turns, cost_usd, corrections_count, branch, tier, corrections_applied }` |
+| `pipeline.failed` | Pipeline fallo (agente error, intentos agotados, o error inesperado) | `{ error, result, duration_ms, cost_usd, corrections_count }` |
+| `pipeline.stopped` | Pipeline detenido manualmente (POST /:id/stop) | `{}` |
 
 ### Ejemplo de secuencia de eventos
 
 ```
-→ pipeline.started           { branch: "feature/auth", pipeline_branch: "pipeline/feature/auth", tier: "large" }
-→ pipeline.containers.ready  { containers: "ready", worktree_path: "/path/to/worktree", app_url: "http://localhost:3000" }
-→ pipeline.branch.created    { branch: "feature/auth", pipeline_branch: "pipeline/feature/auth" }
-→ pipeline.agents.started    { agents: ["tests","security","architecture","dependencies","code_quality","performance","accessibility","documentation"], tier: "large" }
-→ pipeline.agent.completed   { agent: "tests",         status: "pass",    details: "25/25 passed" }
-→ pipeline.agent.completed   { agent: "performance",   status: "pass",    details: "OK" }
-→ pipeline.agent.completed   { agent: "security",      status: "fail",    details: "Token sin expiracion" }
-→ pipeline.agent.completed   { agent: "architecture",  status: "pass",    details: "SOLID OK" }
-→ pipeline.agent.completed   { agent: "dependencies",  status: "pass",    details: "Todas OK" }
-→ pipeline.agent.completed   { agent: "code_quality",  status: "pass",    details: "Consistente" }
-→ pipeline.agent.completed   { agent: "accessibility", status: "skipped", details: "Sin cambios UI" }
-→ pipeline.agent.completed   { agent: "documentation", status: "warning", details: "README desactualizado" }
-→ pipeline.round.completed   { round: 1, blocking_failures: ["security"] }
-→ pipeline.correction.started   { attempt: 1, agent: "security", issue: "Token sin expiracion" }
-→ pipeline.correction.completed { attempt: 1, agent: "security", success: true, diff: "+expiresIn: '1h'" }
-→ pipeline.agent.completed   { agent: "security", status: "pass", details: "Corregido: token con expiracion" }
-→ pipeline.round.completed   { round: 2, blocking_failures: [] }
-→ pipeline.completed         { approved: true, corrections_applied: ["security: token expiration"], main_sha_at_start: "abc123" }
+→ pipeline.accepted          { branch: "feature/auth", worktree_path: "/path/to/worktree" }
+→ pipeline.tier_classified   { tier: "large", stats: { files: 12, lines: 390 } }
+→ pipeline.containers.ready  { worktree_path: "/path/to/worktree", has_browser: true }
+→ pipeline.started           { session_id: "sess-xxx", model: "sonnet" }
+→ pipeline.cli_message       { cli_message: { type: "system", subtype: "init", ... } }
+→ pipeline.agent.started     { tool_use_id: "tu_1", agent_name: "Task", input: {...} }
+→ pipeline.cli_message       { cli_message: { type: "assistant", ... } }  (muchos de estos)
+→ pipeline.agent.started     { tool_use_id: "tu_2", agent_name: "Task", input: {...} }
+→ ...
+→ pipeline.correcting        { correction_number: 1, text: "Re-running failing agents..." }
+→ pipeline.agent.started     { tool_use_id: "tu_9", agent_name: "Task", input: {...} }
+→ ...
+→ pipeline.completed         { result: "...", duration_ms: 180000, num_turns: 45, cost_usd: 2.5, corrections_count: 1, branch: "feature/auth", tier: "large", corrections_applied: ["security: token expiration"] }
 ```
+
+**Nota:** Los eventos `pipeline.cli_message` son los mas frecuentes — uno por cada CLIMessage del agente (tool calls, bash output, texto del asistente, etc.). Se usan para renderizado en la UI via el ingest webhook. Los eventos de lifecycle (`started`, `completed`, `correcting`, etc.) son mucho menos frecuentes.
 
 ---
 
@@ -248,19 +248,22 @@ Cada ejecucion del pipeline genera un archivo de eventos en `.pipeline/events/`:
 
 ```
 .pipeline/
-├── events/
-│   ├── 2026-02-14T12-00-00_feature-auth.jsonl
-│   ├── 2026-02-14T12-05-00_feature-api.jsonl
-│   └── 2026-02-14T12-08-00_feature-ui.jsonl
+├── events/                              # O ruta personalizada via config.events.path
+│   ├── abc-123.jsonl                    # Eventos del pipeline abc-123
+│   ├── def-456.jsonl                    # Eventos del pipeline def-456
+│   └── ...
 ├── manifest.json
 └── config.yaml
 ```
 
+**Nota:** Los eventos se almacenan por `request_id` (no por fecha/branch). La ruta de persistencia es configurable via `config.events.path` o via la variable de entorno `EVENTS_PATH` (default: `~/.a-parallel/pipeline-events`).
+
 Cada archivo `.jsonl` contiene un evento por linea, en orden cronologico:
 
 ```jsonl
-{"event_type":"pipeline.started","request_id":"abc-123","timestamp":"2026-02-14T12:00:00Z","data":{"branch":"feature/auth","pipeline_branch":"pipeline/feature/auth"},"metadata":{"task_id":"TASK-123"}}
-{"event_type":"pipeline.agents.started","request_id":"abc-123","timestamp":"2026-02-14T12:00:01Z","data":{"agents":["tests","security","architecture","performance","dependencies","code_quality","accessibility","documentation"]},"metadata":{"task_id":"TASK-123"}}
+{"event_type":"pipeline.accepted","request_id":"abc-123","timestamp":"2026-02-14T12:00:00Z","data":{"branch":"feature/auth","worktree_path":"/path/to/worktree"}}
+{"event_type":"pipeline.tier_classified","request_id":"abc-123","timestamp":"2026-02-14T12:00:00.1Z","data":{"tier":"large","stats":{"files":12,"lines":390}}}
+{"event_type":"pipeline.containers.ready","request_id":"abc-123","timestamp":"2026-02-14T12:00:02Z","data":{"worktree_path":"/path/to/worktree","has_browser":true}}
 ...
 ```
 
@@ -336,7 +339,7 @@ Cada entrada es JSON estructurado con campos fijos:
 | `core.agent.accessibility` | Agente de accesibilidad | `Skipped: sin cambios UI`, `WCAG AA violation` |
 | `core.agent.documentation` | Agente de documentacion | `README desactualizado`, `Docstring faltante` |
 | `core.correction` | Auto-correccion | `Intento 1/3 para security`, `Fix aplicado`, `Commit creado` |
-| `core.containers` | Infraestructura de containers y browser | `compose.yml detectado`, `Containers levantados`, `Health check passed`, `CDP browser listo` |
+| `core.containers` | Infraestructura: sandbox obligatorio + containers de proyecto + browser | `Sandbox container started`, `compose.yml detectado`, `Containers levantados`, `Health check passed`, `CDP browser listo` |
 | `director` | Decisiones del Director | `Manifest leido: 2 ready`, `Rama elegible`, `Despachando al Integrador` |
 | `integrator` | Operaciones del Integrador | `Creando rama integration/`, `PR #42 creado`, `Rebase de PR stale` |
 | `git` | Cada comando git ejecutado | `git checkout -b pipeline/feature/auth`, `git merge --no-ff`, `git push` |
@@ -364,14 +367,12 @@ Cada entrada es JSON estructurado con campos fijos:
 ```
 .pipeline/
 ├── logs/
-│   ├── 2026-02-14/
-│   │   ├── abc-123.jsonl              # Todo lo que paso en el pipeline abc-123
-│   │   ├── def-456.jsonl              # Todo lo que paso en el pipeline def-456
-│   │   └── system.jsonl               # Logs de sistema (Director, infrastructure)
-│   ├── 2026-02-13/
-│   │   └── ...
-│   └── latest → 2026-02-14/           # Symlink al dia actual
+│   ├── abc-123.jsonl              # Todo lo que paso en el pipeline abc-123
+│   ├── def-456.jsonl              # Todo lo que paso en el pipeline def-456
+│   └── system.jsonl               # Logs de sistema (Director, Integrador, DLQ, infrastructure)
 ```
+
+**Nota de implementacion:** Los archivos de log se almacenan en un directorio plano (sin subdirectorios por fecha). Cada `request_id` tiene su propio archivo JSONL.
 
 **Dos tipos de archivos:**
 
@@ -442,28 +443,22 @@ El formato JSONL + campos fijos permite consultar con herramientas estandar:
 
 ```bash
 # Todo lo que paso en un pipeline especifico
-cat .pipeline/logs/2026-02-14/abc-123.jsonl
+cat .pipeline/logs/abc-123.jsonl
 
-# Solo errores de hoy
-cat .pipeline/logs/2026-02-14/*.jsonl | jq 'select(.level == "error")'
+# Solo errores
+cat .pipeline/logs/*.jsonl | jq 'select(.level == "error")'
 
 # Todos los comandos git de un pipeline
-cat .pipeline/logs/2026-02-14/abc-123.jsonl | jq 'select(.source == "git")'
+cat .pipeline/logs/abc-123.jsonl | jq 'select(.source == "git")'
 
-# Todas las llamadas a GitHub API
-cat .pipeline/logs/2026-02-14/system.jsonl | jq 'select(.source == "github")'
+# Acciones del Director
+cat .pipeline/logs/system.jsonl | jq 'select(.source == "director")'
 
-# Lo que hizo un agente especifico
-cat .pipeline/logs/2026-02-14/abc-123.jsonl | jq 'select(.source == "core.agent.security")'
-
-# Acciones del Director hoy
-cat .pipeline/logs/2026-02-14/system.jsonl | jq 'select(.source == "director")'
-
-# Duracion de cada agente
-cat .pipeline/logs/2026-02-14/abc-123.jsonl | jq 'select(.action == "agent.complete") | {agent: .data.agent // .source, duration_ms}'
+# Lo que hizo un componente especifico
+cat .pipeline/logs/abc-123.jsonl | jq 'select(.source == "pipeline.agent")'
 
 # Webhooks que fallaron
-cat .pipeline/logs/2026-02-14/system.jsonl | jq 'select(.source == "adapter.outbound.webhook" and .level == "error")'
+cat .pipeline/logs/system.jsonl | jq 'select(.source == "webhook" and .level == "error")'
 ```
 
 ### Configuracion
@@ -493,15 +488,18 @@ logging:
 El Pipeline Service expone endpoints para consultar logs sin acceder al filesystem:
 
 ```
-GET /pipeline/{request_id}/logs
-GET /pipeline/{request_id}/logs?source=core.agent.security
-GET /pipeline/{request_id}/logs?level=error
-GET /pipeline/{request_id}/logs?source=git
+GET /logs/pipeline/{request_id}
+GET /logs/pipeline/{request_id}?source=pipeline.agent
+GET /logs/pipeline/{request_id}?level=error
 
-GET /logs/system?date=2026-02-14
+GET /logs/system
 GET /logs/system?source=director
-GET /logs/system?source=github
+GET /logs/system?level=warn
+
+GET /logs/requests                     # Lista todos los request_ids con logs
 ```
+
+Todos los endpoints soportan query params: `source`, `level`, `from` (timestamp), `to` (timestamp), `limit`, `offset`.
 
 ---
 
@@ -628,10 +626,10 @@ GET /director/status
 }
 ```
 
-#### GET /pipeline/:request_id/logs — Logs de un pipeline
+#### GET /logs/pipeline/:request_id — Logs de un pipeline
 
 ```
-GET /pipeline/abc-123/logs?source=core.agent.security&level=warn
+GET /logs/pipeline/abc-123?source=pipeline.agent&level=warn
 
 [
   {
@@ -650,7 +648,7 @@ Query params: `source`, `level`, `action`, `from` (timestamp), `to` (timestamp),
 #### GET /logs/system — Logs de sistema
 
 ```
-GET /logs/system?source=director&date=2026-02-14
+GET /logs/system?source=director
 
 [
   {
@@ -1091,16 +1089,13 @@ El pipeline tiene 8 agentes, pero **no siempre corren los 8**. El Core analiza e
 
 ### 7.0 Tiers de ejecucion
 
-El Core hace `git diff --stat` contra `base_branch` para clasificar el cambio. Antes de lanzar los agentes, el sistema ejecuta un **Paso 0: Infraestructura de Containers** que detecta si el proyecto tiene un archivo `compose.yml`, levanta los containers via Podman, espera health checks, y crea un servidor MCP con herramientas de browser (Playwright CDP). Si hay containers disponibles, **todos los agentes** reciben acceso a herramientas de browser (`cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`).
+El Core hace `git diff --stat` contra `base_branch` para clasificar el cambio. Antes de lanzar los agentes, el sistema ejecuta un **Paso 0: Infraestructura de Containers** con dos capas: (1) **siempre** crea un sandbox container Podman donde corre el agente (obligatorio), y (2) opcionalmente, si el proyecto tiene un `compose.yml`, levanta containers de proyecto, espera health checks, y crea un servidor MCP con herramientas de browser (Playwright CDP). Si hay containers de proyecto disponibles, **todos los agentes** reciben acceso a herramientas de browser (`cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`).
 
 ```
 PipelineRequest recibido
          │
          ▼
-Crear rama pipeline/{branch}
-         │
-         ▼
-Analizar cambio: git diff --stat base_branch...pipeline/{branch}
+Clasificar tier: git diff --stat base_branch...HEAD
          │
          ▼
    ┌─────┴──────────────────────────────┐
@@ -1108,29 +1103,32 @@ Analizar cambio: git diff --stat base_branch...pipeline/{branch}
    │                                     │
    │  archivos_modificados = N           │
    │  lineas_cambiadas = M              │
-   │  archivos_nuevos = X               │
-   │  deps_modificadas = bool           │
-   │  cambios_ui = bool                 │
-   │  archivos_arquitectura = bool      │
    └─────┬──────────────────────────────┘
          │
          ▼
    ┌─────────────────────────────────────┐
    │  Paso 0: Container Infrastructure   │
    │                                     │
-   │  1. detectComposeFile(worktree)     │
-   │     → ¿existe compose.yml?          │
+   │  OBLIGATORIO:                       │
+   │  1. Verificar Podman instalado      │
+   │  2. podman build (imagen sandbox)   │
+   │  3. podman run -d (sandbox)         │
+   │     → mount worktree read-only      │
+   │     → copiar archivos a /workspace  │
+   │     → git init + fetch + checkout   │
+   │  4. createSpawnFn(requestId)        │
+   │     → agente corre via podman exec  │
    │                                     │
-   │  Si existe:                         │
-   │  2. podman compose up -d            │
-   │  3. waitForHealthy() → HTTP poll    │
-   │  4. createCdpMcpServer(appUrl)      │
+   │  OPCIONAL (si compose.yml existe):  │
+   │  5. podman compose up -d            │
+   │  6. waitForHealthy() → HTTP poll    │
+   │  7. createCdpMcpServer(appUrl)      │
    │     → Playwright headless Chrome    │
    │     → MCP tools: cdp_navigate,      │
    │       cdp_screenshot, cdp_get_dom   │
    │                                     │
-   │  Si NO existe:                      │
-   │  → Continua sin containers          │
+   │  Si NO hay compose:                 │
+   │  → Sandbox listo, sin browser tools │
    │    (mcpServers = undefined)         │
    └─────┬──────────────────────────────┘
          │
@@ -1147,8 +1145,8 @@ Analizar cambio: git diff --stat base_branch...pipeline/{branch}
                   └──────┘└──────┘
                   (+ los 2 de Small)  (+ los 5 de Medium)
 
-Todos los agentes reciben mcpServers si hay containers activos.
-Los agentes usan cdp_* tools para E2E, accesibilidad, visual, performance.
+Todos los agentes corren dentro del sandbox container (via podman exec).
+Si hay containers de proyecto, reciben mcpServers con cdp_* tools.
 ```
 
 #### Criterios de clasificacion
@@ -1210,26 +1208,30 @@ Un cliente tambien puede forzar el tier en el request:
 PipelineRequest recibido
          │
          ▼
-Crear rama pipeline/{branch}
-         │
-         ▼
 Clasificar cambio → tier = medium
          │
          ▼
 ┌─────────────────────────────────────┐
 │  Paso 0: Container Infrastructure   │
 │                                     │
+│  SIEMPRE:                           │
+│    Sandbox container (Podman)       │
+│    → copy worktree → git clone      │
+│    → spawnFn = podman exec          │
+│                                     │
 │  ¿compose.yml en worktree?          │
-│    Si → podman up → health check    │
+│    Si → podman compose up           │
+│         → health check              │
 │         → Playwright CDP browser    │
 │         → mcpServers = { cdp-browser }
 │    No → mcpServers = undefined      │
-│         (sin containers, continua)  │
+│         (sandbox listo, sin browser)│
 └─────────────┬───────────────────────┘
               │
               ▼
-   UN AGENTE lanza 5 subagentes (tier medium)
-   con mcpServers inyectados (si disponibles)
+   UN AGENTE (dentro del sandbox via podman exec)
+   lanza 5 subagentes (tier medium)
+   con mcpServers inyectados (si hay containers de proyecto)
          │
     ┌────┼────┬────┬────┬────┐
     │    │    │    │    │    │
@@ -1350,27 +1352,41 @@ Verifica que la documentacion acompane al codigo.
 
 ### 7.9 Infraestructura de Containers y Browser Tools
 
-El pipeline integra un **Paso 0 de infraestructura** que levanta containers y crea un servidor MCP con herramientas de browser. Esto ocurre **antes** de que los agentes arranquen, garantizando que la aplicacion este corriendo y accesible para pruebas E2E, verificacion visual, accesibilidad, y performance.
+El pipeline integra un **Paso 0 de infraestructura** que tiene dos capas: un **sandbox container obligatorio** donde corre el agente, y **containers de proyecto opcionales** con browser tools. Esto ocurre **antes** de que los agentes arranquen.
+
+#### Dos capas de containers
+
+| Capa | Obligatoria | Que hace |
+|------|-------------|----------|
+| **Sandbox** (SandboxManager) | **Si** — Podman es requisito. Sin Podman el pipeline falla. | Crea un container aislado donde corre el agente Claude. Los archivos del worktree se copian al container y se inicializa un repo git fresco. |
+| **Proyecto** (ContainerService + CDP) | No — solo si existe `compose.yml` | Levanta los servicios del proyecto (app, DB, etc.), espera health checks, y crea un browser headless (Playwright CDP) con herramientas MCP. |
 
 #### Arquitectura de Containers
 
 ```
 @a-parallel/core/containers (libreria)        @a-parallel/agent (orquestacion)
 ┌──────────────────────────────┐              ┌────────────────────────────────┐
-│ ContainerService             │              │ ContainerManager               │
-│  - detectComposeFile()       │◄─────────────│  - setup(worktreePath, reqId)  │
-│  - startContainers()         │              │  - cleanup(worktreePath)       │
-│  - waitForHealthy()          │              │  - cleanupAll()                │
-│  - stopContainers()          │              │                                │
-│  - stopAll()                 │              │ Mantiene mapa de instancias:   │
+│ SandboxManager               │              │ ContainerManager               │
+│  - isPodmanAvailable()       │◄─────────────│  - setup(worktreePath, reqId)  │
+│  - ensureImage()             │              │  - cleanup(worktreePath, reqId)│
+│  - startSandbox()            │              │  - cleanupAll()                │
+│  - createSpawnFn()           │              │  - killOrphans()               │
+│  - stopSandbox()             │              │                                │
+│  - killOrphans()             │              │ Mantiene mapa de instancias:   │
 │                              │              │ cdpInstances: Map<path, CDP>   │
-│ createCdpMcpServer()         │◄─────────────│                                │
-│  - Playwright headless Chrome│              │ Se inyecta en PipelineRunner   │
-│  - MCP tools (cdp_*)         │              └────────────────────────────────┘
+│ ContainerService             │              │                                │
+│  - detectComposeFile()       │◄─────────────│ Se inyecta en PipelineRunner   │
+│  - startContainers()         │              └────────────────────────────────┘
+│  - waitForHealthy()          │
+│  - stopContainers()          │
+│                              │
+│ createCdpMcpServer()         │
+│  - Playwright headless Chrome│
+│  - MCP tools (cdp_*)         │
 └──────────────────────────────┘
 ```
 
-- **`@a-parallel/core/containers`** — Libreria reutilizable. Maneja el lifecycle de Podman y Playwright.
+- **`@a-parallel/core/containers`** — Libreria reutilizable. Contiene `SandboxManager`, `ContainerService`, y `createCdpMcpServer`.
 - **`ContainerManager`** — Orquestacion especifica del pipeline. Vive en `packages/agent/src/infrastructure/`.
 
 #### Flujo del Paso 0
@@ -1381,22 +1397,33 @@ PipelineRunner.run(request)
          ▼
   containerManager.setup(worktree_path, request_id)
          │
-         ├── 1. detectComposeFile(worktree_path)
+         ├── 1. Verificar Podman disponible (OBLIGATORIO)
+         │      → Si no esta instalado → throw Error con instrucciones de instalacion
+         │
+         ├── 2. Crear sandbox container (SIEMPRE)
+         │      → podman build (imagen a-parallel-sandbox, lazy, una sola vez)
+         │      → podman run -d (monta worktree read-only en /mnt/source)
+         │      → Copiar archivos (excluyendo .git) a /workspace
+         │      → Inicializar repo git fresco:
+         │         a. git init + git remote add origin
+         │         b. git fetch origin {branch} --depth=50
+         │         c. git checkout -b {branch} FETCH_HEAD
+         │         (fallback: git init + git add -A + git commit)
+         │      → createSpawnFn(requestId) → custom spawn function
+         │         (el agente Claude corre dentro del container via podman exec)
+         │
+         ├── 3. Detectar compose file (OPCIONAL)
          │      → Busca compose.yml, compose.yaml, docker-compose.yml
-         │      → Si NO existe → return undefined (sin containers)
+         │      → Si NO existe → return (sandbox listo, sin browser)
          │
-         ├── 2. startContainers({ threadId, worktreePath, composeFile })
+         ├── 4. Levantar servicios del proyecto (si compose existe)
          │      → podman compose up -d
-         │      → Retorna ContainerState { exposedPorts }
+         │      → waitForHealthy() → HTTP poll
          │
-         ├── 3. waitForHealthy(worktree_path)
-         │      → HTTP poll al health endpoint
-         │      → Espera hasta que responda 200
-         │
-         ├── 4. Encontrar app URL del primer puerto expuesto
+         ├── 5. Encontrar app URL del primer puerto expuesto
          │      → http://localhost:{firstPort}
          │
-         └── 5. createCdpMcpServer({ appUrl })
+         └── 6. createCdpMcpServer({ appUrl })
                 → Lanza Playwright headless Chrome
                 → Navega a appUrl
                 → Crea MCP server con 3 tools:
@@ -1406,14 +1433,32 @@ PipelineRunner.run(request)
                 → Retorna { server } para inyectar en mcpServers
 ```
 
+#### Estrategia de Copy + Clone
+
+El sandbox **no usa bind-mounts** para el worktree. En su lugar:
+
+1. El worktree del host se monta **read-only** en `/mnt/source`
+2. Los archivos (excluyendo `.git`) se **copian** a `/workspace` dentro del container
+3. Se inicializa un **repo git fresco**: `git init` → `git remote add origin` → `git fetch --depth=50` → `git checkout`
+
+**Por que no bind-mount?**
+- Evita problemas de permisos entre host y container
+- Evita problemas de paths cross-platform (Windows ↔ Linux)
+- Los worktrees de git tienen un archivo `.git` pointer (no un directorio), y bind-mountear esto no funciona correctamente dentro del container
+- El container tiene su propio `.git` directory con historia real
+
+**Fallback:** Si no hay remote URL o el fetch falla, se usa un `git init` local con todos los archivos commiteados como snapshot.
+
 #### Inyeccion en Agentes
 
-El `mcpServers` resultante se pasa al `orchestrator.startAgent()`. El agente Claude SDK recibe las tools de browser via MCP, y **todos los subagentes** (tests, security, etc.) pueden usarlas:
+El `spawnClaudeCodeProcess` y opcionalmente `mcpServers` se pasan al `orchestrator.startAgent()`. El agente Claude SDK corre **dentro del sandbox** via `podman exec`, y recibe las tools de browser via MCP si hay containers de proyecto:
 
 ```
 orchestrator.startAgent({
   prompt: buildPipelinePrompt(..., hasBrowserTools: true),
-  mcpServers: { 'cdp-browser': cdp.server },  // ← inyectado
+  cwd: '/workspace',                                   // ← dentro del container
+  spawnClaudeCodeProcess: sandboxSpawnFn,               // ← podman exec wrapper
+  mcpServers: { 'cdp-browser': cdp.server },            // ← solo si compose existe
   ...
 })
 ```
@@ -1445,32 +1490,44 @@ Use these tools for E2E testing, accessibility checks, visual verification, and 
 
 Los containers y el browser se limpian en tres puntos:
 
-1. **Pipeline completa/falla/se detiene** — Event listener en `index.ts` escucha `pipeline.completed`, `pipeline.failed`, `pipeline.stopped` y llama `containerManager.cleanup(worktreePath)`
-2. **Error catastrofico** — En el handler de error del `PipelineRunner`, se llama cleanup
-3. **Shutdown del servicio** — En `SIGINT`/`SIGTERM`, se llama `containerManager.cleanupAll()` que dispose todas las instancias CDP y detiene todos los containers
+1. **Pipeline completa/falla/se detiene** — Event listener en `index.ts` escucha `pipeline.completed`, `pipeline.failed`, `pipeline.stopped` y llama `containerManager.cleanup(worktreePath, requestId)` con un delay de 3 segundos (para dejar que el proceso SDK termine limpiamente)
+2. **Shutdown del servicio** — En `SIGINT`/`SIGTERM`, se llama `containerManager.cleanupAll()` que dispose todas las instancias CDP, detiene containers de proyecto, y detiene todos los sandboxes
+3. **Startup del servicio** — `containerManager.killOrphans()` busca y elimina containers `pipeline-sandbox-*` huerfanos de ejecuciones anteriores (crashes, terminales cerradas)
 
 ```
 pipeline.completed / pipeline.failed / pipeline.stopped
          │
-         ▼
-containerManager.cleanup(worktreePath)
+         ▼ (3s delay para que el SDK termine)
+containerManager.cleanup(worktreePath, requestId)
          │
-         ├── cdp.dispose()       → Cierra Playwright browser
-         │
-         └── stopContainers()    → podman compose down
+         ├── cdp.dispose()          → Cierra Playwright browser
+         ├── stopContainers()       → podman compose down (proyecto)
+         └── stopSandbox(requestId) → podman rm -f (sandbox)
 ```
 
-#### Degradacion Graceful
+#### Degradacion: Sandbox obligatorio, Proyecto opcional
 
-El setup de containers es **no-fatal**. Si falla cualquier paso (compose file no existe, podman no instalado, health check timeout, Playwright falla), el pipeline **continua sin containers**. Los agentes simplemente no tendran acceso a browser tools, pero pueden seguir ejecutando sus verificaciones estaticas normalmente.
+El **sandbox es obligatorio**. Si Podman no esta instalado, `setup()` lanza un error con instrucciones de instalacion y el pipeline **no puede correr**.
+
+Los **containers de proyecto son opcionales**. Si falla cualquier paso del setup de proyecto (compose file no existe, health check timeout, Playwright falla), el pipeline **continua sin browser tools**. Los agentes pueden seguir ejecutando sus verificaciones estaticas normalmente dentro del sandbox.
 
 ```typescript
-// En PipelineRunner.run():
+// En ContainerManager.setup():
+// 1. Sandbox — OBLIGATORIO (throw si falla)
+const podmanAvailable = await this.sandboxManager.isPodmanAvailable();
+if (!podmanAvailable) {
+  throw new Error('Podman is required to run pipelines...');
+}
+await this.sandboxManager.startSandbox({ requestId, worktreePath });
+
+// 2. Proyecto — OPCIONAL (catch + warn si falla)
 try {
-  mcpServers = await this.containerManager.setup(worktree_path, request_id);
+  const composeFile = await this.containerService.detectComposeFile(worktreePath);
+  if (composeFile) {
+    // ... start containers, wait for health, create CDP browser
+  }
 } catch (err) {
-  logger.warn({ err }, 'Container setup failed, continuing without browser tools');
-  // mcpServers queda undefined — pipeline continua sin containers
+  logger.warn('Project container setup failed — continuing without browser tools');
 }
 ```
 
@@ -2355,62 +2412,75 @@ pipeline:
 
 ### El Pipeline Service como aplicacion
 
-El Pipeline Service es una **aplicacion Node.js** (o similar) que:
-1. Levanta un servidor HTTP (Express/Fastify) para recibir requests
-2. Gestiona procesos de Claude Code internamente para ejecutar el pipeline
-3. Mantiene un Event Bus en memoria + persistencia en disco
-4. Corre outbound adapters como modulos internos
+El Pipeline Service es una **aplicacion Bun** que corre como paquete `@a-parallel/agent` dentro del monorepo:
+1. Levanta un servidor HTTP (Hono) en el puerto 3002 para recibir requests
+2. Usa `AgentOrchestrator` + `SDKClaudeProcess` del Claude Agent SDK para ejecutar agentes
+3. Mantiene un Event Bus (eventemitter3) en memoria + persistencia JSONL en disco
+4. Corre outbound adapters (webhooks genericos) como modulos internos
+5. Auto-registra un ingest webhook para reenviar eventos a la UI principal
 
 ```
-Pipeline Service (aplicacion Node.js)
+Pipeline Service (Bun + Hono — packages/agent)
 │
 ├── src/
-│   ├── server.ts                      # HTTP server (Express/Fastify)
-│   │   ├── POST /pipeline/run         # Recibe PipelineRequest
-│   │   ├── GET  /pipeline/:id         # Estado de un pipeline
-│   │   ├── GET  /pipeline/:id/events  # SSE stream de eventos
-│   │   ├── POST /director/run         # Activar Director manualmente
-│   │   └── GET  /director/status      # Estado del Director
+│   ├── index.ts                       # Composition root — wiring de todos los componentes
+│   ├── server.ts                      # Bun HTTP server bootstrap + graceful shutdown
+│   │
+│   ├── routes/
+│   │   ├── pipeline.ts                # POST /run, GET /list, GET /:id, GET /:id/events (SSE), POST /:id/stop
+│   │   ├── director.ts               # POST /run, GET /status, GET /manifest
+│   │   ├── webhooks.ts               # POST /github (inbound GitHub webhook)
+│   │   └── logs.ts                    # GET /pipeline/:id, GET /system, GET /requests
 │   │
 │   ├── core/
-│   │   ├── pipeline-runner.ts         # Spawna Claude Code, gestiona el pipeline
-│   │   ├── director.ts               # Logica del Director
-│   │   └── integrator.ts             # Logica del Integrador (crea PRs)
+│   │   ├── pipeline-runner.ts         # Orquesta agentes via AgentOrchestrator (Claude Agent SDK)
+│   │   ├── event-mapper.ts            # CLIMessage → PipelineEvent (stateful, con correccion detection)
+│   │   ├── state-machine.ts           # FSM generico + transiciones de pipeline y branch
+│   │   ├── tier-classifier.ts         # git diff --stat → Small/Medium/Large
+│   │   ├── prompt-builder.ts          # Construye system prompt para el agente pipeline
+│   │   ├── director.ts               # Coordinador de integraciones (no LLM)
+│   │   ├── integrator.ts             # Saga de integracion: fetch → branch → merge → push → PR
+│   │   ├── manifest-manager.ts       # Lee/escribe .pipeline/manifest.json (ready/pending/history)
+│   │   ├── manifest-types.ts          # Tipos del manifiesto
+│   │   ├── branch-cleaner.ts          # Limpieza de ramas pipeline/ e integration/
+│   │   └── saga.ts                    # Patron Saga con compensacion y persistencia
 │   │
-│   ├── event-bus/
-│   │   ├── bus.ts                     # EventEmitter + persistencia
-│   │   └── persister.ts              # Escribe eventos en .pipeline/events/*.jsonl
+│   ├── infrastructure/
+│   │   ├── event-bus.ts               # eventemitter3 + persistencia JSONL por request_id
+│   │   ├── container-manager.ts       # Orquesta SandboxManager + ContainerService + CDP
+│   │   ├── circuit-breaker.ts         # cockatiel: claude (3/60s) y github (5/120s)
+│   │   ├── idempotency.ts            # Guarda de idempotencia por branch (memoria + disco)
+│   │   ├── dlq.ts                     # Dead Letter Queue con backoff exponencial
+│   │   ├── adapter.ts                 # AdapterManager: despacha eventos a outbound adapters
+│   │   ├── webhook-adapter.ts         # Webhook generico con HMAC y filtro de eventos
+│   │   ├── request-logger.ts          # Logs JSONL por request_id + system.jsonl
+│   │   └── logger.ts                  # Pino logger (pretty en dev, JSON en prod)
 │   │
-│   ├── adapters/
-│   │   ├── outbound/
-│   │   │   ├── manifest-writer.ts     # Escribe en manifest.json
-│   │   │   ├── client-notifier.ts     # Webhook al cliente
-│   │   │   ├── slack-notifier.ts      # Webhook a Slack
-│   │   │   ├── github-notifier.ts     # Comenta en PRs
-│   │   │   └── webhook-notifier.ts    # Generico (cualquier URL)
-│   │   └── inbound/
-│   │       └── cli.ts                 # CLI: `pipeline run --branch ...`
+│   ├── validation/
+│   │   └── schemas.ts                 # Zod schemas para PipelineRun y DirectorRun
 │   │
 │   └── config/
-│       └── loader.ts                  # Lee .pipeline/config.yaml
+│       ├── schema.ts                  # Zod schema completo con defaults
+│       ├── loader.ts                  # Lee .pipeline/config.yaml + resuelve ${ENV_VARS}
+│       └── defaults.ts               # Constante DEFAULT_CONFIG
 │
 ├── package.json
-└── Dockerfile                         # Para deployment
+└── tsconfig.json
 ```
 
 ### Mapeo de componentes a primitivas
 
 | Componente | Implementacion | Descripcion |
 |---|---|---|
-| **HTTP Server** | Express/Fastify (Node.js) | Recibe requests HTTP del mundo exterior |
-| **Pipeline Core** | Proceso Claude Code spawneado por el Service | El Service ejecuta `claude -p "..."` como subprocess |
-| **8 Agentes** | Subagentes via Task tool (dentro del proceso Claude Code) | El Core lanza 8 Tasks en paralelo, cada una ejecuta una skill |
-| **Director** | Proceso Claude Code spawneado por el Service | Se activa por evento o manualmente via API |
-| **Integrador** | Proceso Claude Code spawneado por el Service | Invocado por el Director para hacer merges |
-| **Event Bus** | EventEmitter (Node.js) + archivos JSONL | Distribucion en memoria, persistencia en disco |
-| **Outbound Adapters** | Modulos Node.js que escuchan el EventEmitter | Cada adapter es una funcion suscrita a eventos |
-| **Config** | `.pipeline/config.yaml` | Configuracion del proyecto |
-| **Reglas** | `CLAUDE.md` en cada contexto | Define comportamiento de cada rol |
+| **HTTP Server** | Hono (Bun runtime, puerto 3002) | Recibe requests HTTP del mundo exterior |
+| **Pipeline Core** | `AgentOrchestrator` + `SDKClaudeProcess` (Claude Agent SDK) | El Service usa el SDK directamente, no spawn de CLI |
+| **8 Agentes** | Subagentes via Task tool (dentro del proceso Claude Code) | El Core lanza subagentes en paralelo, cada uno ejecuta una skill |
+| **Sandbox** | `SandboxManager` → Podman container obligatorio | Cada pipeline corre dentro de un container aislado |
+| **Director** | Clase TypeScript (no LLM) activada por eventos | Lee manifest, resuelve dependencias, ordena por prioridad, despacha al Integrador |
+| **Integrador** | `AgentOrchestrator` (Claude Opus) para conflictos + git commands | Saga de 6 pasos: fetch → branch → merge → push → PR → checkout |
+| **Event Bus** | eventemitter3 + archivos JSONL | Distribucion en memoria, persistencia en disco |
+| **Outbound Adapters** | `WebhookAdapter` (generico) + ingest webhook (auto-registrado) | HTTP POST con HMAC opcional y filtro de eventos |
+| **Config** | `.pipeline/config.yaml` (Zod validated) | Configuracion del proyecto con resolución de `${ENV_VARS}` |
 | **Skills** | 8 skills instaladas en Claude Code | Cada una es un agente especializado del pipeline |
 
 ### Estructura de archivos del proyecto
@@ -2420,20 +2490,18 @@ proyecto/                              # Repo del usuario
 ├── .pipeline/
 │   ├── manifest.json                  # Estado de ramas (ready, pending_merge, merge_history)
 │   ├── config.yaml                    # Configuracion del pipeline para este proyecto
+│   ├── active-pipelines.json          # Guarda de idempotencia (branch → request_id)
 │   ├── events/                        # Historial de eventos (Event Bus persiste aqui)
-│   │   ├── 2026-02-14T12-00_feature-auth.jsonl
-│   │   ├── 2026-02-14T12-05_feature-api.jsonl
-│   │   └── 2026-02-14T12-08_feature-ui.jsonl
-│   ├── logs/                          # Logs completos de todo lo que pasa
-│   │   ├── 2026-02-14/
-│   │   │   ├── abc-123.jsonl          # Todo lo que paso en pipeline abc-123
-│   │   │   └── system.jsonl           # Director, Integrador, infraestructura
-│   │   └── latest → 2026-02-14/
+│   │   ├── {request_id}.jsonl         # Eventos de un pipeline especifico
+│   │   └── ...
+│   ├── logs/                          # Logs estructurados JSONL
+│   │   ├── {request_id}.jsonl         # Todo lo que paso en un pipeline especifico
+│   │   └── system.jsonl               # Director, Integrador, DLQ, infraestructura
 │   ├── sagas/                         # Log de transacciones en progreso (Saga pattern)
-│   │   └── abc-123.json              # Pasos completados por request_id
+│   │   └── {request_id}.json          # Pasos completados por request_id
 │   └── dlq/                           # Dead Letter Queue (eventos fallidos por adapter)
-│       └── webhook-notifier/
-│           └── abc-123.jsonl          # Eventos que no se pudieron entregar
+│       └── {adapter_name}/
+│           └── {request_id}.jsonl     # Eventos que no se pudieron entregar
 │
 ├── CLAUDE.md                          # Reglas del Director + Integrador
 │
@@ -2803,18 +2871,21 @@ Transiciones invalidas (el sistema las rechaza):
 ```
 Paso                              Compensacion si falla
 ───────────────────────────────   ───────────────────────────────
-1. Crear rama pipeline/{branch}   → Eliminar rama pipeline/{branch}
-2. Container Infrastructure       → containerManager.cleanup(worktreePath)
-   (detectar compose, podman up,     (stop containers, dispose browser)
-    health check, CDP browser)       Fallo es NO-FATAL: pipeline continua sin containers
-3. Correr agentes                 → Emitir pipeline.error, limpiar rama + containers
+1. Sandbox container (Podman)     → containerManager.cleanup(worktreePath, requestId)
+   (OBLIGATORIO: copiar archivos,    (sandbox es requisito — si falla, pipeline no corre)
+    git clone, createSpawnFn)
+2. Containers de proyecto         → stopContainers() + cdp.dispose()
+   (OPCIONAL: compose up,            Fallo es NO-FATAL: pipeline continua sin browser tools
+    health check, CDP browser)
+3. Correr agentes                 → Emitir pipeline.error, limpiar sandbox + containers
+   (dentro del sandbox via           (agente corre en /workspace dentro del container)
+    podman exec)
 4. Auto-correccion                → git reset al commit pre-correccion
 5. Merge back a rama original     → Mantener pipeline/{branch} para debug
 6. Crear rama integration/        → Eliminar rama integration/{branch}
-7. Pipeline post-merge            → Cerrar PR con comentario de fallo
-8. Crear PR                       → (sin compensacion — el PR es visible)
-9. PR mergeado (humano)           → (irreversible — compensar con revert commit)
-10. Cleanup ramas + containers    → Reintentar en proximo ciclo del Director
+7. Crear PR                       → (sin compensacion — el PR es visible)
+8. PR mergeado (humano)           → (irreversible — compensar con revert commit)
+9. Cleanup ramas + containers     → Reintentar en proximo ciclo del Director
 ```
 
 **Implementacion:** El Core mantiene un log de pasos completados para cada `request_id`. Si el proceso se interrumpe (crash, timeout), al reiniciar puede:
@@ -2988,7 +3059,7 @@ resilience:
 
 14. **Paralelo en todos los niveles** — Multiples pipelines corren en paralelo. Los 8 agentes del pipeline corren en paralelo. Los merges son secuenciales (por necesidad).
 
-15. **Container Infrastructure como Paso 0** — Antes de que los agentes arranquen, el sistema detecta si el proyecto tiene containers (compose.yml), los levanta via Podman, espera health checks, y crea un browser (Playwright CDP). Los agentes reciben herramientas de browser (`cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`) via MCP. Si no hay containers, el pipeline continua normalmente sin browser tools (degradacion graceful).
+15. **Sandbox obligatorio, containers de proyecto opcionales** — Cada pipeline **siempre** corre dentro de un sandbox container Podman (Podman es requisito obligatorio — sin el, el pipeline falla). Los archivos del worktree se copian al container y se inicializa un repo git fresco (copy + clone, no bind-mount). Adicionalmente, si el proyecto tiene `compose.yml`, se levantan containers de proyecto con browser tools CDP (degradacion graceful si falla). Los agentes reciben herramientas de browser (`cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`) via MCP solo cuando hay containers de proyecto.
 
 16. **Post-merge pipeline** — Despues de cada merge a main, se re-ejecuta el pipeline para verificar que la integracion no rompio nada.
 
@@ -3131,22 +3202,92 @@ Eventos del SAD que **no existen** en la implementacion:
 - `pipeline.correction.started/completed` — se emite `pipeline.correcting` sin granularidad por agente
 - `integration.pipeline.running` — no re-ejecutamos pipeline post-merge
 
-### A.10 Container Infrastructure y Browser Tools
+### A.10 Container Infrastructure: Sandbox obligatorio + Browser Tools
 
 **SAD (original):** No existia — los agentes solo hacian analisis estatico sin acceso a la aplicacion corriendo.
 
-**Implementacion:** Se agrego un **Paso 0 de infraestructura** en el `PipelineRunner` que:
+**Implementacion:** Se agrego un **Paso 0 de infraestructura** en el `PipelineRunner` con **dos capas**:
 
-1. Detecta si el worktree tiene un `compose.yml` (o variantes)
-2. Levanta containers via Podman (`podman compose up -d`)
-3. Espera health checks (HTTP poll)
-4. Crea un servidor MCP con Playwright headless Chrome que expone 3 tools: `cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`
-5. Inyecta el MCP server en `orchestrator.startAgent()` via `mcpServers`
+**Capa 1 — Sandbox (OBLIGATORIA):**
+1. Verifica que Podman esta instalado (si no → error con instrucciones de instalacion)
+2. Construye la imagen `a-parallel-sandbox` si no existe (lazy, una vez)
+3. Crea un container `pipeline-sandbox-{requestId}` con el worktree montado **read-only** en `/mnt/source`
+4. Copia archivos (excluyendo `.git`) del mount a `/workspace`
+5. Inicializa un repo git fresco: `git init` → `git remote add origin` → `git fetch --depth=50` → `git checkout`
+6. Crea un `spawnClaudeCodeProcess` que redirige el proceso Claude Code dentro del container via `podman exec`
+
+**Capa 2 — Proyecto (OPCIONAL):**
+7. Detecta si el worktree tiene un `compose.yml` (o variantes)
+8. Si existe: levanta containers via Podman (`podman compose up -d`), espera health checks
+9. Crea un servidor MCP con Playwright headless Chrome (tools: `cdp_navigate`, `cdp_screenshot`, `cdp_get_dom`)
+10. Inyecta el MCP server y el `spawnClaudeCodeProcess` en `orchestrator.startAgent()`
 
 **Arquitectura de paquetes:**
-- `@a-parallel/core/containers` — Libreria reutilizable (`ContainerService`, `createCdpMcpServer`)
+- `@a-parallel/core/containers` — Libreria reutilizable (`SandboxManager`, `ContainerService`, `createCdpMcpServer`)
 - `@a-parallel/agent/infrastructure/container-manager.ts` — Orquestacion especifica del pipeline
 
-**Razon:** Los agentes de calidad son mas efectivos cuando pueden interactuar con la aplicacion corriendo. Tests E2E, verificacion visual, accesibilidad (WCAG), y performance requieren un browser real. La separacion core/agent permite reutilizar `ContainerService` desde otros contextos (ej: el server principal).
+**Estrategia Copy + Clone (por que no bind-mount):**
+- Los worktrees de git usan un archivo `.git` pointer (no un directorio), y bind-mountear esto no funciona correctamente dentro de un container Linux
+- Cross-platform: el host puede ser Windows, el container es Linux — los paths no son compatibles
+- Permisos: bind-mounts heredan permisos del host, causando problemas con el usuario `sandbox` del container
+- Solucion: copiar archivos + `git init` + `git fetch --depth=50` dentro del container
 
-**Degradacion graceful:** Si el setup de containers falla (compose no existe, podman no instalado, health timeout), el pipeline continua sin browser tools. Los agentes solo hacen analisis estatico.
+**Razon:** Los agentes corren en un entorno aislado y reproducible. Ademas, cuando hay containers de proyecto, pueden interactuar con la aplicacion corriendo para tests E2E, verificacion visual, accesibilidad (WCAG), y performance.
+
+**Degradacion:** El sandbox es **obligatorio** — sin Podman el pipeline no corre. Los containers de proyecto son **opcionales** — si falla su setup (compose no existe, health timeout, Playwright falla), el pipeline continua con el sandbox pero sin browser tools.
+
+### A.11 Eventos `pipeline.cli_message` para renderizado en la UI
+
+**SAD (original):** Los eventos del pipeline son solo de lifecycle (started, completed, failed, etc.).
+
+**Implementacion:** El `PipelineRunner` emite **dos flujos de eventos** en paralelo:
+
+1. **`pipeline.cli_message`** — Cada `CLIMessage` raw del agente se reenvía como evento. Contiene el JSON completo del mensaje (tool calls, bash output, texto del asistente, etc.). Estos eventos llegan a la UI principal via el ingest webhook (ver §A.12) y se renderizan exactamente como los mensajes de un thread normal.
+
+2. **Eventos de lifecycle** — Los eventos tipados (`pipeline.started`, `pipeline.completed`, etc.) generados por el `PipelineEventMapper`. Se usan internamente para el Manifest Writer, idempotency release, Director auto-trigger, branch cleanup, y container cleanup.
+
+```
+CLIMessage del agente
+         │
+         ├──→ pipeline.cli_message (SIEMPRE) → EventBus → Ingest Webhook → UI
+         │
+         └──→ PipelineEventMapper.map() (CONDICIONAL) → Evento de lifecycle
+```
+
+**Razon:** La UI necesita mostrar el output completo del agente (tool cards, bash output, etc.) tal cual aparece en un thread normal. Los eventos de lifecycle son demasiado abstractos para renderizar una vista detallada.
+
+### A.12 Ingest webhook para forwarding de eventos a la UI
+
+**SAD (original):** Los outbound adapters se configuran manualmente en `.pipeline/config.yaml`.
+
+**Implementacion:** Se registra automaticamente un webhook adapter interno que reenvia **todos** los eventos del pipeline al endpoint `/api/ingest/webhook` del server principal (`@a-parallel/server`). Esto permite que los eventos del pipeline (incluyendo `pipeline.cli_message`) aparezcan en la UI de a-parallel.
+
+```
+EventBus
+   │
+   ├── Webhook Adapters (configurados por el usuario)
+   │
+   └── Ingest Webhook (auto-registrado)
+       → POST {INGEST_WEBHOOK_URL}/api/ingest/webhook
+       → Default: http://localhost:3001/api/ingest/webhook
+```
+
+**Variables de entorno:**
+- `INGEST_WEBHOOK_URL` — URL completa del endpoint de ingest (default: `http://localhost:{SERVER_PORT}/api/ingest/webhook`)
+- `INGEST_WEBHOOK_SECRET` — Secret compartido para autenticacion HMAC (opcional)
+- `SERVER_PORT` — Puerto del server principal como fallback para construir la URL (default: `3001`)
+
+**Razon:** Sin este webhook, el pipeline corre como un servicio aislado y sus eventos no aparecen en la UI. El auto-registro asegura que la integracion funciona out-of-the-box sin configuracion extra.
+
+### A.13 Eventos adicionales no documentados en el SAD original
+
+La implementacion agrego varios eventos que no estaban en el catalogo original:
+
+| Evento | Cuando se emite | Nota |
+|--------|----------------|------|
+| `pipeline.accepted` | Al recibir el PipelineRequest, antes de clasificar tier | Permite a la UI mostrar inmediatamente que el pipeline fue aceptado |
+| `pipeline.tier_classified` | Despues de clasificar el tier | Informa tier y stats del diff |
+| `pipeline.stopped` | Cuando se detiene un pipeline manualmente (POST /:id/stop) | Diferente de `failed` — fue detenido intencionalmente |
+| `pipeline.cli_message` | Con cada CLIMessage del agente | Ver §A.11 |
+| `pipeline.message` | Texto libre del pipeline | Tipo generico para mensajes informativos |
+| `cleanup.started` / `cleanup.completed` | Al iniciar/terminar limpieza de ramas | Emitidos por BranchCleaner |

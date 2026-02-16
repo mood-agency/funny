@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/stores/project-store';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -148,12 +149,12 @@ function InstalledServerCard({
           </div>
           {showTokenInput && (
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="password"
                 value={tokenValue}
                 onChange={(e) => setTokenValue(e.target.value)}
                 placeholder={t('mcp.tokenPlaceholder')}
-                className="flex-1 h-7 px-2 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                className="flex-1 h-7 px-2 text-xs"
               />
               <Button
                 variant="outline"
@@ -468,12 +469,12 @@ export function McpServerSettings() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">{t('mcp.name')}</label>
-                <input
+                <Input
                   type="text"
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
                   placeholder="my-server"
-                  className="w-full h-8 px-2 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="h-8 px-2"
                 />
               </div>
               <div>
@@ -494,34 +495,34 @@ export function McpServerSettings() {
             {addType === 'http' || addType === 'sse' ? (
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">{t('mcp.url')}</label>
-                <input
+                <Input
                   type="text"
                   value={addUrl}
                   onChange={(e) => setAddUrl(e.target.value)}
                   placeholder="https://api.example.com/mcp"
-                  className="w-full h-8 px-2 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="h-8 px-2"
                 />
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">{t('mcp.command')}</label>
-                  <input
+                  <Input
                     type="text"
                     value={addCommand}
                     onChange={(e) => setAddCommand(e.target.value)}
                     placeholder="npx"
-                    className="w-full h-8 px-2 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="h-8 px-2"
                   />
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">{t('mcp.arguments')}</label>
-                  <input
+                  <Input
                     type="text"
                     value={addArgs}
                     onChange={(e) => setAddArgs(e.target.value)}
                     placeholder="-y @package/name"
-                    className="w-full h-8 px-2 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    className="h-8 px-2"
                   />
                 </div>
               </div>

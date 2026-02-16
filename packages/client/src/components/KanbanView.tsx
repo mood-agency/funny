@@ -7,7 +7,7 @@ import {
   dropTargetForElements,
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import { MessageSquare, Plus, Search, Trash2 } from 'lucide-react';
+import { GitBranch, Plus, Search, Trash2 } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -21,8 +21,10 @@ import { useUIStore } from '@/stores/ui-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { stageConfig, statusConfig, gitSyncStateConfig, timeAgo } from '@/lib/thread-utils';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -117,24 +119,33 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost }: { thread: 
           <span className="text-xs text-muted-foreground truncate">
             {t(`thread.status.${thread.status}`)}
           </span>
-          {gitConf && GitIcon && (
+          {thread.provider === 'external' && (
+            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium">External</Badge>
+          )}
+          {gitConf && GitIcon ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <GitIcon className={cn('h-3 w-3 shrink-0', gitConf.className)} />
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">
-                {t(gitConf.labelKey)}
+                <div>{t(gitConf.labelKey)}</div>
+                {thread.branch && (
+                  <div className="text-muted-foreground">{thread.branch}</div>
+                )}
               </TooltipContent>
             </Tooltip>
-          )}
+          ) : thread.branch ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                {thread.branch}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
         <div className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
-          {(thread.commentCount ?? 0) > 0 && (
-            <span className="flex items-center gap-0.5">
-              <MessageSquare className="h-3 w-3" />
-              {thread.commentCount}
-            </span>
-          )}
           <span>{timeAgo(thread.completedAt || thread.createdAt, t)}</span>
           {thread.cost > 0 && <span>${thread.cost.toFixed(3)}</span>}
         </div>
@@ -291,6 +302,7 @@ function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, pr
 
 export function KanbanView({ threads, projectId, search }: KanbanViewProps) {
   const { t } = useTranslation();
+  useMinuteTick();
   const navigate = useNavigate();
   const updateThreadStage = useThreadStore((s) => s.updateThreadStage);
   const archiveThread = useThreadStore((s) => s.archiveThread);

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -242,12 +243,12 @@ export function WorktreeSettings() {
                 <label className="text-xs text-muted-foreground block mb-1">
                   {t('worktreeSettings.branchName')}
                 </label>
-                <input
+                <Input
                   type="text"
                   value={branchName}
                   onChange={(e) => setBranchName(e.target.value)}
                   placeholder="feature/my-new-branch"
-                  className="w-full h-8 px-2 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring font-mono text-xs"
+                  className="h-8 px-2 font-mono text-xs"
                   onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                 />
               </div>

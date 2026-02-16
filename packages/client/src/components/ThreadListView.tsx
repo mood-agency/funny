@@ -1,7 +1,9 @@
 import { type ReactNode, useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 import { statusConfig, timeAgo, getStatusLabels } from '@/lib/thread-utils';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { HighlightText } from '@/components/ui/highlight-text';
@@ -53,6 +55,7 @@ export function ThreadListView({
   hideSearch = false,
 }: ThreadListViewProps) {
   const { t } = useTranslation();
+  useMinuteTick();
   const statusLabels = getStatusLabels(t);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
@@ -126,7 +129,7 @@ export function ThreadListView({
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
+            <Input
               ref={searchInputRef}
               type="text"
               placeholder={searchPlaceholder}
@@ -134,7 +137,7 @@ export function ThreadListView({
               onChange={(e) => onSearchChange(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               autoFocus={autoFocusSearch}
-              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full h-auto pl-8 pr-3 py-1.5 text-xs"
             />
           </div>
           {pageSizeOptions && onPageSizeChange && (

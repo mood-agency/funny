@@ -5,6 +5,8 @@ import type { ToolPermission } from '@a-parallel/shared';
 export type Theme = 'light' | 'dark' | 'system';
 export type Editor = 'cursor' | 'vscode' | 'windsurf' | 'zed' | 'sublime' | 'vim';
 export type ThreadMode = 'local' | 'worktree';
+export type ClaudeModel = 'haiku' | 'sonnet' | 'opus';
+export type PermissionMode = 'plan' | 'autoEdit' | 'confirmEdit';
 
 const editorLabels: Record<Editor, string> = {
   cursor: 'Cursor',
@@ -42,11 +44,15 @@ interface SettingsState {
   theme: Theme;
   defaultEditor: Editor;
   defaultThreadMode: ThreadMode;
+  defaultModel: ClaudeModel;
+  defaultPermissionMode: PermissionMode;
   toolPermissions: Record<string, ToolPermission>;
   setupCompleted: boolean;
   setTheme: (theme: Theme) => void;
   setDefaultEditor: (editor: Editor) => void;
   setDefaultThreadMode: (mode: ThreadMode) => void;
+  setDefaultModel: (model: ClaudeModel) => void;
+  setDefaultPermissionMode: (mode: PermissionMode) => void;
   setToolPermission: (toolName: string, permission: ToolPermission) => void;
   resetToolPermissions: () => void;
   completeSetup: () => void;
@@ -83,6 +89,8 @@ export const useSettingsStore = create<SettingsState>()(
       theme: 'dark',
       defaultEditor: 'cursor',
       defaultThreadMode: 'worktree',
+      defaultModel: 'opus',
+      defaultPermissionMode: 'autoEdit',
       toolPermissions: { ...DEFAULT_TOOL_PERMISSIONS },
       setupCompleted: false,
       setTheme: (theme) => {
@@ -91,6 +99,8 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setDefaultEditor: (editor) => set({ defaultEditor: editor }),
       setDefaultThreadMode: (mode) => set({ defaultThreadMode: mode }),
+      setDefaultModel: (model) => set({ defaultModel: model }),
+      setDefaultPermissionMode: (mode) => set({ defaultPermissionMode: mode }),
       setToolPermission: (toolName, permission) => set((state) => ({
         toolPermissions: { ...state.toolPermissions, [toolName]: permission },
       })),
@@ -99,7 +109,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'a-parallel-settings',
-      version: 3,
+      version: 4,
       migrate: (persisted: any, version: number) => {
         if (version < 2) {
           // Old format had allowedTools: string[]
@@ -113,8 +123,16 @@ export const useSettingsStore = create<SettingsState>()(
           version = 2;
         }
         if (version < 3) {
-          // Existing users already have setup done — skip wizard
-          return { ...persisted, setupCompleted: true };
+          persisted = { ...persisted, setupCompleted: true };
+          version = 3;
+        }
+        if (version < 4) {
+          // Add default model and permission mode for existing users
+          return {
+            ...persisted,
+            defaultModel: persisted.defaultModel ?? 'opus',
+            defaultPermissionMode: persisted.defaultPermissionMode ?? 'autoEdit',
+          };
         }
         return persisted as any;
       },

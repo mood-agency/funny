@@ -274,6 +274,13 @@ export function autoMigrate() {
     // Column already exists
   }
 
+  // Add external_request_id column for external/webhook-created threads
+  try {
+    db.run(sql`ALTER TABLE threads ADD COLUMN external_request_id TEXT`);
+  } catch {
+    // Column already exists
+  }
+
   // Backfill existing threads based on their current status
   db.run(sql`UPDATE threads SET stage = 'in_progress' WHERE status IN ('running', 'waiting') AND stage = 'backlog'`);
   db.run(sql`UPDATE threads SET stage = 'review' WHERE status IN ('completed', 'failed', 'stopped', 'interrupted') AND stage = 'backlog'`);
@@ -302,6 +309,12 @@ export function autoMigrate() {
       content TEXT NOT NULL,
       created_at TEXT NOT NULL
     )
+  `);
+
+  // Index for efficient paginated message queries
+  db.run(sql`
+    CREATE INDEX IF NOT EXISTS idx_messages_thread_timestamp
+    ON messages (thread_id, timestamp)
   `);
 
   console.log('[db] Tables ready');

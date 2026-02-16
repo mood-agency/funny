@@ -53,6 +53,7 @@ export class SDKClaudeProcess extends EventEmitter {
       abortController: this.abortController,
       allowedTools: this.options.allowedTools,
       disallowedTools: this.options.disallowedTools,
+      executable: 'node',
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       tools: { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project'],
@@ -73,6 +74,17 @@ export class SDKClaudeProcess extends EventEmitter {
 
     if (this.options.permissionMode) {
       sdkOptions.permissionMode = this.options.permissionMode;
+      if (this.options.permissionMode === 'bypassPermissions') {
+        sdkOptions.allowDangerouslySkipPermissions = true;
+      }
+    }
+
+    // Pass custom spawn function for sandboxed execution (e.g., Podman)
+    // When sandboxed, bypass all permission checks — the container IS the sandbox
+    if (this.options.spawnClaudeCodeProcess) {
+      sdkOptions.spawnClaudeCodeProcess = this.options.spawnClaudeCodeProcess;
+      sdkOptions.permissionMode = 'bypassPermissions';
+      sdkOptions.allowDangerouslySkipPermissions = true;
     }
 
     // Pass MCP servers (e.g., CDP browser tools) if provided
@@ -88,6 +100,7 @@ export class SDKClaudeProcess extends EventEmitter {
       ];
     }
 
+    console.log('[sdk-claude-process] Starting query with executable:', sdkOptions.executable, 'model:', sdkOptions.model, 'cwd:', sdkOptions.cwd);
     const gen = query({ prompt: promptInput, options: sdkOptions });
     this.activeQuery = gen;
 

@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/app-store';
 import { useProjectStore } from '@/stores/project-store';
-import { useSettingsStore, editorLabels, ALL_STANDARD_TOOLS, TOOL_LABELS, type Theme, type Editor, type ThreadMode } from '@/stores/settings-store';
+import { useSettingsStore, editorLabels, ALL_STANDARD_TOOLS, TOOL_LABELS, type Theme, type Editor, type ThreadMode, type ClaudeModel, type PermissionMode } from '@/stores/settings-store';
 import type { ToolPermission } from '@a-parallel/shared';
 import { settingsItems, settingsLabelKeys, type SettingsItemId } from './SettingsPanel';
 import { cn } from '@/lib/utils';
@@ -181,7 +181,7 @@ function ProjectColorPicker({ projectId, currentColor }: { projectId: string; cu
 
 /* ── General settings content ── */
 function GeneralSettings() {
-  const { theme, defaultEditor, defaultThreadMode, toolPermissions, setTheme, setDefaultEditor, setDefaultThreadMode, setToolPermission, resetToolPermissions } = useSettingsStore();
+  const { theme, defaultEditor, defaultThreadMode, defaultModel, defaultPermissionMode, toolPermissions, setTheme, setDefaultEditor, setDefaultThreadMode, setDefaultModel, setDefaultPermissionMode, setToolPermission, resetToolPermissions } = useSettingsStore();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const projects = useAppStore((s) => s.projects);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
@@ -279,6 +279,34 @@ function GeneralSettings() {
             options={[
               { value: 'local', label: t('thread.mode.local'), icon: <Monitor className="h-3 w-3" /> },
               { value: 'worktree', label: t('thread.mode.worktree'), icon: <GitBranch className="h-3 w-3" /> },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow
+          title={t('settings.defaultModel')}
+          description={t('settings.defaultModelDesc')}
+        >
+          <SegmentedControl<ClaudeModel>
+            value={defaultModel}
+            onChange={setDefaultModel}
+            options={[
+              { value: 'haiku', label: t('thread.model.haiku') },
+              { value: 'sonnet', label: t('thread.model.sonnet') },
+              { value: 'opus', label: t('thread.model.opus') },
+            ]}
+          />
+        </SettingRow>
+        <SettingRow
+          title={t('settings.defaultPermissionMode')}
+          description={t('settings.defaultPermissionModeDesc')}
+        >
+          <SegmentedControl<PermissionMode>
+            value={defaultPermissionMode}
+            onChange={setDefaultPermissionMode}
+            options={[
+              { value: 'plan', label: t('prompt.plan') },
+              { value: 'autoEdit', label: t('prompt.autoEdit') },
+              { value: 'confirmEdit', label: t('prompt.askBeforeEdits') },
             ]}
           />
         </SettingRow>

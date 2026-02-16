@@ -390,7 +390,7 @@ export function getDiff(cwd: string): ResultAsync<FileDiff[], DomainError> {
 
       return diffs;
     })(),
-    (error) => internal(String(error))
+    (error) => processError(String(error), 1, '')
   );
 }
 
@@ -503,7 +503,7 @@ export function getStatusSummary(
 
       return { dirtyFileCount, unpushedCommitCount, hasRemoteBranch, isMergedIntoBase, linesAdded, linesDeleted };
     })(),
-    (error) => internal(String(error))
+    (error) => processError(String(error), 1, '')
   );
 }
 

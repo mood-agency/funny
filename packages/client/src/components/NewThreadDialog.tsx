@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui/popover';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function NewThreadDialog() {
@@ -29,8 +30,9 @@ export function NewThreadDialog() {
   const selectThread = useAppStore(s => s.selectThread);
 
   const defaultThreadMode = useSettingsStore(s => s.defaultThreadMode);
+  const defaultModel = useSettingsStore(s => s.defaultModel);
   const [mode, setMode] = useState<'local' | 'worktree'>(defaultThreadMode);
-  const [model, setModel] = useState<'sonnet' | 'opus' | 'haiku'>('opus');
+  const [model, setModel] = useState<'sonnet' | 'opus' | 'haiku'>(defaultModel);
   const [branches, setBranches] = useState<string[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -222,8 +224,7 @@ export function NewThreadDialog() {
           <label className="text-xs font-medium text-muted-foreground block mb-1">
             {t('newThread.titleOptional')}
           </label>
-          <input
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+          <Input
             placeholder={t('newThread.autoFromPrompt')}
             value={title}
             onChange={(e) => setTitle(e.target.value)}

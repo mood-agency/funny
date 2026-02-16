@@ -5,6 +5,7 @@ import { useThreadStore } from '@/stores/thread-store';
 import { useProjectStore } from '@/stores/project-store';
 import { cn } from '@/lib/utils';
 import { timeAgo } from '@/lib/thread-utils';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { History, ChevronRight } from 'lucide-react';
 import { ThreadItem } from './ThreadItem';
 import {
@@ -29,6 +30,7 @@ interface RecentThreadsProps {
 
 export function RecentThreads({ onArchiveThread, onDeleteThread }: RecentThreadsProps) {
   const { t } = useTranslation();
+  useMinuteTick();
   const navigate = useNavigate();
   const threadsByProject = useThreadStore(s => s.threadsByProject);
   const selectedThreadId = useThreadStore(s => s.selectedThreadId);

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAppStore } from '@/stores/app-store';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import {
   Collapsible,
@@ -382,12 +383,12 @@ export function SkillsSettings() {
               {t('skills.skillIdentifier')} (e.g. <code className="text-xs bg-muted px-1 py-0.5 rounded">owner/repo@skill-name</code>)
             </label>
             <div className="flex gap-2">
-              <input
+              <Input
                 type="text"
                 value={customId}
                 onChange={(e) => setCustomId(e.target.value)}
                 placeholder="vercel-labs/agent-skills@nextjs-best-practices"
-                className="flex-1 h-8 px-2 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-ring font-mono text-xs"
+                className="flex-1 h-8 px-2 font-mono text-xs"
                 onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
               />
               <Button

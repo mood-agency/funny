@@ -20,9 +20,21 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/__tests__/setup.ts'],
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'markdown': ['react-markdown', 'remark-gfm'],
+            'motion': ['motion'],
+            'syntax': ['shiki'],
+          },
+        },
+      },
+    },
     server: {
       host: env.VITE_HOST || '127.0.0.1',
       port: clientPort,
+      allowedHosts: true,
       proxy: {
         '/api': {
           target: `http://localhost:${serverPort}`,

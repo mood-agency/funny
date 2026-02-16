@@ -215,7 +215,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       {/* Active threads section (own scroll) */}
-      <div className="flex flex-col max-h-[40%] min-h-0 shrink-0">
+      <div className="flex flex-col max-h-[40%] min-h-[5rem] shrink-0">
         <div className="px-2">
           <AutomationInboxButton />
         </div>

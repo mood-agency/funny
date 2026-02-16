@@ -78,4 +78,12 @@ export interface ClaudeProcessOptions {
   provider?: string;
   /** MCP servers to pass to the SDK query() call (e.g., CDP browser tools) */
   mcpServers?: Record<string, any>;
+  /** Custom spawn function for sandboxed execution (e.g., Podman container) */
+  spawnClaudeCodeProcess?: (options: {
+    command: string;
+    args: string[];
+    cwd?: string;
+    env: Record<string, string | undefined>;
+    signal: AbortSignal;
+  }) => any;
 }

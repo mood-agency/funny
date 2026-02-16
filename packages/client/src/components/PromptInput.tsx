@@ -132,7 +132,7 @@ function SearchablePicker({
         side="top"
         align="start"
         className={cn(width, 'p-0 flex flex-col')}
-        style={{ maxHeight: '320px' }}
+        style={{ maxHeight: 'min(70vh, 520px)' }}
         onOpenAutoFocus={(e) => { e.preventDefault(); searchInputRef.current?.focus(); }}
       >
         <div className="px-3 py-2 border-b border-border bg-muted/30">
@@ -149,7 +149,7 @@ function SearchablePicker({
             className="w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
           />
         </div>
-        <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '240px' }}>
+        <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: 'min(60vh, 440px)' }}>
           <div className="p-1" ref={listRef}>
             {loading && items.length === 0 && loadingText && (
               <p className="text-sm text-muted-foreground text-center py-3">{loadingText}</p>
@@ -331,10 +331,12 @@ export function PromptInput({
   ], [t]);
 
   const defaultThreadMode = useSettingsStore(s => s.defaultThreadMode);
+  const defaultModel = useSettingsStore(s => s.defaultModel);
+  const defaultPermissionMode = useSettingsStore(s => s.defaultPermissionMode);
 
   const [prompt, setPrompt] = useState(initialPromptProp ?? '');
-  const [model, setModel] = useState<string>('opus');
-  const [mode, setMode] = useState<string>('autoEdit');
+  const [model, setModel] = useState<string>(defaultModel);
+  const [mode, setMode] = useState<string>(defaultPermissionMode);
   const [threadMode, setThreadMode] = useState<string>(defaultThreadMode);
 
   // Sync mode with active thread's permission mode
@@ -410,20 +412,18 @@ export function PromptInput({
     if (!isNewThread && activeThreadPermissionMode) {
       setMode(activeThreadPermissionMode);
     } else if (isNewThread) {
-      // Reset to default for new threads
-      setMode('autoEdit');
+      setMode(defaultPermissionMode);
     }
-  }, [isNewThread, activeThreadPermissionMode]);
+  }, [isNewThread, activeThreadPermissionMode, defaultPermissionMode]);
 
   // Sync model with active thread's model when thread changes
   useEffect(() => {
     if (!isNewThread && activeThread?.model) {
       setModel(activeThread.model);
     } else if (isNewThread) {
-      // Reset to default for new threads
-      setModel('opus');
+      setModel(defaultModel);
     }
-  }, [isNewThread, activeThread?.model]);
+  }, [isNewThread, activeThread?.model, defaultModel]);
 
   // Fetch branches for new thread mode
   const effectiveProjectId = propProjectId || selectedProjectId;
@@ -788,8 +788,8 @@ export function PromptInput({
   const defaultPlaceholder = placeholder ?? t('thread.describeTaskDefault');
 
   return (
-    <div className="py-3 border-border md:flex md:justify-center">
-      <div className="w-full md:max-w-3xl md:min-w-[320px] mx-auto">
+    <div className="py-3 border-border flex justify-center px-4">
+      <div className="w-full max-w-3xl min-w-0">
         {/* Image previews */}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">

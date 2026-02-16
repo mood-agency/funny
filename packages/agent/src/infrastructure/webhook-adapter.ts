@@ -27,11 +27,13 @@ export class WebhookAdapter implements IOutboundAdapter {
     this.events = config.events?.length ? new Set(config.events) : undefined;
     this.timeoutMs = config.timeout_ms ?? 10_000;
 
-    // Name includes the host for identification
+    // Name includes the host for identification.
+    // Replace colons with dashes so the name is safe for directory paths (DLQ on Windows).
     try {
-      this.name = `webhook:${new URL(config.url).host}`;
+      const u = new URL(config.url);
+      this.name = `webhook-${u.hostname}-${u.port || '80'}`;
     } catch {
-      this.name = `webhook:${config.url}`;
+      this.name = `webhook-${config.url.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     }
   }
 
@@ -40,6 +42,8 @@ export class WebhookAdapter implements IOutboundAdapter {
     if (this.events && !this.events.has(event.event_type)) {
       return;
     }
+
+    console.log(`[webhook:${this.name}] Delivering ${event.event_type} for request=${event.request_id}`);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -59,5 +63,6 @@ export class WebhookAdapter implements IOutboundAdapter {
     if (!response.ok) {
       throw new Error(`Webhook delivery failed: ${response.status} ${response.statusText}`);
     }
+    console.log(`[webhook:${this.name}] Delivered ${event.event_type} → ${response.status}`);
   }
 }

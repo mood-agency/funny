@@ -6,6 +6,7 @@
  * GET  /:id/events — SSE stream of pipeline events
  */
 
+import { existsSync } from 'fs';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { streamSSE } from 'hono/streaming';
@@ -15,6 +16,7 @@ import type { PipelineRunner } from '../core/pipeline-runner.js';
 import type { EventBus } from '../infrastructure/event-bus.js';
 import type { IdempotencyGuard } from '../infrastructure/idempotency.js';
 import type { PipelineEvent } from '../core/types.js';
+import { logger } from '../infrastructure/logger.js';
 
 export function createPipelineRoutes(
   runner: PipelineRunner,
@@ -28,18 +30,37 @@ export function createPipelineRoutes(
   app.post('/run', zValidator('json', PipelineRunSchema), async (c) => {
     const body = c.req.valid('json');
 
+    logger.info({ branch: body.branch, worktree_path: body.worktree_path, config: body.config }, 'Pipeline run requested');
+
+    // Validate worktree_path exists and is a git repo
+    if (!existsSync(body.worktree_path)) {
+      return c.json({ error: `worktree_path does not exist: ${body.worktree_path}` }, 400);
+    }
+    if (!existsSync(`${body.worktree_path}/.git`)) {
+      return c.json({ error: `worktree_path is not a git repository: ${body.worktree_path}` }, 400);
+    }
+
     // Idempotency check: reject if a pipeline is already active for this branch
     if (idempotencyGuard) {
       const check = idempotencyGuard.check(body.branch);
       if (check.isDuplicate) {
-        return c.json(
-          {
-            request_id: check.existingRequestId,
-            status: 'already_running',
-            events_url: `/pipeline/${check.existingRequestId}/events`,
-          },
-          200,
-        );
+        // Cross-check: if the runner doesn't know about this pipeline, it's a stale entry
+        const isActuallyRunning = runner.isRunning(check.existingRequestId!);
+        const hasState = runner.getStatus(check.existingRequestId!);
+        if (!isActuallyRunning && !hasState) {
+          logger.warn({ branch: body.branch, staleRequestId: check.existingRequestId }, 'Clearing stale idempotency entry (pipeline not in runner)');
+          idempotencyGuard.release(body.branch);
+        } else {
+          logger.info({ branch: body.branch, existingRequestId: check.existingRequestId, isActuallyRunning, hasState: !!hasState }, 'Pipeline already running for branch');
+          return c.json(
+            {
+              request_id: check.existingRequestId,
+              status: 'already_running',
+              events_url: `/pipeline/${check.existingRequestId}/events`,
+            },
+            200,
+          );
+        }
       }
     }
 
@@ -59,9 +80,11 @@ export function createPipelineRoutes(
       metadata: body.metadata,
     };
 
+    logger.info({ requestId, branch: body.branch }, 'Starting pipeline');
+
     // Fire-and-forget — pipeline runs in background
     runner.run(request).catch((err) => {
-      console.error(`[pipeline] Background run failed for ${requestId}:`, err);
+      logger.error({ requestId, err: err.message }, 'Background pipeline run failed');
     });
 
     return c.json(
@@ -72,6 +95,12 @@ export function createPipelineRoutes(
       },
       202,
     );
+  });
+
+  // ── GET /list — List all pipelines ─────────────────────────────
+
+  app.get('/list', (c) => {
+    return c.json(runner.listAll());
   });
 
   // ── GET /:id — Pipeline state ───────────────────────────────────

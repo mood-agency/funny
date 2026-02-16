@@ -163,6 +163,18 @@ In local mode, this feature is inactive — git operations use the machine's def
 - `packages/client/src/stores/auth-store.ts` — Client auth state (mode detection, login, logout)
 - `packages/client/src/lib/auth-client.ts` — Better Auth client with username + admin plugins
 
+## TypeScript
+
+**Always use `bun` for type checking instead of `tsc`.** This project uses Bun as its runtime and Bun includes a built-in TypeScript type checker. Do not install or use `tsc` / `typescript` CLI directly.
+
+```bash
+# Type check a specific package
+cd packages/server && bun --check src/index.ts
+
+# Or use bunx to check files
+bunx tsc --noEmit
+```
+
 ## Key Patterns
 
 - Thread modes: `local` runs the agent in the project directory; `worktree` creates a git worktree with an isolated branch
@@ -170,3 +182,44 @@ In local mode, this feature is inactive — git operations use the machine's def
 - The agent runner spawns Claude CLI processes (not direct API calls) and stores a session ID for resuming conversations
 - WebSocket events carry a `threadId` field so the client can associate updates with the correct thread
 - The model selector maps friendly names (sonnet/opus/haiku) to full model IDs in `agent-runner.ts`
+
+## UI Rules
+
+**All UI work in `packages/client` MUST use shadcn/ui components and Tailwind CSS. These rules are mandatory.**
+
+### Always use shadcn/ui first
+
+Before creating any UI element, check if a shadcn/ui component already covers the need. Never build custom buttons, dialogs, dropdowns, inputs, tooltips, or similar primitives from scratch — use the existing shadcn/ui components instead.
+
+### Installed components
+
+The following shadcn/ui components are already installed in `packages/client/src/components/ui/`:
+
+Badge, Breadcrumb, Button, Collapsible, Command, Dialog, DropdownMenu, Input, Popover, ScrollArea, Select, Separator, Sheet, Sidebar, Skeleton, Tooltip.
+
+### Install new shadcn components when needed
+
+If you need a shadcn/ui component that is not yet installed (e.g., Tabs, Accordion, Checkbox, Switch, Toggle, Card, Alert, Toast, etc.), install it first:
+
+```bash
+cd packages/client && npx shadcn@latest add <component>
+```
+
+Do NOT create a manual implementation of a component that shadcn/ui provides.
+
+### Use `cn()` for class names
+
+Always use the `cn()` helper from `@/lib/utils` to compose Tailwind classes. Never use raw string concatenation for conditional classes.
+
+### No additional UI libraries
+
+Do not install other component libraries (Material UI, Ant Design, Chakra UI, Mantine, etc.). All UI must be built with shadcn/ui + Tailwind CSS + Radix UI primitives.
+
+### Import from `@/components/ui/`
+
+All base component imports must come from `@/components/ui/`. Example:
+
+```tsx
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader } from "@/components/ui/dialog"
+```

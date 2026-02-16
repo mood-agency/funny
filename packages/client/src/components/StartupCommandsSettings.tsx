@@ -4,6 +4,7 @@ import { useAppStore } from '@/stores/app-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -11,9 +12,6 @@ import {
 } from '@/components/ui/tooltip';
 import { Play, Plus, Pencil, Trash2, X, Check, Square, Loader2, Terminal } from 'lucide-react';
 import type { StartupCommand } from '@a-parallel/shared';
-
-const inputClass =
-  'w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring';
 
 export function StartupCommandsSettings() {
   const { t } = useTranslation();
@@ -172,8 +170,8 @@ export function StartupCommandsSettings() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-muted-foreground block mb-1">{t('startup.label')}</label>
-                  <input
-                    className={inputClass}
+                  <Input
+                    className="h-auto py-1.5"
                     placeholder={t('startup.label')}
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
@@ -182,8 +180,8 @@ export function StartupCommandsSettings() {
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground block mb-1">{t('startup.command')}</label>
-                  <input
-                    className={`${inputClass} font-mono`}
+                  <Input
+                    className="h-auto py-1.5 font-mono"
                     placeholder={t('startup.command')}
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
@@ -291,8 +289,8 @@ export function StartupCommandsSettings() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-muted-foreground block mb-1">{t('startup.label')}</label>
-              <input
-                className={inputClass}
+              <Input
+                className="h-auto py-1.5"
                 placeholder={t('startup.label')}
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
@@ -301,8 +299,8 @@ export function StartupCommandsSettings() {
             </div>
             <div>
               <label className="text-xs text-muted-foreground block mb-1">{t('startup.command')}</label>
-              <input
-                className={`${inputClass} font-mono`}
+              <Input
+                className="h-auto py-1.5 font-mono"
                 placeholder={t('startup.commandPlaceholder')}
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}

@@ -25,6 +25,7 @@ import { automationRoutes } from './routes/automations.js';
 import { profileRoutes } from './routes/profile.js';
 import { githubRoutes } from './routes/github.js';
 import { analyticsRoutes } from './routes/analytics.js';
+import { ingestRoutes } from './routes/ingest.js';
 import { wsBroker } from './services/ws-broker.js';
 import { startScheduler, stopScheduler } from './services/automation-scheduler.js';
 import { startAgent, stopAllAgents } from './services/agent-runner.js';
@@ -72,6 +73,10 @@ app.use(
   })
 );
 app.use('/api/*', rateLimit({ windowMs: 60_000, max: 1000 }));
+
+// Ingest webhook — mounted BEFORE authMiddleware (uses its own secret-based auth)
+app.route('/api/ingest', ingestRoutes);
+
 app.use('/api/*', authMiddleware);
 
 // Health check
@@ -119,6 +124,16 @@ app.get('/api/setup/status', async (c) => {
 // Auth mode endpoint (public — client needs this before login)
 app.get('/api/auth/mode', (c) => {
   return c.json({ mode: authMode });
+});
+
+// Combined bootstrap endpoint — returns auth mode + token in a single response
+// Eliminates a network round trip during app initialization
+app.get('/api/bootstrap', (c) => {
+  const response: Record<string, unknown> = { mode: authMode };
+  if (authMode === 'local') {
+    response.token = getAuthToken();
+  }
+  return c.json(response);
 });
 
 // Mount Better Auth routes (multi mode only)

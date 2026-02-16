@@ -46,11 +46,27 @@ threadRoutes.get('/archived', (c) => {
   return c.json({ threads, total, page, limit });
 });
 
-// GET /api/threads/:id
+// GET /api/threads/:id?messageLimit=50
 threadRoutes.get('/:id', (c) => {
-  const result = requireThreadWithMessages(c.req.param('id'));
-  if (result.isErr()) return resultToResponse(c, result);
-  return c.json(result.value);
+  const messageLimitParam = c.req.query('messageLimit');
+  const messageLimit = messageLimitParam ? Math.min(200, Math.max(1, parseInt(messageLimitParam, 10))) : undefined;
+  const thread = tm.getThreadWithMessages(c.req.param('id'), messageLimit);
+  if (!thread) return c.json({ error: 'Thread not found' }, 404);
+  return c.json(thread);
+});
+
+// GET /api/threads/:id/messages?cursor=<ISO>&limit=50
+threadRoutes.get('/:id/messages', (c) => {
+  const id = c.req.param('id');
+  const threadResult = requireThread(id);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+
+  const cursor = c.req.query('cursor');
+  const limitParam = c.req.query('limit');
+  const limit = Math.min(200, Math.max(1, parseInt(limitParam || '50', 10)));
+
+  const result = tm.getThreadMessages({ threadId: id, cursor: cursor || undefined, limit });
+  return c.json(result);
 });
 
 // POST /api/threads/idle
@@ -160,6 +176,7 @@ threadRoutes.post('/', async (c) => {
     userId,
     title: title || prompt,
     mode,
+    provider: provider || 'claude',
     permissionMode: permissionMode || 'autoEdit',
     model: model || 'sonnet',
     status: 'pending' as const,
@@ -284,6 +301,11 @@ threadRoutes.post('/:id/message', async (c) => {
 // POST /api/threads/:id/stop
 threadRoutes.post('/:id/stop', async (c) => {
   const id = c.req.param('id');
+  const thread = tm.getThread(id);
+  if (!thread) return c.json({ error: 'Thread not found' }, 404);
+  if (thread.provider === 'external') {
+    return c.json({ error: 'Cannot stop an external thread' }, 409);
+  }
   await stopAgent(id);
   return c.json({ ok: true });
 });

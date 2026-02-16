@@ -36,14 +36,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         const result = await api.listProjects();
         if (result.isErr()) return;
         const projects = result.value;
-        set({ projects });
+        // Set initialized immediately so the sidebar renders project names right away.
+        // Threads load in background and fill in progressively.
+        set({ projects, initialized: true });
 
-        // Load threads for all projects so Running/Recent sections work immediately
+        // Load threads for all projects in background (non-blocking)
         const threadStore = useThreadStore.getState();
-        await Promise.all(
+        Promise.all(
           projects.map((p) => threadStore.loadThreadsForProject(p.id))
-        );
-        set({ initialized: true });
+        ).catch(() => {});
 
         // Fetch git statuses for all projects (best-effort, non-blocking)
         const gitStore = useGitStatusStore.getState();

@@ -5,10 +5,11 @@ import { App } from './App';
 import { MobilePage } from './components/MobilePage';
 import { LoginPage } from './components/LoginPage';
 import { PreviewBrowser } from './components/PreviewBrowser';
+import { AppShellSkeleton } from './components/AppShellSkeleton';
 import { useAuthStore } from './stores/auth-store';
 import { useSettingsStore } from './stores/settings-store';
-import '@fontsource/geist-sans';
-import '@fontsource/geist-mono';
+import '@fontsource/geist-sans/latin.css';
+import '@fontsource/geist-mono/latin.css';
 import './globals.css';
 // Eagerly import so the persisted theme is applied before first paint
 import './stores/settings-store';
@@ -46,11 +47,7 @@ function AuthGate() {
   }, [initialize]);
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground text-sm">Loading...</div>
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   // Multi mode and not authenticated -> show login page

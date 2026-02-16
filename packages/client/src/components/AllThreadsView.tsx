@@ -6,6 +6,7 @@ import { useGitStatusStore } from '@/stores/git-status-store';
 import { cn } from '@/lib/utils';
 import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown, LayoutList, Columns3, ChevronDown, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { ThreadListView } from '@/components/ThreadListView';
 import { KanbanView } from '@/components/KanbanView';
@@ -308,12 +309,12 @@ export function AllThreadsView() {
         {/* Search input (compact, inline) */}
         <div className="relative flex-shrink-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             placeholder={isGlobalSearch ? t('allThreads.globalSearchPlaceholder') : t('allThreads.searchPlaceholder')}
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            className="w-44 rounded-md border border-input bg-background pl-6 pr-2 py-1 text-xs transition-[border-color,box-shadow] duration-150 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-44 h-auto pl-6 pr-2 py-1 text-xs"
           />
         </div>
 

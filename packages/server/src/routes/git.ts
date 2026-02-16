@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { existsSync } from 'fs';
 import * as tm from '../services/thread-manager.js';
 import { getDiff, stageFiles, unstageFiles, revertFiles, commit, push, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState, type GitIdentityOptions, removeWorktree, removeBranch, sanitizePath } from '@a-parallel/core/git';
 import { validate, mergeSchema, stageFilesSchema, commitSchema, createPRSchema } from '../validation/schemas.js';
@@ -107,7 +108,11 @@ gitRoutes.get('/:threadId/status', async (c) => {
 gitRoutes.get('/:threadId/diff', async (c) => {
   const cwdResult = requireThreadCwd(c.req.param('threadId'));
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
-  const diffResult = await getDiff(cwdResult.value);
+  const cwd = cwdResult.value;
+  if (!existsSync(cwd)) {
+    return resultToResponse(c, err(badRequest(`Working directory does not exist: ${cwd}`)));
+  }
+  const diffResult = await getDiff(cwd);
   if (diffResult.isErr()) return resultToResponse(c, diffResult);
   return c.json(diffResult.value);
 });

@@ -43,6 +43,8 @@ export interface ThreadWithMessages extends Thread {
   resultInfo?: AgentResultInfo;
   waitingReason?: WaitingReason;
   pendingPermission?: { toolName: string };
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
 export interface ThreadState {
@@ -58,6 +60,7 @@ export interface ThreadState {
   updateThreadStage: (threadId: string, projectId: string, stage: ThreadStage) => Promise<void>;
   deleteThread: (threadId: string, projectId: string) => Promise<void>;
   appendOptimisticMessage: (threadId: string, content: string, images?: any[], model?: AgentModel, permissionMode?: PermissionMode) => void;
+  loadOlderMessages: () => Promise<void>;
   refreshActiveThread: () => Promise<void>;
   refreshAllLoadedThreads: () => Promise<void>;
   clearProjectThreads: (projectId: string) => void;
@@ -123,7 +126,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     if (!threadId) return;
 
-    const result = await api.getThread(threadId);
+    const result = await api.getThread(threadId, 50);
 
     if (result.isErr()) {
       if (getSelectGeneration() === gen) {
@@ -181,7 +184,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }
     }
 
-    set({ activeThread: { ...thread, initInfo: buffered || undefined, resultInfo, waitingReason, pendingPermission } });
+    set({ activeThread: { ...thread, hasMore: thread.hasMore ?? false, initInfo: buffered || undefined, resultInfo, waitingReason, pendingPermission } });
     useProjectStore.setState({ selectedProjectId: projectId });
 
     // Replay any WS events that arrived while activeThread was loading
@@ -412,6 +415,41 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 
+  loadOlderMessages: async () => {
+    const { activeThread } = get();
+    if (!activeThread || !activeThread.hasMore || activeThread.loadingMore) return;
+
+    const oldestMessage = activeThread.messages[0];
+    if (!oldestMessage) return;
+
+    set({ activeThread: { ...activeThread, loadingMore: true } });
+
+    const result = await api.getThreadMessages(activeThread.id, oldestMessage.timestamp, 50);
+
+    const current = get().activeThread;
+    if (!current || current.id !== activeThread.id) return;
+
+    if (result.isErr()) {
+      set({ activeThread: { ...current, loadingMore: false } });
+      return;
+    }
+
+    const { messages: olderMessages, hasMore } = result.value;
+
+    // Deduplicate in case of overlapping timestamps
+    const existingIds = new Set(current.messages.map(m => m.id));
+    const newMessages = olderMessages.filter(m => !existingIds.has(m.id));
+
+    set({
+      activeThread: {
+        ...current,
+        messages: [...newMessages, ...current.messages],
+        hasMore,
+        loadingMore: false,
+      },
+    });
+  },
+
   refreshActiveThread: async () => {
     const { activeThread } = get();
     if (!activeThread) return;
@@ -427,7 +465,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const isServerWaiting = thread.status === 'waiting';
     set({
       activeThread: {
-        ...thread,
+        ...activeThread,
+        // Update only metadata from server, preserve existing messages and pagination state
+        status: thread.status,
+        cost: thread.cost,
+        stage: thread.stage,
+        completedAt: thread.completedAt,
+        archived: thread.archived,
+        pinned: thread.pinned,
         initInfo: activeThread.initInfo,
         resultInfo,
         waitingReason: isServerWaiting ? activeThread.waitingReason : undefined,

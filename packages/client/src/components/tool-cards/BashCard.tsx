@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, Terminal } from 'lucide-react';
 import AnsiToHtml from 'ansi-to-html';
 import { cn } from '@/lib/utils';
+import { useShiki } from '@/hooks/use-shiki';
 
 export function BashCard({ parsed, output, hideLabel }: { parsed: Record<string, unknown>; output?: string; hideLabel?: boolean }) {
   const { t } = useTranslation();
@@ -10,6 +11,21 @@ export function BashCard({ parsed, output, hideLabel }: { parsed: Record<string,
   const command = parsed.command as string | undefined;
   const ansiConverter = useMemo(() => new AnsiToHtml({ fg: '#a1a1aa', bg: 'transparent', newline: false, escapeXML: true }), []);
   const htmlOutput = useMemo(() => output ? ansiConverter.toHtml(output) : null, [ansiConverter, output]);
+  const { highlight } = useShiki();
+  const [highlightedCommand, setHighlightedCommand] = useState<string | null>(null);
+  const [highlightedOutput, setHighlightedOutput] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (expanded && command) {
+      highlight(command, 'bash').then(setHighlightedCommand);
+    }
+  }, [expanded, command, highlight]);
+
+  useEffect(() => {
+    if (expanded && output) {
+      highlight(output, 'bash').then(setHighlightedOutput);
+    }
+  }, [expanded, output, highlight]);
 
   return (
     <div className="text-sm max-w-full overflow-hidden">
@@ -36,18 +52,32 @@ export function BashCard({ parsed, output, hideLabel }: { parsed: Record<string,
           <div>
             <div className="text-xs font-semibold text-muted-foreground uppercase mb-1">{t('tools.input')}</div>
             <div className="rounded bg-background/80 border border-border/40 px-2.5 py-1.5 font-mono text-sm overflow-x-auto">
-              <pre className="whitespace-pre-wrap break-all text-foreground leading-relaxed">{command}</pre>
+              {highlightedCommand ? (
+                <div
+                  className="whitespace-pre-wrap break-all leading-relaxed [&_.shiki]:!bg-transparent [&_pre]:!m-0 [&_code]:!p-0"
+                  dangerouslySetInnerHTML={{ __html: highlightedCommand }}
+                />
+              ) : (
+                <pre className="whitespace-pre-wrap break-all text-foreground leading-relaxed">{command}</pre>
+              )}
             </div>
           </div>
 
           <div>
             <div className="text-xs font-semibold text-muted-foreground uppercase mb-1">{t('tools.output')}</div>
-            {htmlOutput ? (
+            {output ? (
               <div className="rounded bg-background/80 border border-border/40 px-2.5 py-1.5 overflow-x-auto max-h-60 overflow-y-auto">
-                <pre
-                  className="font-mono text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap break-all"
-                  dangerouslySetInnerHTML={{ __html: htmlOutput }}
-                />
+                {highlightedOutput ? (
+                  <div
+                    className="font-mono text-sm leading-relaxed whitespace-pre-wrap break-all [&_.shiki]:!bg-transparent [&_pre]:!m-0 [&_code]:!p-0"
+                    dangerouslySetInnerHTML={{ __html: highlightedOutput }}
+                  />
+                ) : (
+                  <pre
+                    className="font-mono text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap break-all"
+                    dangerouslySetInnerHTML={{ __html: htmlOutput! }}
+                  />
+                )}
               </div>
             ) : (
               <div className="text-sm text-muted-foreground/50 italic py-1">
