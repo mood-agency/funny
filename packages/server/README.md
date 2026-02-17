@@ -6,7 +6,7 @@ Hono HTTP server that orchestrates Claude Code agents, manages git worktrees, an
 
 ```bash
 # From monorepo root
-npm run dev:server
+bun run dev:server
 
 # Or directly
 bun --watch src/index.ts

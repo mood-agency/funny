@@ -14,11 +14,11 @@ An autonomous pipeline service that runs quality-assurance agents (security, tes
 
 ```bash
 # From the monorepo root — install all workspace dependencies
-npm install
+bun install
 
 # Start with watch mode (auto-restarts on file changes)
 # From the monorepo root:
-npm run dev
+bun run dev
 
 # Or from this directory:
 bun --watch src/server.ts

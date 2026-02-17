@@ -6,7 +6,7 @@ React 19 single-page application for managing and monitoring parallel Claude Cod
 
 ```bash
 # From monorepo root
-npm run dev:client
+bun run dev:client
 
 # Or directly
 bunx vite

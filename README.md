@@ -16,12 +16,12 @@ funny is a web UI for orchestrating multiple [Claude Code](https://claude.ai/cod
 
 ## Installation
 
-### Quick Start (npx)
+### Quick Start (bunx)
 
 No installation needed! Run directly with:
 
 \`\`\`bash
-npx funny
+bunx funny
 \`\`\`
 
 The app will start and open at \`http://localhost:3001\`
@@ -29,7 +29,7 @@ The app will start and open at \`http://localhost:3001\`
 ### Global Installation
 
 \`\`\`bash
-npm install -g funny
+bun install -g funny
 funny
 \`\`\`
 
@@ -38,9 +38,9 @@ funny
 \`\`\`bash
 git clone https://github.com/anthropics/funny.git
 cd funny
-npm install
-npm run build
-npm start
+bun install
+bun run build
+bun start
 \`\`\`
 
 ## Requirements
@@ -117,26 +117,26 @@ Features:
 
 \`\`\`bash
 # Install dependencies
-npm install
+bun install
 
 # Run in development mode (client + server with hot reload)
-npm run dev
+bun run dev
 
 # Run only server (port 3001)
-npm run dev:server
+bun run dev:server
 
 # Run only client (port 5173)
-npm run dev:client
+bun run dev:client
 
 # Build for production
-npm run build
+bun run build
 
 # Database operations
-npm run db:push    # Push schema changes
-npm run db:studio  # Open Drizzle Studio
+bun run db:push    # Push schema changes
+bun run db:studio  # Open Drizzle Studio
 
 # Run tests
-npm test
+bun test
 \`\`\`
 
 ## Architecture

@@ -12,10 +12,10 @@ funny is a web UI for orchestrating multiple Claude Code agents in parallel. It 
 
 ```bash
 # Quick start (no installation)
-npx funny
+bunx funny
 
 # Or install globally
-npm install -g funny
+bun install -g funny
 funny
 
 # CLI options
@@ -27,34 +27,34 @@ funny --help                   # Show all options
 ### For Development
 
 ```bash
-# Install dependencies (npm workspaces)
-npm install
+# Install dependencies (Bun workspaces)
+bun install
 
 # Run both server and client in development
-npm run dev
+bun run dev
 
 # Run only the server (Hono + Bun watch, port 3001)
-npm run dev:server
+bun run dev:server
 
 # Run only the client (Vite, port 5173)
-npm run dev:client
+bun run dev:client
 
 # Build all packages
-npm run build
+bun run build
 
 # Start from built files (production mode)
-npm start
+bun start
 
 # Push database schema (Drizzle + SQLite)
-npm run db:push
+bun run db:push
 
 # Open Drizzle Studio for database inspection
-npm run db:studio
+bun run db:studio
 ```
 
 ## Architecture
 
-### Monorepo Structure (npm workspaces)
+### Monorepo Structure (Bun workspaces)
 
 - **`packages/shared`** — TypeScript types only (no runtime code). Exports from `src/types.ts`. Contains interfaces for Project, Thread, Message, ToolCall, FileDiff, WebSocket events, and API request/response types.
 - **`packages/server`** — Hono HTTP server with the Claude Agent SDK. Runs on port 3001 via `tsx watch`.
@@ -113,7 +113,7 @@ Single-user mode. No login page. A bearer token is auto-generated and stored at 
 
 ```bash
 # Just start normally — no configuration needed
-npm run dev
+bun run dev
 ```
 
 ### Multi-User Mode
@@ -122,7 +122,7 @@ Multiple users with login page, per-user data isolation, and admin-managed accou
 
 ```bash
 # Set the environment variable before starting the server
-AUTH_MODE=multi npm run dev
+AUTH_MODE=multi bun run dev
 ```
 
 On first startup in multi mode, a default admin account is created automatically:
@@ -202,7 +202,7 @@ Badge, Breadcrumb, Button, Collapsible, Command, Dialog, DropdownMenu, Input, Po
 If you need a shadcn/ui component that is not yet installed (e.g., Tabs, Accordion, Checkbox, Switch, Toggle, Card, Alert, Toast, etc.), install it first:
 
 ```bash
-cd packages/client && npx shadcn@latest add <component>
+cd packages/client && bunx shadcn@latest add <component>
 ```
 
 Do NOT create a manual implementation of a component that shadcn/ui provides.
