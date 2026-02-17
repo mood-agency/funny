@@ -311,6 +311,18 @@ export function autoMigrate() {
     )
   `);
 
+  // Add init info columns to threads table
+  try {
+    db.run(sql`ALTER TABLE threads ADD COLUMN init_tools TEXT`);
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.run(sql`ALTER TABLE threads ADD COLUMN init_cwd TEXT`);
+  } catch {
+    // Column already exists
+  }
+
   // Index for efficient paginated message queries
   db.run(sql`
     CREATE INDEX IF NOT EXISTS idx_messages_thread_timestamp

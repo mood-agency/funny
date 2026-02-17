@@ -160,7 +160,16 @@ export function getThreadWithMessages(id: string, messageLimit?: number) {
       .all();
   }
 
-  return { ...thread, messages: enrichMessages(messages), hasMore };
+  return {
+    ...thread,
+    messages: enrichMessages(messages),
+    hasMore,
+    initInfo: thread.initTools ? {
+      tools: JSON.parse(thread.initTools) as string[],
+      cwd: thread.initCwd ?? '',
+      model: thread.model ?? '',
+    } : undefined,
+  };
 }
 
 /** Get paginated messages for a thread, older than cursor.
@@ -216,6 +225,8 @@ export function updateThread(
     permissionMode: string;
     model: string;
     provider: string;
+    initTools: string;
+    initCwd: string;
   }>
 ) {
   // If stage is being updated, record the transition

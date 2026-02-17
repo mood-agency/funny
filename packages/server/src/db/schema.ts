@@ -32,6 +32,8 @@ export const threads = sqliteTable('threads', {
   model: text('model').notNull().default('sonnet'), // 'sonnet' | 'opus' | 'haiku'
   initialPrompt: text('initial_prompt'),
   externalRequestId: text('external_request_id'),
+  initTools: text('init_tools'),   // JSON-encoded string[] of available tools
+  initCwd: text('init_cwd'),       // Working directory reported by agent
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 });

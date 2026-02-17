@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore } from '@/stores/app-store';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
-import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion, FileText } from 'lucide-react';
+import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion, FileText, ChevronRight } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { timeAgo } from '@/lib/thread-utils';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { api } from '@/lib/api';
@@ -248,6 +249,76 @@ type RenderItem =
   | { type: 'message'; msg: any }
   | ToolItem
   | { type: 'toolcall-run'; items: ToolItem[] };
+
+/** Group MCP tools by server prefix and show built-in tools individually */
+function groupTools(tools: string[]) {
+  const builtIn: string[] = [];
+  const mcpGroups = new Map<string, string[]>();
+
+  for (const tool of tools) {
+    const match = tool.match(/^mcp__(.+?)__(.+)$/);
+    if (match) {
+      const serverName = match[1];
+      if (!mcpGroups.has(serverName)) mcpGroups.set(serverName, []);
+      mcpGroups.get(serverName)!.push(match[2]);
+    } else {
+      builtIn.push(tool);
+    }
+  }
+
+  return { builtIn, mcpGroups };
+}
+
+function InitInfoCard({ initInfo }: { initInfo: { tools: string[]; cwd: string; model: string } }) {
+  const { t } = useTranslation();
+  const { builtIn, mcpGroups } = useMemo(() => groupTools(initInfo.tools), [initInfo.tools]);
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="font-medium">{t('initInfo.model')}</span>
+        <span className="font-mono">{initInfo.model}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-medium">{t('initInfo.cwd')}</span>
+        <span className="font-mono truncate">{initInfo.cwd}</span>
+      </div>
+      <div className="flex items-start gap-2">
+        <span className="font-medium shrink-0">{t('initInfo.tools')}</span>
+        <div className="font-mono flex flex-wrap gap-1 items-start">
+          {builtIn.map((tool) => (
+            <span key={tool} className="bg-secondary px-1.5 py-0.5 rounded text-xs">
+              {tool}
+            </span>
+          ))}
+          {Array.from(mcpGroups.entries()).map(([serverName, toolNames]) => (
+            <McpToolGroup key={serverName} serverName={serverName} toolNames={toolNames} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function McpToolGroup({ serverName, toolNames }: { serverName: string; toolNames: string[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="inline-flex items-center gap-0.5 bg-primary/10 px-1.5 py-0.5 rounded text-xs hover:bg-primary/20 cursor-pointer transition-colors">
+        <ChevronRight className={cn('h-3 w-3 transition-transform', open && 'rotate-90')} />
+        {serverName} ({toolNames.length})
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-wrap gap-1 mt-1">
+        {toolNames.map((name) => (
+          <span key={name} className="bg-secondary px-1.5 py-0.5 rounded text-xs">
+            {name}
+          </span>
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 function buildGroupedRenderItems(messages: any[]): RenderItem[] {
   // Flatten all messages into a single stream of items
@@ -718,26 +789,7 @@ export function ThreadView() {
             </div>
           )}
           {activeThread.initInfo && (
-            <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{t('initInfo.model')}</span>
-                <span className="font-mono">{activeThread.initInfo.model}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{t('initInfo.cwd')}</span>
-                <span className="font-mono truncate">{activeThread.initInfo.cwd}</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="font-medium shrink-0">{t('initInfo.tools')}</span>
-                <span className="font-mono flex flex-wrap gap-1">
-                  {activeThread.initInfo.tools.map((tool) => (
-                    <span key={tool} className="bg-secondary px-1.5 py-0.5 rounded text-xs">
-                      {tool}
-                    </span>
-                  ))}
-                </span>
-              </div>
-            </div>
+            <InitInfoCard initInfo={activeThread.initInfo} />
           )}
 
           {buildGroupedRenderItems(activeThread.messages ?? []).map((item) => {

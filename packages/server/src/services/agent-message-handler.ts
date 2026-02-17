@@ -43,7 +43,11 @@ export class AgentMessageHandler {
     // System init — capture session ID and broadcast init info
     if (msg.type === 'system' && 'subtype' in msg && msg.subtype === 'init') {
       console.log(`[agent] init session=${msg.session_id} thread=${threadId}`);
-      this.threadManager.updateThread(threadId, { sessionId: msg.session_id });
+      this.threadManager.updateThread(threadId, {
+        sessionId: msg.session_id,
+        initTools: JSON.stringify(msg.tools ?? []),
+        initCwd: msg.cwd ?? '',
+      });
 
       this.emitWS(threadId, 'agent:init', {
         tools: msg.tools ?? [],

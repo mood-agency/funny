@@ -182,7 +182,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }
     }
 
-    set({ activeThread: { ...thread, hasMore: thread.hasMore ?? false, initInfo: buffered || undefined, resultInfo, waitingReason, pendingPermission } });
+    set({ activeThread: { ...thread, hasMore: thread.hasMore ?? false, initInfo: thread.initInfo || buffered || undefined, resultInfo, waitingReason, pendingPermission } });
     useProjectStore.setState({ selectedProjectId: projectId });
 
     // Replay any WS events that arrived while activeThread was loading

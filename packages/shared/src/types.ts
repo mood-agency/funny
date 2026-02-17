@@ -163,6 +163,7 @@ export interface Message {
 export interface ThreadWithMessages extends Thread {
   messages: (Message & { toolCalls?: ToolCall[] })[];
   hasMore?: boolean;
+  initInfo?: { tools: string[]; cwd: string; model: string };
 }
 
 export interface PaginatedMessages {

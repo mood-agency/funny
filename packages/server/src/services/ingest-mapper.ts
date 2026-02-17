@@ -351,7 +351,12 @@ function handleCLISystem(
   msg: any,
 ): void {
   if (msg.subtype === 'init') {
-    tm.updateThread(threadState.threadId, { sessionId: msg.session_id, status: 'running' });
+    tm.updateThread(threadState.threadId, {
+      sessionId: msg.session_id,
+      status: 'running',
+      initTools: JSON.stringify(msg.tools ?? []),
+      initCwd: msg.cwd ?? '',
+    });
 
     emitWS(threadState, {
       type: 'agent:status',
