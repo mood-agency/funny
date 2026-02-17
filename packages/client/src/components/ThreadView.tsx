@@ -181,79 +181,6 @@ export function WaitingActions({ onSend }: { onSend: (text: string) => void }) {
   );
 }
 
-export function PlanWaitingActions({ onSend }: { onSend: (text: string) => void }) {
-  const { t } = useTranslation();
-  const [input, setInput] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  const handleSubmitInput = () => {
-    const text = input.trim();
-    if (!text) return;
-    onSend(text);
-    setInput('');
-  };
-
-  return (
-    <div className="rounded-lg border border-status-warning/20 bg-status-warning/5 p-3 space-y-2.5">
-      <div className="flex items-center gap-2 text-status-warning/80 text-xs">
-        <Clock className="h-3.5 w-3.5" />
-        {t('thread.planWaitingForResponse')}
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          onClick={() => onSend('Plan accepted')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          {t('tools.acceptPlan')}
-        </button>
-        <button
-          onClick={() => onSend('Plan rejected. Do not proceed with this plan.')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
-        >
-          <XCircle className="h-3.5 w-3.5" />
-          {t('thread.rejectPlan')}
-        </button>
-      </div>
-
-      <div className="flex gap-2">
-        <Input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmitInput();
-            }
-          }}
-          placeholder={t('thread.waitingInputPlaceholder')}
-          className="flex-1 h-auto py-1.5"
-        />
-        <button
-          onClick={handleSubmitInput}
-          disabled={!input.trim()}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-            input.trim()
-              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-              : 'bg-muted text-muted-foreground cursor-not-allowed'
-          )}
-        >
-          <Send className="h-3 w-3" />
-          {t('thread.send')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function PermissionApprovalCard({
   toolName,
   onApprove,
@@ -1016,18 +943,6 @@ export function ThreadView() {
                 toolName={activeThread.pendingPermission.toolName}
                 onApprove={() => handlePermissionApproval(activeThread.pendingPermission!.toolName, true)}
                 onDeny={() => handlePermissionApproval(activeThread.pendingPermission!.toolName, false)}
-              />
-            </motion.div>
-          )}
-
-          {activeThread.status === 'waiting' && activeThread.waitingReason === 'plan' && (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-            >
-              <PlanWaitingActions
-                onSend={(text) => handleSend(text, { model: activeThread.model, mode: activeThread.permissionMode })}
               />
             </motion.div>
           )}

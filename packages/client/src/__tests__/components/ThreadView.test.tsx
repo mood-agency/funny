@@ -213,26 +213,6 @@ describe('ThreadView', () => {
     expect(screen.getByTestId('agent-result-card')).toBeInTheDocument();
   });
 
-  test('shows plan waiting actions when status is waiting with plan reason', () => {
-    useAppStore.setState({
-      selectedThreadId: 't1',
-      activeThread: {
-        id: 't1',
-        projectId: 'p1',
-        title: 'Test Thread',
-        status: 'waiting',
-        waitingReason: 'plan',
-        cost: 0,
-        messages: [],
-      } as any,
-    });
-
-    renderWithProviders(<ThreadView />);
-    // PlanWaitingActions shows "Accept Plan" and "Reject Plan"
-    expect(screen.getByText('tools.acceptPlan')).toBeInTheDocument();
-    expect(screen.getByText('thread.rejectPlan')).toBeInTheDocument();
-  });
-
   test('shows generic waiting actions when status is waiting without reason', () => {
     useAppStore.setState({
       selectedThreadId: 't1',
