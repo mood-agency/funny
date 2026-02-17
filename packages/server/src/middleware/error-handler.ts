@@ -12,11 +12,11 @@ export const handleError: ErrorHandler = (err, c) => {
   // ProcessExecutionError — git / CLI command failures that escaped Result handling
   if (e?.name === 'ProcessExecutionError') {
     console.error('[error-handler] Process error:', e.command, e.stderr);
-    return c.json({ error: e.message }, 400);
+    // Return a generic message; full details logged server-side only
+    return c.json({ error: 'Command execution failed' }, 400);
   }
 
-  // Any other Error — surface the real message
+  // Any other Error — log full details server-side, return generic message to client
   console.error('[error-handler]', err);
-  const message = e?.message || 'Internal server error';
-  return c.json({ error: message }, 500);
+  return c.json({ error: 'Internal server error' }, 500);
 };

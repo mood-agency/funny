@@ -717,8 +717,9 @@ export function ThreadView() {
         <ProjectHeader />
         <div className="flex-1 flex items-center justify-center text-muted-foreground px-6">
           <div className="text-center max-w-3xl">
-            <p className="text-sm font-medium mb-1">{activeThread.title}</p>
-            <p className="text-xs">{t('thread.describeTask')}</p>
+            <p className="text-4xl mb-4">✨</p>
+            <p className="text-2xl font-semibold text-foreground mb-1">{activeThread.title}</p>
+            <p className="text-sm">{t('thread.describeTask')}</p>
           </div>
         </div>
         <PromptInput
@@ -755,6 +756,7 @@ export function ThreadView() {
           <StickyUserMessage
             key={stickyUserMsgId}
             content={stickyUserMsg.content}
+            images={stickyUserMsg.images}
             onScrollTo={() => {
               const el = scrollViewportRef.current?.querySelector(
                 `[data-user-msg="${stickyUserMsgId}"]`
@@ -864,7 +866,7 @@ export function ThreadView() {
                     className={cn(
                       'relative group text-sm max-w-[80%]',
                       msg.role === 'user'
-                        ? 'ml-auto rounded-lg px-3 py-2 bg-muted text-foreground'
+                        ? 'ml-auto rounded-lg px-3 py-2 bg-foreground text-background'
                         : 'text-foreground'
                     )}
                     {...(msg.role === 'user' ? { 'data-user-msg': msg.id } : {})}
@@ -898,7 +900,7 @@ export function ThreadView() {
                                 {files.map((file) => (
                                   <span
                                     key={file}
-                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-mono bg-muted rounded text-muted-foreground"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-mono bg-background/20 rounded text-background/70"
                                     title={file}
                                   >
                                     <FileText className="h-3 w-3 shrink-0" />
@@ -913,12 +915,12 @@ export function ThreadView() {
                             {(msg.model || msg.permissionMode) && (
                               <div className="flex gap-1 mt-1.5">
                                 {msg.model && (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-foreground/5 text-muted-foreground border-foreground/10">
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-background/10 text-background/60 border-background/20">
                                     {t(`thread.model.${msg.model}`)}
                                   </Badge>
                                 )}
                                 {msg.permissionMode && (
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-foreground/5 text-muted-foreground border-foreground/10">
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-background/10 text-background/60 border-background/20">
                                     {t(`prompt.${msg.permissionMode}`)}
                                   </Badge>
                                 )}

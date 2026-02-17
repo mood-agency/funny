@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown, LayoutList, Columns3, ChevronDown, Check } from 'lucide-react';
+import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown, LayoutList, Columns3, ChevronDown, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -90,12 +90,60 @@ function FilterDropdown({
 export function AllThreadsView() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const allThreadsProjectId = useAppStore(s => s.allThreadsProjectId);
   const threadsByProject = useAppStore(s => s.threadsByProject);
   const projects = useAppStore(s => s.projects);
   const statusByThread = useGitStatusStore(s => s.statusByThread);
 
-  const isGlobalSearch = allThreadsProjectId === '__all__';
+  // Project filter from URL query param ?project=<id>
+  const [projectFilter, setProjectFilter] = useState<string | null>(() => {
+    return searchParams.get('project') || null;
+  });
+
+  // View mode from URL query param ?view=list|board, fallback to localStorage
+  const [viewMode, setViewMode] = useState<'list' | 'board'>(() => {
+    const param = searchParams.get('view');
+    if (param === 'list' || param === 'board') return param;
+    const saved = localStorage.getItem('threadViewMode');
+    return (saved === 'board' || saved === 'list') ? saved : 'list';
+  });
+
+  // Build search params from current filter state
+  const buildSearchParams = (overrides?: { project?: string | null; view?: string }) => {
+    const params: Record<string, string> = {};
+    const proj = overrides?.project !== undefined ? overrides.project : projectFilter;
+    const v = overrides?.view ?? viewMode;
+    if (proj) params.project = proj;
+    if (v === 'board') params.view = 'board';
+    return params;
+  };
+
+  // Sync URL query params → local state when URL changes (e.g. browser back/forward)
+  useEffect(() => {
+    const paramProject = searchParams.get('project') || null;
+    const paramView = searchParams.get('view');
+    if (paramProject !== projectFilter) {
+      setProjectFilter(paramProject);
+    }
+    if (paramView === 'list' || paramView === 'board') {
+      if (paramView !== viewMode) setViewMode(paramView);
+    }
+  }, [searchParams]);
+
+  const filteredProject = projectFilter ? projects.find(p => p.id === projectFilter) : null;
+
+  const handleProjectFilterChange = (projectId: string | null) => {
+    setProjectFilter(projectId);
+    setPage(1);
+    setSearchParams(buildSearchParams({ project: projectId }), { replace: true });
+  };
+
+  const handleViewModeChange = (mode: 'list' | 'board') => {
+    setViewMode(mode);
+    localStorage.setItem('threadViewMode', mode);
+    setSearchParams(buildSearchParams({ view: mode }), { replace: true });
+  };
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -105,10 +153,6 @@ export function AllThreadsView() {
   const [showArchived, setShowArchived] = useState(false);
   const [sortField, setSortField] = useState<SortField>('updated');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [viewMode, setViewMode] = useState<'list' | 'board'>(() => {
-    const saved = localStorage.getItem('threadViewMode');
-    return (saved === 'board' || saved === 'list') ? saved : 'list';
-  });
 
   // Content search: debounced server call to find threads matching by message content
   // Stores threadId → snippet so we can display matching text on cards
@@ -127,8 +171,8 @@ export function AllThreadsView() {
 
     // Debounce 300ms to avoid hammering the server on every keystroke
     searchTimerRef.current = setTimeout(() => {
-      const projectId = isGlobalSearch ? undefined : (allThreadsProjectId || undefined);
-      api.searchThreadContent(q, projectId).then((res) => {
+      const pid = projectFilter || undefined;
+      api.searchThreadContent(q, pid).then((res) => {
         if (res.isOk()) {
           const map = new Map<string, string>();
           const { threadIds, snippets } = res.value;
@@ -143,9 +187,8 @@ export function AllThreadsView() {
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     };
-  }, [search, isGlobalSearch, allThreadsProjectId]);
+  }, [search, projectFilter]);
 
-  const project = isGlobalSearch ? null : projects.find((p) => p.id === allThreadsProjectId);
   const projectInfoById = useMemo(() => {
     const map: Record<string, { name: string; color?: string }> = {};
     for (const p of projects) map[p.id] = { name: p.name, color: p.color };
@@ -158,12 +201,12 @@ export function AllThreadsView() {
   }, [projects]);
 
   const storeThreads = useMemo(() => {
-    if (isGlobalSearch) {
-      // Aggregate threads from all projects
-      return Object.values(threadsByProject).flat();
+    const all = Object.values(threadsByProject).flat();
+    if (projectFilter) {
+      return all.filter(t => t.projectId === projectFilter);
     }
-    return allThreadsProjectId ? (threadsByProject[allThreadsProjectId] ?? []) : [];
-  }, [isGlobalSearch, allThreadsProjectId, threadsByProject]);
+    return all;
+  }, [threadsByProject, projectFilter]);
 
   const allThreads = useMemo(() => {
     // Board view always includes archived (they appear in the archived column)
@@ -186,7 +229,7 @@ export function AllThreadsView() {
           normalize(t.title).includes(q) ||
           (t.branch && normalize(t.branch).includes(q)) ||
           normalize(t.status).includes(q) ||
-          (isGlobalSearch && projectNameById[t.projectId] && normalize(projectNameById[t.projectId]).includes(q)) ||
+          (!projectFilter && projectNameById[t.projectId] && normalize(projectNameById[t.projectId]).includes(q)) ||
           contentMatches.has(t.id)
       );
     }
@@ -222,7 +265,7 @@ export function AllThreadsView() {
     });
 
     return result;
-  }, [allThreads, search, statusFilter, gitFilter, modeFilter, statusByThread, isGlobalSearch, projectNameById, sortField, sortDir, contentMatches]);
+  }, [allThreads, search, statusFilter, gitFilter, modeFilter, statusByThread, projectFilter, projectNameById, sortField, sortDir, contentMatches]);
 
   const currentPage = Math.min(page, Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE)));
   const paginated = filtered.slice(
@@ -236,6 +279,10 @@ export function AllThreadsView() {
     setGitFilter(new Set());
     setModeFilter(new Set());
     setShowArchived(false);
+    if (projectFilter) {
+      setProjectFilter(null);
+    }
+    setSearchParams(buildSearchParams({ project: null }), { replace: true });
     setPage(1);
   };
 
@@ -254,9 +301,9 @@ export function AllThreadsView() {
     setPage(1);
   };
 
-  const hasActiveFilters = statusFilter.size > 0 || gitFilter.size > 0 || modeFilter.size > 0 || showArchived;
+  const hasActiveFilters = statusFilter.size > 0 || gitFilter.size > 0 || modeFilter.size > 0 || showArchived || !!projectFilter;
 
-  if (!allThreadsProjectId || (!isGlobalSearch && !project)) return null;
+  if (!allThreadsProjectId) return null;
 
   // Compute counts for status filters
   const statusCounts = useMemo(() => {
@@ -290,22 +337,27 @@ export function AllThreadsView() {
           variant="ghost"
           size="icon-xs"
           onClick={() => {
-            if (isGlobalSearch) {
-              navigate('/');
+            if (projectFilter) {
+              navigate(`/projects/${projectFilter}`);
             } else {
-              navigate(`/projects/${allThreadsProjectId}`);
+              navigate('/');
             }
           }}
           className="text-muted-foreground hover:text-foreground"
         >
-          {isGlobalSearch ? <Search className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          {projectFilter ? <ChevronLeft className="h-4 w-4" /> : <Search className="h-4 w-4" />}
         </Button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-medium">{isGlobalSearch ? t('allThreads.globalTitle') : t('allThreads.title')}</h2>
+          <h2 className="text-sm font-medium">
+            {projectFilter && filteredProject
+              ? t('allThreads.title')
+              : t('allThreads.globalTitle')
+            }
+          </h2>
           <p className="text-xs text-muted-foreground">
-            {isGlobalSearch
-              ? `${projects.length} ${t('allThreads.projects')} · ${allThreads.length} ${t('allThreads.threads')}`
-              : `${project!.name} · ${allThreads.length} ${t('allThreads.threads')}`
+            {projectFilter && filteredProject
+              ? `${filteredProject.name} · ${allThreads.length} ${t('allThreads.threads')}`
+              : `${projects.length} ${t('allThreads.projects')} · ${allThreads.length} ${t('allThreads.threads')}`
             }
           </p>
         </div>
@@ -316,10 +368,7 @@ export function AllThreadsView() {
             <Button
               variant={viewMode === 'list' ? 'secondary' : 'ghost'}
               size="icon-xs"
-              onClick={() => {
-                setViewMode('list');
-                localStorage.setItem('threadViewMode', 'list');
-              }}
+              onClick={() => handleViewModeChange('list')}
               className="h-6 w-6"
               title={t('kanban.listView')}
             >
@@ -328,10 +377,7 @@ export function AllThreadsView() {
             <Button
               variant={viewMode === 'board' ? 'secondary' : 'ghost'}
               size="icon-xs"
-              onClick={() => {
-                setViewMode('board');
-                localStorage.setItem('threadViewMode', 'board');
-              }}
+              onClick={() => handleViewModeChange('board')}
               className="h-6 w-6"
               title={t('kanban.boardView')}
             >
@@ -345,17 +391,74 @@ export function AllThreadsView() {
       <div className="px-4 py-2 border-b border-border/50 flex items-center gap-2">
         {/* Search input (compact, inline) */}
         <div className="relative flex-shrink-0">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground text-sm" />
           <Input
             type="text"
-            placeholder={isGlobalSearch ? t('allThreads.globalSearchPlaceholder') : t('allThreads.searchPlaceholder')}
+            placeholder={projectFilter ? t('allThreads.searchPlaceholder') : t('allThreads.globalSearchPlaceholder')}
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            className="w-44 h-auto pl-6 pr-2 py-1 text-xs"
+            className="w-44 h-7 pl-6 pr-2 py-1 text-xs md:text-xs bg-transparent"
           />
         </div>
 
         <div className="w-px h-4 bg-border" />
+
+        {/* Project filter (single-select) */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className={cn(
+                'inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-colors whitespace-nowrap',
+                projectFilter
+                  ? 'bg-accent text-accent-foreground border-accent-foreground/20'
+                  : 'bg-transparent text-muted-foreground border-border hover:bg-accent/50 hover:text-foreground'
+              )}
+            >
+              {projectFilter && filteredProject ? filteredProject.name : t('allThreads.filterProject')}
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-auto min-w-[180px] max-h-[300px] overflow-y-auto p-1">
+            <button
+              onClick={() => handleProjectFilterChange(null)}
+              className={cn(
+                'flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-sm transition-colors text-left',
+                'hover:bg-accent hover:text-accent-foreground',
+                !projectFilter && 'text-accent-foreground'
+              )}
+            >
+              <span className={cn(
+                'flex h-3.5 w-3.5 items-center justify-center rounded-full border',
+                !projectFilter ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
+              )}>
+                {!projectFilter && <Check className="h-2.5 w-2.5" />}
+              </span>
+              <span className="flex-1">{t('allThreads.allProjects')}</span>
+            </button>
+            {projects.map((p) => {
+              const isActive = projectFilter === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => handleProjectFilterChange(p.id)}
+                  className={cn(
+                    'flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-sm transition-colors text-left',
+                    'hover:bg-accent hover:text-accent-foreground',
+                    isActive && 'text-accent-foreground'
+                  )}
+                >
+                  <span className={cn(
+                    'flex h-3.5 w-3.5 items-center justify-center rounded-full border',
+                    isActive ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30'
+                  )}>
+                    {isActive && <Check className="h-2.5 w-2.5" />}
+                  </span>
+                  <span className="flex-1 truncate">{p.name}</span>
+                </button>
+              );
+            })}
+          </PopoverContent>
+        </Popover>
 
         {/* Status dropdown */}
         <FilterDropdown
@@ -476,7 +579,7 @@ export function AllThreadsView() {
       <div className="flex-1 min-h-0 flex flex-col">
         {viewMode === 'board' ? (
           <div className="flex-1 min-h-0">
-            <KanbanView threads={filtered} projectId={isGlobalSearch ? undefined : allThreadsProjectId} search={search} contentSnippets={contentMatches} />
+            <KanbanView threads={filtered} projectId={projectFilter || undefined} search={search} contentSnippets={contentMatches} />
           </div>
         ) : (
           <div className="px-4 py-3 h-full">
@@ -487,7 +590,7 @@ export function AllThreadsView() {
               totalCount={filtered.length}
               search={search}
               onSearchChange={handleSearchChange}
-              searchPlaceholder={isGlobalSearch ? t('allThreads.globalSearchPlaceholder') : t('allThreads.searchPlaceholder')}
+              searchPlaceholder={projectFilter ? t('allThreads.searchPlaceholder') : t('allThreads.globalSearchPlaceholder')}
               page={currentPage}
               onPageChange={setPage}
               pageSize={ITEMS_PER_PAGE}
@@ -503,7 +606,7 @@ export function AllThreadsView() {
             const gitConf = gs ? gitSyncStateConfig[gs.state] : null;
             return (
               <>
-                {isGlobalSearch && projectInfoById[thread.projectId] && (
+                {!projectFilter && projectInfoById[thread.projectId] && (
                   <span
                     className="text-xs px-1.5 py-0.5 rounded"
                     style={{

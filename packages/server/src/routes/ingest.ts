@@ -9,6 +9,7 @@
  */
 
 import { Hono } from 'hono';
+import { timingSafeEqual } from 'crypto';
 import { handleIngestEvent, type IngestEvent } from '../services/ingest-mapper.js';
 
 const ingestRoutes = new Hono();
@@ -16,12 +17,15 @@ const ingestRoutes = new Hono();
 const WEBHOOK_SECRET = process.env.INGEST_WEBHOOK_SECRET;
 
 ingestRoutes.post('/webhook', async (c) => {
-  // Validate secret if configured
-  if (WEBHOOK_SECRET) {
-    const provided = c.req.header('X-Webhook-Secret');
-    if (provided !== WEBHOOK_SECRET) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
+  // Require webhook secret — reject all requests if not configured
+  if (!WEBHOOK_SECRET) {
+    return c.json({ error: 'Webhook secret not configured (set INGEST_WEBHOOK_SECRET)' }, 503);
+  }
+
+  const provided = c.req.header('X-Webhook-Secret') ?? '';
+  if (provided.length !== WEBHOOK_SECRET.length ||
+      !timingSafeEqual(Buffer.from(provided), Buffer.from(WEBHOOK_SECRET))) {
+    return c.json({ error: 'Unauthorized' }, 401);
   }
 
   const body = await c.req.json<IngestEvent>();

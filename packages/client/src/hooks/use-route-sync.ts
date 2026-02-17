@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { useLocation, matchPath } from 'react-router-dom';
-import { useAppStore } from '@/stores/app-store';
+import { useProjectStore } from '@/stores/project-store';
+import { useThreadStore } from '@/stores/thread-store';
+import { useUIStore } from '@/stores/ui-store';
 import { settingsItems } from '@/components/SettingsPanel';
 
 function parseRoute(pathname: string) {
@@ -11,7 +13,6 @@ function parseRoute(pathname: string) {
       settingsPage: projectSettingsMatch.params.pageId!,
       projectId: projectSettingsMatch.params.projectId!,
       threadId: null,
-      allThreads: false,
       globalSearch: false,
       inbox: false,
       analytics: false,
@@ -24,7 +25,6 @@ function parseRoute(pathname: string) {
       settingsPage: settingsMatch.params.pageId!,
       projectId: null,
       threadId: null,
-      allThreads: false,
       globalSearch: false,
       inbox: false,
       analytics: false,
@@ -40,21 +40,6 @@ function parseRoute(pathname: string) {
       settingsPage: null,
       projectId: threadMatch.params.projectId!,
       threadId: threadMatch.params.threadId!,
-      allThreads: false,
-      globalSearch: false,
-      inbox: false,
-      analytics: false,
-    };
-  }
-
-  // Match /projects/:projectId/threads (all threads view, no specific thread)
-  const allThreadsMatch = matchPath('/projects/:projectId/threads', pathname);
-  if (allThreadsMatch) {
-    return {
-      settingsPage: null,
-      projectId: allThreadsMatch.params.projectId!,
-      threadId: null,
-      allThreads: true,
       globalSearch: false,
       inbox: false,
       analytics: false,
@@ -67,7 +52,6 @@ function parseRoute(pathname: string) {
       settingsPage: null,
       projectId: projectMatch.params.projectId!,
       threadId: null,
-      allThreads: false,
       globalSearch: false,
       inbox: false,
       analytics: false,
@@ -76,113 +60,119 @@ function parseRoute(pathname: string) {
 
   // Automation inbox: /inbox
   if (pathname === '/inbox') {
-    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: true, analytics: false };
+    return { settingsPage: null, projectId: null, threadId: null, globalSearch: false, inbox: true, analytics: false };
   }
 
-  // Global search: /search
+  // Search: /search (with optional ?project=<id> query param)
   if (pathname === '/search') {
-    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: true, inbox: false, analytics: false };
+    return { settingsPage: null, projectId: null, threadId: null, globalSearch: true, inbox: false, analytics: false };
+  }
+
+  // Project-scoped analytics: /projects/:projectId/analytics
+  const projectAnalyticsMatch = matchPath('/projects/:projectId/analytics', pathname);
+  if (projectAnalyticsMatch) {
+    return { settingsPage: null, projectId: projectAnalyticsMatch.params.projectId!, threadId: null, globalSearch: false, inbox: false, analytics: true };
   }
 
   // Analytics: /analytics
   if (pathname === '/analytics') {
-    return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: false, analytics: true };
+    return { settingsPage: null, projectId: null, threadId: null, globalSearch: false, inbox: false, analytics: true };
   }
 
-  return { settingsPage: null, projectId: null, threadId: null, allThreads: false, globalSearch: false, inbox: false, analytics: false };
+  return { settingsPage: null, projectId: null, threadId: null, globalSearch: false, inbox: false, analytics: false };
 }
 
 const validSettingsIds = new Set(settingsItems.map((i) => i.id));
 
 export function useRouteSync() {
   const location = useLocation();
-  const initialized = useAppStore(s => s.initialized);
+  // Subscribe only to `initialized` from project-store (not the entire app state)
+  const initialized = useProjectStore(s => s.initialized);
 
   // Sync URL → store whenever location changes (wait for auth + projects first)
   useEffect(() => {
     if (!initialized) return;
 
-    const { settingsPage, projectId, threadId, allThreads, globalSearch, inbox, analytics } = parseRoute(location.pathname);
-    const store = useAppStore.getState();
+    const { settingsPage, projectId, threadId, globalSearch, inbox, analytics } = parseRoute(location.pathname);
+    // Use imperative getState() to avoid subscribing to store changes
+    const projectStore = useProjectStore.getState();
+    const threadStore = useThreadStore.getState();
+    const uiStore = useUIStore.getState();
 
     if (settingsPage && validSettingsIds.has(settingsPage as any)) {
-      if (!store.settingsOpen) store.setSettingsOpen(true);
-      if (store.activeSettingsPage !== settingsPage) store.setActiveSettingsPage(settingsPage);
-      if (projectId && projectId !== store.selectedProjectId) store.selectProject(projectId);
+      if (!uiStore.settingsOpen) uiStore.setSettingsOpen(true);
+      if (uiStore.activeSettingsPage !== settingsPage) uiStore.setActiveSettingsPage(settingsPage);
+      if (projectId && projectId !== projectStore.selectedProjectId) projectStore.selectProject(projectId);
       return;
     }
 
     // Close settings if navigating away from /settings
-    if (store.settingsOpen) {
-      store.setSettingsOpen(false);
+    if (uiStore.settingsOpen) {
+      uiStore.setSettingsOpen(false);
     }
 
     // Automation inbox route
     if (inbox) {
-      if (!store.automationInboxOpen) {
-        store.setAutomationInboxOpen(true);
+      if (!uiStore.automationInboxOpen) {
+        uiStore.setAutomationInboxOpen(true);
       }
       return;
     }
 
     // Close automation inbox when navigating away from /inbox
-    if (store.automationInboxOpen) {
-      store.setAutomationInboxOpen(false);
+    if (uiStore.automationInboxOpen) {
+      uiStore.setAutomationInboxOpen(false);
     }
 
     // Analytics view
     if (analytics) {
-      if (!store.analyticsOpen) {
-        store.setAnalyticsOpen(true);
+      if (projectId && projectId !== projectStore.selectedProjectId) {
+        projectStore.selectProject(projectId);
+      }
+      if (!uiStore.analyticsOpen) {
+        uiStore.setAnalyticsOpen(true);
       }
       return;
     }
 
     // Close analytics when navigating away
-    if (store.analyticsOpen) {
-      store.setAnalyticsOpen(false);
+    if (uiStore.analyticsOpen) {
+      uiStore.setAnalyticsOpen(false);
     }
 
-    // Global search view
+    // Search view: /search (with optional ?project= query param)
     if (globalSearch) {
-      if (store.allThreadsProjectId !== '__all__') {
-        store.showGlobalSearch();
+      if (uiStore.allThreadsProjectId !== '__all__') {
+        uiStore.showGlobalSearch();
       }
       return;
     }
 
-    if (allThreads && projectId) {
-      if (store.allThreadsProjectId !== projectId) {
-        store.showAllThreads(projectId);
-      }
-      return;
-    }
-
-    // Clear all-threads view if navigating away
-    if (store.allThreadsProjectId) {
-      store.closeAllThreads();
+    // Clear search view if navigating away
+    if (uiStore.allThreadsProjectId) {
+      uiStore.closeAllThreads();
     }
 
     if (threadId) {
       // Re-select if the thread ID changed, or if the thread ID matches but
       // activeThread failed to load (e.g. due to a race condition or API error).
-      if (threadId !== store.selectedThreadId || !store.activeThread || store.activeThread.id !== threadId) {
-        store.selectThread(threadId);
+      if (threadId !== threadStore.selectedThreadId || !threadStore.activeThread || threadStore.activeThread.id !== threadId) {
+        threadStore.selectThread(threadId);
       }
-      if (projectId && projectId !== store.selectedProjectId) {
-        store.selectProject(projectId);
+      if (projectId && projectId !== projectStore.selectedProjectId) {
+        projectStore.selectProject(projectId);
       }
     } else if (projectId) {
-      if (store.selectedThreadId) {
-        store.selectThread(null);
+      if (threadStore.selectedThreadId) {
+        threadStore.selectThread(null);
       }
-      if (projectId !== store.selectedProjectId) {
-        store.selectProject(projectId);
+      if (projectId !== projectStore.selectedProjectId) {
+        projectStore.selectProject(projectId);
       }
     } else {
       // Root path — clear selection
-      if (store.selectedThreadId) store.selectThread(null);
-      if (store.selectedProjectId) store.selectProject(null);
+      if (threadStore.selectedThreadId) threadStore.selectThread(null);
+      if (projectStore.selectedProjectId) projectStore.selectProject(null);
     }
   }, [location.pathname, initialized]);
 }

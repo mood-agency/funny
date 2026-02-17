@@ -9,6 +9,7 @@ export function BashCard({ parsed, output, hideLabel }: { parsed: Record<string,
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const command = parsed.command as string | undefined;
+  // SECURITY: escapeXML must remain true to prevent XSS via dangerouslySetInnerHTML
   const ansiConverter = useMemo(() => new AnsiToHtml({ fg: '#a1a1aa', bg: 'transparent', newline: false, escapeXML: true }), []);
   const htmlOutput = useMemo(() => output ? ansiConverter.toHtml(output) : null, [ansiConverter, output]);
   const { highlight } = useShiki();

@@ -80,9 +80,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       set({ selectedProjectId: null });
       return;
     }
-    const { expandedProjects } = get();
-    set({ selectedProjectId: projectId });
-    if (!expandedProjects.has(projectId)) {
+    const { expandedProjects, selectedProjectId } = get();
+    // Skip redundant work if already selected and expanded
+    const alreadySelected = selectedProjectId === projectId;
+    const alreadyExpanded = expandedProjects.has(projectId);
+    if (alreadySelected && alreadyExpanded) return;
+    if (!alreadySelected) set({ selectedProjectId: projectId });
+    if (!alreadyExpanded) {
       const next = new Set(expandedProjects);
       next.add(projectId);
       set({ expandedProjects: next });
@@ -91,6 +95,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!threadStore.threadsByProject[projectId]) {
       threadStore.loadThreadsForProject(projectId);
     }
+    // Refresh git statuses so the header and sidebar show current diff stats
+    useGitStatusStore.getState().fetchForProject(projectId);
   },
 
   renameProject: async (projectId, name) => {

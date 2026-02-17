@@ -40,7 +40,7 @@ export function AutomationInboxButton() {
       <Inbox className="h-4 w-4" />
       <span>Automation Inbox</span>
       {inboxCount > 0 && (
-        <Badge className="ml-auto h-5 min-w-5 justify-center rounded-full px-1 text-xs leading-none">
+        <Badge variant="secondary" className="ml-auto h-5 min-w-5 px-1 leading-none">
           {inboxCount}
         </Badge>
       )}

@@ -98,7 +98,7 @@ export function AutomationInboxView() {
             Automation Inbox
           </h2>
           {inboxCount > 0 && (
-            <Badge className="h-5 min-w-5 justify-center rounded-full px-1 text-xs leading-none">
+            <Badge variant="secondary" className="h-5 min-w-5 px-1 leading-none">
               {inboxCount}
             </Badge>
           )}

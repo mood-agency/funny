@@ -12,7 +12,8 @@ export {
   git, gitSync, gitSafeSync, isGitRepo, isGitRepoSync,
   getCurrentBranch, listBranches, getDefaultBranch, getRemoteUrl,
   extractRepoName, initRepo, stageFiles, unstageFiles, revertFiles,
-  commit, push, createPR, mergeBranch, getDiff,
+  addToGitignore,
+  commit, push, createPR, mergeBranch, getDiff, getDiffSummary, getSingleFileDiff,
   getStatusSummary, deriveGitSyncState,
   type GitIdentityOptions, type GitStatusSummary,
 } from './git.js';

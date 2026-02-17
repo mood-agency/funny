@@ -127,21 +127,27 @@ app.get('/oauth/callback', async (c) => {
   return c.html(renderCallbackPage(result.success, result.error));
 });
 
+/** Escape HTML special characters to prevent XSS */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function renderCallbackPage(success: boolean, error?: string): string {
+  const safeError = error ? escapeHtml(error) : 'Unknown error';
   return `<!DOCTYPE html>
 <html>
 <head><title>MCP Authentication</title>
 <style>body{font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#0a0a0a;color:#fafafa}p{text-align:center;font-size:14px}</style>
 </head>
 <body>
-  <p>${success ? 'Authentication successful! This window will close.' : `Authentication failed: ${error || 'Unknown error'}`}</p>
+  <p>${success ? 'Authentication successful! This window will close.' : `Authentication failed: ${safeError}`}</p>
   <script>
     if (window.opener) {
       window.opener.postMessage({
         type: 'mcp-oauth-callback',
         success: ${success},
         error: ${error ? JSON.stringify(error) : 'null'}
-      }, '*');
+      }, window.location.origin);
     }
     setTimeout(() => window.close(), ${success ? 1500 : 5000});
   </script>

@@ -5,45 +5,55 @@
  */
 const port = Number(process.env.PORT) || 3001;
 
-async function killPort(port: number): Promise<void> {
+function findListeningPids(targetPort: number): number[] {
   const isWindows = process.platform === 'win32';
-
   try {
     if (isWindows) {
-      // netstat to find PIDs listening on the port
-      const result = Bun.spawnSync(['cmd', '/c', `netstat -ano | findstr :${port} | findstr LISTENING`]);
-      const output = result.stdout.toString();
-      if (!output.trim()) return;
-
+      const result = Bun.spawnSync(['cmd', '/c', `netstat -ano | findstr :${targetPort} | findstr LISTENING`]);
+      const output = result.stdout.toString().trim();
+      if (!output) return [];
       const pids = new Set<number>();
-      for (const line of output.trim().split('\n')) {
+      for (const line of output.split('\n')) {
         const parts = line.trim().split(/\s+/);
         const pid = parseInt(parts[parts.length - 1], 10);
         if (pid && pid !== process.pid) pids.add(pid);
       }
-
-      for (const pid of pids) {
-        console.log(`[kill-port] Killing PID ${pid} on port ${port}`);
-        Bun.spawnSync(['cmd', '/c', `taskkill /F /PID ${pid}`]);
-      }
+      return [...pids];
     } else {
-      // Unix: use lsof
-      const result = Bun.spawnSync(['lsof', '-ti', `:${port}`]);
+      const result = Bun.spawnSync(['lsof', '-ti', `:${targetPort}`]);
       const output = result.stdout.toString().trim();
-      if (!output) return;
-
-      for (const pidStr of output.split('\n')) {
-        const pid = parseInt(pidStr, 10);
-        if (pid && pid !== process.pid) {
-          console.log(`[kill-port] Killing PID ${pid} on port ${port}`);
-          process.kill(pid, 'SIGTERM');
-        }
-      }
+      if (!output) return [];
+      return output.split('\n').map(s => parseInt(s, 10)).filter(p => p && p !== process.pid);
     }
-  } catch (e) {
-    // Best-effort — if we can't kill, the server will fail with EADDRINUSE which is informative
-    console.warn(`[kill-port] Could not clean port ${port}:`, e);
+  } catch {
+    return [];
   }
+}
+
+async function killPort(targetPort: number): Promise<void> {
+  const isWindows = process.platform === 'win32';
+  const pids = findListeningPids(targetPort);
+  if (pids.length === 0) return;
+
+  for (const pid of pids) {
+    console.log(`[kill-port] Killing PID ${pid} on port ${targetPort}`);
+    if (isWindows) {
+      // /T = kill process tree (children too), /F = force
+      Bun.spawnSync(['cmd', '/c', `taskkill /F /T /PID ${pid} 2>nul`]);
+    } else {
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+  }
+
+  // Wait until port is actually free (up to 10s)
+  for (let i = 0; i < 20; i++) {
+    await Bun.sleep(500);
+    if (findListeningPids(targetPort).length === 0) {
+      console.log(`[kill-port] Port ${targetPort} is free`);
+      return;
+    }
+  }
+  console.warn(`[kill-port] Port ${targetPort} may still be in use`);
 }
 
 await killPort(port);

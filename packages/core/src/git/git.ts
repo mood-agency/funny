@@ -1,8 +1,10 @@
-import { ok, err, ResultAsync } from 'neverthrow';
+import { ok, err, ResultAsync, type Result } from 'neverthrow';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { execute, executeSync, ProcessExecutionError } from './process.js';
 import { validatePath, validatePathSync } from './path-validation.js';
 import { processError, internal, badRequest, type DomainError } from '@a-parallel/shared/errors';
-import type { FileDiff, GitSyncState } from '@a-parallel/shared';
+import type { FileDiff, FileDiffSummary, DiffSummaryResponse, GitSyncState } from '@a-parallel/shared';
 
 /** Per-user git identity for multi-user mode. */
 export interface GitIdentityOptions {
@@ -217,6 +219,31 @@ export function revertFiles(cwd: string, paths: string[]): ResultAsync<void, Dom
 }
 
 /**
+ * Add a pattern to .gitignore. Creates the file if it doesn't exist.
+ * Avoids adding duplicate entries.
+ */
+export function addToGitignore(cwd: string, pattern: string): Result<void, DomainError> {
+  try {
+    const gitignorePath = join(cwd, '.gitignore');
+    let content = '';
+    if (existsSync(gitignorePath)) {
+      content = readFileSync(gitignorePath, 'utf-8');
+    }
+    const lines = content.split('\n');
+    if (lines.some(l => l.trim() === pattern.trim())) {
+      return ok(undefined);
+    }
+    const newContent = content.endsWith('\n') || content === ''
+      ? content + pattern + '\n'
+      : content + '\n' + pattern + '\n';
+    writeFileSync(gitignorePath, newContent, 'utf-8');
+    return ok(undefined);
+  } catch (e) {
+    return err(internal(`Failed to update .gitignore: ${String(e)}`));
+  }
+}
+
+/**
  * Create a commit with a message.
  * When identity.author is provided, adds --author flag for per-user attribution.
  */
@@ -342,22 +369,50 @@ function parseStatusLine(line: string): {
 }
 
 /**
- * Get diff information for all changed files
+ * Split a unified diff blob into per-file chunks.
+ * Each chunk starts with "diff --git a/... b/..."
+ */
+function splitDiffByFile(rawDiff: string): Map<string, string> {
+  const result = new Map<string, string>();
+  if (!rawDiff) return result;
+
+  const chunks = rawDiff.split(/(?=^diff --git )/m);
+  for (const chunk of chunks) {
+    if (!chunk.trim()) continue;
+    // Extract path from "diff --git a/foo b/foo"
+    const headerMatch = chunk.match(/^diff --git a\/.+ b\/(.+)/);
+    if (headerMatch) {
+      result.set(headerMatch[1], chunk.trim());
+    }
+  }
+  return result;
+}
+
+/**
+ * Get diff information for all changed files.
+ * Uses only 4 git commands total (instead of N+3 per file).
  */
 export function getDiff(cwd: string): ResultAsync<FileDiff[], DomainError> {
   return ResultAsync.fromPromise(
     (async () => {
-      const stagedResult = await execute('git', ['diff', '--staged', '--name-status'], { cwd, reject: false });
-      const stagedRaw = stagedResult.exitCode === 0 ? stagedResult.stdout.trim() : '';
+      // Run all 4 commands in parallel — no dependency between them
+      const [stagedStatusResult, unstagedStatusResult, untrackedResult, stagedDiffResult, unstagedDiffResult] =
+        await Promise.all([
+          execute('git', ['diff', '--staged', '--name-status'], { cwd, reject: false }),
+          execute('git', ['diff', '--name-status'], { cwd, reject: false }),
+          execute('git', ['ls-files', '--others', '--exclude-standard'], { cwd, reject: false }),
+          execute('git', ['diff', '--staged'], { cwd, reject: false }),
+          execute('git', ['diff'], { cwd, reject: false }),
+        ]);
+
+      const stagedRaw = stagedStatusResult.exitCode === 0 ? stagedStatusResult.stdout.trim() : '';
       const stagedFiles = stagedRaw
         .split('\n')
         .filter(Boolean)
         .map(parseStatusLine)
         .filter(Boolean) as { status: FileDiff['status']; path: string }[];
 
-      const unstagedResult = await execute('git', ['diff', '--name-status'], { cwd, reject: false });
-      const unstagedRaw = unstagedResult.exitCode === 0 ? unstagedResult.stdout.trim() : '';
-      const untrackedResult = await execute('git', ['ls-files', '--others', '--exclude-standard'], { cwd, reject: false });
+      const unstagedRaw = unstagedStatusResult.exitCode === 0 ? unstagedStatusResult.stdout.trim() : '';
       const untrackedRaw = untrackedResult.exitCode === 0 ? untrackedResult.stdout.trim() : '';
 
       const unstagedFiles = unstagedRaw
@@ -373,22 +428,139 @@ export function getDiff(cwd: string): ResultAsync<FileDiff[], DomainError> {
 
       const allUnstaged = [...unstagedFiles, ...untrackedFiles];
 
+      // Parse the full diff blobs into per-file maps
+      const stagedDiffMap = splitDiffByFile(
+        stagedDiffResult.exitCode === 0 ? stagedDiffResult.stdout : ''
+      );
+      const unstagedDiffMap = splitDiffByFile(
+        unstagedDiffResult.exitCode === 0 ? unstagedDiffResult.stdout : ''
+      );
+
+      const stagedPaths = new Set(stagedFiles.map((f) => f.path));
       const diffs: FileDiff[] = [];
 
       for (const f of stagedFiles) {
-        const diffResult = await execute('git', ['diff', '--staged', '--', f.path], { cwd, reject: false });
-        const diffText = diffResult.exitCode === 0 ? diffResult.stdout.trim() : '';
-        diffs.push({ path: f.path, status: f.status, diff: diffText, staged: true });
+        diffs.push({ path: f.path, status: f.status, diff: stagedDiffMap.get(f.path) ?? '', staged: true });
       }
 
       for (const f of allUnstaged) {
-        if (stagedFiles.some((s) => s.path === f.path)) continue;
-        const diffResult = await execute('git', ['diff', '--', f.path], { cwd, reject: false });
-        const diffText = diffResult.exitCode === 0 ? diffResult.stdout.trim() : '';
-        diffs.push({ path: f.path, status: f.status, diff: diffText, staged: false });
+        if (stagedPaths.has(f.path)) continue;
+        diffs.push({ path: f.path, status: f.status, diff: unstagedDiffMap.get(f.path) ?? '', staged: false });
       }
 
       return diffs;
+    })(),
+    (error) => processError(String(error), 1, '')
+  );
+}
+
+// ─── Diff Summary (lightweight, no diff content) ────────
+
+function matchesAnyPattern(filePath: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    if (pattern.endsWith('/**')) {
+      const prefix = pattern.slice(0, -3);
+      if (filePath.startsWith(prefix + '/') || filePath === prefix) return true;
+    } else if (pattern.startsWith('*')) {
+      if (filePath.endsWith(pattern.slice(1))) return true;
+    } else if (filePath === pattern) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Get file list without diff content — much faster than getDiff().
+ * Only runs name-status and ls-files commands (no full diff).
+ * No files are excluded by default — relies on lazy diff loading + virtualization on the client.
+ */
+export function getDiffSummary(
+  cwd: string,
+  options?: { excludePatterns?: string[]; maxFiles?: number }
+): ResultAsync<DiffSummaryResponse, DomainError> {
+  const exclude = options?.excludePatterns ?? [];
+  const maxFiles = options?.maxFiles ?? 0; // 0 = no limit
+
+  return ResultAsync.fromPromise(
+    (async () => {
+      const [stagedStatusResult, unstagedStatusResult, untrackedResult] = await Promise.all([
+        execute('git', ['diff', '--staged', '--name-status'], { cwd, reject: false }),
+        execute('git', ['diff', '--name-status'], { cwd, reject: false }),
+        execute('git', ['ls-files', '--others', '--exclude-standard'], { cwd, reject: false }),
+      ]);
+
+      const stagedRaw = stagedStatusResult.exitCode === 0 ? stagedStatusResult.stdout.trim() : '';
+      const stagedFiles = stagedRaw
+        .split('\n')
+        .filter(Boolean)
+        .map(parseStatusLine)
+        .filter(Boolean) as { status: FileDiffSummary['status']; path: string }[];
+
+      const unstagedRaw = unstagedStatusResult.exitCode === 0 ? unstagedStatusResult.stdout.trim() : '';
+      const untrackedRaw = untrackedResult.exitCode === 0 ? untrackedResult.stdout.trim() : '';
+
+      const unstagedFiles = unstagedRaw
+        .split('\n')
+        .filter(Boolean)
+        .map(parseStatusLine)
+        .filter(Boolean) as { status: FileDiffSummary['status']; path: string }[];
+
+      const untrackedFiles = untrackedRaw
+        .split('\n')
+        .filter(Boolean)
+        .map((p) => ({ status: 'added' as const, path: p.trim() }));
+
+      const allUnstaged = [...unstagedFiles, ...untrackedFiles];
+      const stagedPaths = new Set(stagedFiles.map((f) => f.path));
+
+      const allFiles: FileDiffSummary[] = [];
+
+      for (const f of stagedFiles) {
+        if (exclude.length > 0 && matchesAnyPattern(f.path, exclude)) continue;
+        allFiles.push({ path: f.path, status: f.status, staged: true });
+      }
+      for (const f of allUnstaged) {
+        if (stagedPaths.has(f.path)) continue;
+        if (exclude.length > 0 && matchesAnyPattern(f.path, exclude)) continue;
+        allFiles.push({ path: f.path, status: f.status, staged: false });
+      }
+
+      const total = allFiles.length;
+      const truncated = maxFiles > 0 && total > maxFiles;
+      const files = truncated ? allFiles.slice(0, maxFiles) : allFiles;
+
+      return { files, total, truncated };
+    })(),
+    (error) => processError(String(error), 1, '')
+  );
+}
+
+/**
+ * Get the diff content for a single file.
+ */
+export function getSingleFileDiff(
+  cwd: string,
+  filePath: string,
+  staged: boolean
+): ResultAsync<string, DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      if (staged) {
+        const result = await execute('git', ['diff', '--staged', '--', filePath], { cwd, reject: false });
+        return result.exitCode === 0 ? result.stdout : '';
+      }
+      // Check if file is untracked
+      const lsResult = await execute('git', ['ls-files', '--others', '--exclude-standard', '--', filePath], { cwd, reject: false });
+      if (lsResult.exitCode === 0 && lsResult.stdout.trim()) {
+        // Untracked file — use diff --no-index
+        const result = await execute('git', ['diff', '--no-index', '/dev/null', filePath], { cwd, reject: false });
+        // --no-index exits with 1 when there are differences (expected)
+        return result.stdout;
+      }
+      // Tracked, unstaged
+      const result = await execute('git', ['diff', '--', filePath], { cwd, reject: false });
+      return result.exitCode === 0 ? result.stdout : '';
     })(),
     (error) => processError(String(error), 1, '')
   );

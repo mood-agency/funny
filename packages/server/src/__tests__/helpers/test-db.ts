@@ -19,6 +19,9 @@ export function createTestDb() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       path TEXT NOT NULL,
+      color TEXT,
+      user_id TEXT NOT NULL DEFAULT '__local__',
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     )
   `);
@@ -27,19 +30,25 @@ export function createTestDb() {
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL DEFAULT '__local__',
       title TEXT NOT NULL,
       mode TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'claude',
       model TEXT NOT NULL DEFAULT 'sonnet',
       permission_mode TEXT NOT NULL DEFAULT 'autoEdit',
       status TEXT NOT NULL DEFAULT 'pending',
       branch TEXT,
+      base_branch TEXT,
       worktree_path TEXT,
       session_id TEXT,
       cost REAL NOT NULL DEFAULT 0,
       archived INTEGER NOT NULL DEFAULT 0,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      stage TEXT NOT NULL DEFAULT 'backlog',
+      initial_prompt TEXT,
+      external_request_id TEXT,
       created_at TEXT NOT NULL,
-      completed_at TEXT,
-      base_branch TEXT
+      completed_at TEXT
     )
   `);
 
@@ -50,6 +59,8 @@ export function createTestDb() {
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       images TEXT,
+      model TEXT,
+      permission_mode TEXT,
       timestamp TEXT NOT NULL
     )
   `);
@@ -61,6 +72,63 @@ export function createTestDb() {
       name TEXT NOT NULL,
       input TEXT,
       output TEXT
+    )
+  `);
+
+  testDb.run(sql`
+    CREATE TABLE IF NOT EXISTS automations (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL DEFAULT '__local__',
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'claude',
+      model TEXT NOT NULL DEFAULT 'sonnet',
+      mode TEXT NOT NULL DEFAULT 'worktree',
+      permission_mode TEXT NOT NULL DEFAULT 'autoEdit',
+      base_branch TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      max_run_history INTEGER NOT NULL DEFAULT 20,
+      last_run_at TEXT,
+      next_run_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  testDb.run(sql`
+    CREATE TABLE IF NOT EXISTS automation_runs (
+      id TEXT PRIMARY KEY,
+      automation_id TEXT NOT NULL REFERENCES automations(id) ON DELETE CASCADE,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'running',
+      triage_status TEXT NOT NULL DEFAULT 'pending',
+      has_findings INTEGER,
+      summary TEXT,
+      started_at TEXT NOT NULL,
+      completed_at TEXT
+    )
+  `);
+
+  testDb.run(sql`
+    CREATE TABLE IF NOT EXISTS stage_history (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      from_stage TEXT,
+      to_stage TEXT NOT NULL,
+      changed_at TEXT NOT NULL
+    )
+  `);
+
+  testDb.run(sql`
+    CREATE TABLE IF NOT EXISTS thread_comments (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'user',
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
     )
   `);
 
@@ -84,8 +152,10 @@ export function seedThread(db: ReturnType<typeof createTestDb>['db'], overrides:
   const thread = {
     id: overrides.id ?? 'test-thread-1',
     projectId: overrides.projectId ?? 'test-project-1',
+    userId: overrides.userId ?? '__local__',
     title: overrides.title ?? 'Test Thread',
     mode: overrides.mode ?? 'local',
+    provider: overrides.provider ?? 'claude',
     permissionMode: overrides.permissionMode ?? 'autoEdit',
     status: overrides.status ?? 'pending',
     branch: overrides.branch ?? null,
@@ -93,6 +163,8 @@ export function seedThread(db: ReturnType<typeof createTestDb>['db'], overrides:
     sessionId: overrides.sessionId ?? null,
     cost: overrides.cost ?? 0,
     archived: overrides.archived ?? 0,
+    pinned: overrides.pinned ?? 0,
+    stage: overrides.stage ?? 'backlog',
     createdAt: overrides.createdAt ?? new Date().toISOString(),
     completedAt: overrides.completedAt ?? null,
   };

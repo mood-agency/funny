@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, memo, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, memo, Suspense } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -22,6 +23,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   RefreshCw,
@@ -38,9 +49,14 @@ import {
   Sparkles,
   Loader2,
   Check,
+  MoreHorizontal,
   Undo2,
+  EyeOff,
+  FolderX,
+  Copy,
+  ClipboardCopy,
 } from 'lucide-react';
-import type { FileDiff } from '@a-parallel/shared';
+import type { FileDiffSummary } from '@a-parallel/shared';
 
 const fileStatusIcons: Record<string, typeof FileCode> = {
   added: FilePlus,
@@ -48,6 +64,8 @@ const fileStatusIcons: Record<string, typeof FileCode> = {
   deleted: FileX,
   renamed: FileCode,
 };
+
+const FILE_ROW_HEIGHT = 28;
 
 function parseDiffOld(unifiedDiff: string): string {
   const lines = unifiedDiff.split('\n');
@@ -127,7 +145,10 @@ export function ReviewPane() {
     return s.activeThread?.projectId ?? selectedProjectId ?? '';
   });
 
-  const [diffs, setDiffs] = useState<FileDiff[]>([]);
+  const [summaries, setSummaries] = useState<FileDiffSummary[]>([]);
+  const [diffCache, setDiffCache] = useState<Map<string, string>>(new Map());
+  const [loadingDiff, setLoadingDiff] = useState<string | null>(null);
+  const [truncatedInfo, setTruncatedInfo] = useState<{ total: number; truncated: boolean }>({ total: 0, truncated: false });
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
@@ -139,44 +160,71 @@ export function ReviewPane() {
   const [selectedAction, setSelectedAction] = useState<'commit' | 'commit-push' | 'commit-pr'>('commit');
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
+  const fileListRef = useRef<HTMLDivElement>(null);
+
   const refresh = async () => {
     if (!effectiveThreadId) return;
     setLoading(true);
-    const result = await api.getDiff(effectiveThreadId);
+    const result = await api.getDiffSummary(effectiveThreadId);
     if (result.isOk()) {
       const data = result.value;
-      setDiffs(data);
+      setSummaries(data.files);
+      setTruncatedInfo({ total: data.total, truncated: data.truncated });
+      setDiffCache(new Map());
       // Check all files by default, preserving existing selections
       setCheckedFiles(prev => {
         const next = new Set(prev);
-        for (const f of data) {
+        for (const f of data.files) {
           if (!prev.has(f.path) && prev.size === 0) {
-            // First load: check all
             next.add(f.path);
-          } else if (!prev.has(f.path) && data.length > prev.size) {
-            // New file appeared: check it
+          } else if (!prev.has(f.path) && data.files.length > prev.size) {
             next.add(f.path);
           }
         }
-        // Remove files that no longer exist
         for (const p of prev) {
-          if (!data.find(d => d.path === p)) next.delete(p);
+          if (!data.files.find(d => d.path === p)) next.delete(p);
         }
-        return next.size === 0 ? new Set(data.map(d => d.path)) : next;
+        return next.size === 0 ? new Set(data.files.map(d => d.path)) : next;
       });
-      if (data.length > 0 && !selectedFile) {
-        setSelectedFile(data[0].path);
+      if (data.files.length > 0 && !selectedFile) {
+        setSelectedFile(data.files[0].path);
       }
     } else {
-      console.error('Failed to load diff:', result.error);
+      console.error('Failed to load diff summary:', result.error);
     }
     setLoading(false);
   };
 
-  // Reset state and refresh only when the git working directory changes.
-  // Switching between threads that share the same branch/worktree won't re-fetch.
+  // Lazy load diff content for the selected file
+  const loadDiffForFile = async (filePath: string) => {
+    if (!effectiveThreadId || diffCache.has(filePath)) return;
+    const summary = summaries.find(s => s.path === filePath);
+    if (!summary) return;
+    setLoadingDiff(filePath);
+    const result = await api.getFileDiff(effectiveThreadId, filePath, summary.staged);
+    if (result.isOk()) {
+      setDiffCache(prev => new Map(prev).set(filePath, result.value.diff));
+    }
+    setLoadingDiff(prev => prev === filePath ? null : prev);
+  };
+
+  // Load diff when selected file or expanded file changes
   useEffect(() => {
-    setDiffs([]);
+    if (selectedFile && !diffCache.has(selectedFile)) {
+      loadDiffForFile(selectedFile);
+    }
+  }, [selectedFile]);
+
+  useEffect(() => {
+    if (expandedFile && !diffCache.has(expandedFile)) {
+      loadDiffForFile(expandedFile);
+    }
+  }, [expandedFile]);
+
+  // Reset state and refresh only when the git working directory changes.
+  useEffect(() => {
+    setSummaries([]);
+    setDiffCache(new Map());
     setSelectedFile(null);
     setCheckedFiles(new Set());
     setCommitTitle('');
@@ -189,15 +237,22 @@ export function ReviewPane() {
   useAutoRefreshDiff(effectiveThreadId, refresh, 2000);
 
   const filteredDiffs = useMemo(() => {
-    if (!fileSearch) return diffs;
+    if (!fileSearch) return summaries;
     const query = fileSearch.toLowerCase();
-    return diffs.filter(d => d.path.toLowerCase().includes(query));
-  }, [diffs, fileSearch]);
+    return summaries.filter(d => d.path.toLowerCase().includes(query));
+  }, [summaries, fileSearch]);
 
-  const selectedDiff = diffs.find((d) => d.path === selectedFile);
+  const selectedDiffContent = selectedFile ? diffCache.get(selectedFile) : undefined;
 
   const checkedCount = checkedFiles.size;
-  const totalCount = diffs.length;
+  const totalCount = summaries.length;
+
+  const virtualizer = useVirtualizer({
+    count: filteredDiffs.length,
+    getScrollElement: () => fileListRef.current,
+    estimateSize: () => FILE_ROW_HEIGHT,
+    overscan: 15,
+  });
 
   const toggleFile = (path: string) => {
     setCheckedFiles(prev => {
@@ -209,10 +264,10 @@ export function ReviewPane() {
   };
 
   const toggleAll = () => {
-    if (checkedFiles.size === diffs.length) {
+    if (checkedFiles.size === summaries.length) {
       setCheckedFiles(new Set());
     } else {
-      setCheckedFiles(new Set(diffs.map(d => d.path)));
+      setCheckedFiles(new Set(summaries.map(d => d.path)));
     }
   };
 
@@ -238,7 +293,7 @@ export function ReviewPane() {
     const filesToCommit = Array.from(checkedFiles);
 
     // Unstage everything first to start clean
-    const currentlyStaged = diffs.filter(f => f.staged).map(f => f.path);
+    const currentlyStaged = summaries.filter(f => f.staged).map(f => f.path);
     if (currentlyStaged.length > 0) {
       const unstageResult = await api.unstageFiles(effectiveThreadId, currentlyStaged);
       if (unstageResult.isErr()) {
@@ -324,6 +379,38 @@ export function ReviewPane() {
     }
   };
 
+  const handleIgnore = async (pattern: string) => {
+    if (!effectiveThreadId) return;
+    const result = await api.addToGitignore(effectiveThreadId, pattern);
+    if (result.isErr()) {
+      toast.error(t('review.ignoreFailed', { message: result.error.message }));
+    } else {
+      toast.success(t('review.ignoreSuccess'));
+      await refresh();
+    }
+  };
+
+  const getParentFolders = (filePath: string): string[] => {
+    const parts = filePath.split('/');
+    const folders: string[] = [];
+    for (let i = parts.length - 1; i > 0; i--) {
+      folders.push('/' + parts.slice(0, i).join('/'));
+    }
+    return folders;
+  };
+
+  const getFileExtension = (filePath: string): string | null => {
+    const lastDot = filePath.lastIndexOf('.');
+    if (lastDot === -1 || lastDot === filePath.length - 1) return null;
+    return filePath.substring(lastDot);
+  };
+
+  const handleCopyPath = (path: string, relative: boolean) => {
+    const text = relative ? path : `/${path}`;
+    navigator.clipboard.writeText(text);
+    toast.success(t('review.pathCopied'));
+  };
+
   const canCommit = checkedFiles.size > 0 && commitTitle.trim().length > 0 && !actionInProgress;
 
   return (
@@ -366,15 +453,20 @@ export function ReviewPane() {
         {/* Left: Diff viewer */}
         <div className="flex-1 min-w-0 flex flex-col">
           <ScrollArea className="flex-1 w-full">
-            {selectedDiff ? (
-              selectedDiff.diff ? (
+            {selectedFile ? (
+              loadingDiff === selectedFile ? (
+                <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading diff...
+                </div>
+              ) : selectedDiffContent ? (
                 <div className="relative text-xs [&_.diff-container]:font-mono [&_.diff-container]:text-sm [&_table]:w-max [&_td:last-child]:w-auto [&_td:last-child]:min-w-0">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="secondary"
                         size="icon-xs"
-                        onClick={() => setExpandedFile(selectedDiff.path)}
+                        onClick={() => setExpandedFile(selectedFile)}
                         className="sticky top-2 right-2 z-10 opacity-70 hover:opacity-100 shadow-md float-right mr-2 mt-2"
                       >
                         <Maximize2 className="h-3.5 w-3.5" />
@@ -383,7 +475,7 @@ export function ReviewPane() {
                     <TooltipContent side="left">{t('review.expand', 'Expand')}</TooltipContent>
                   </Tooltip>
                   <Suspense fallback={<div className="p-2 text-xs text-muted-foreground">Loading diff...</div>}>
-                    <MemoizedDiffView diff={selectedDiff.diff} />
+                    <MemoizedDiffView diff={selectedDiffContent} />
                   </Suspense>
                 </div>
               ) : (
@@ -398,8 +490,19 @@ export function ReviewPane() {
 
         {/* Right: File list panel */}
         <div className="w-[352px] flex-shrink-0 border-l border-sidebar-border flex flex-col">
+          {/* Truncation warning */}
+          {truncatedInfo.truncated && (
+            <div className="px-3 py-1.5 bg-yellow-500/10 border-b border-sidebar-border text-xs text-yellow-600 dark:text-yellow-400">
+              {t('review.truncatedWarning', {
+                shown: summaries.length,
+                total: truncatedInfo.total,
+                defaultValue: `Showing ${summaries.length} of ${truncatedInfo.total} files. Some files were excluded.`,
+              })}
+            </div>
+          )}
+
           {/* File search */}
-          {diffs.length > 0 && (
+          {summaries.length > 0 && (
             <div className="px-2 py-2 border-b border-sidebar-border">
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
@@ -408,7 +511,7 @@ export function ReviewPane() {
                   placeholder={t('review.searchFiles', 'Filter files...')}
                   value={fileSearch}
                   onChange={(e) => setFileSearch(e.target.value)}
-                  className="h-7 pl-7 pr-7 text-xs"
+                  className="h-7 pl-7 pr-7 text-xs md:text-xs"
                 />
                 {fileSearch && (
                   <Button
@@ -425,13 +528,13 @@ export function ReviewPane() {
           )}
 
           {/* Select all / count */}
-          {diffs.length > 0 && (
+          {summaries.length > 0 && (
             <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-sidebar-border">
               <button
                 onClick={toggleAll}
                 className={cn(
                   'flex items-center justify-center h-3.5 w-3.5 rounded border transition-colors flex-shrink-0',
-                  checkedFiles.size === diffs.length
+                  checkedFiles.size === summaries.length
                     ? 'bg-primary border-primary text-primary-foreground'
                     : checkedFiles.size > 0
                       ? 'bg-primary/50 border-primary text-primary-foreground'
@@ -446,72 +549,143 @@ export function ReviewPane() {
             </div>
           )}
 
-          {/* File list */}
-          <ScrollArea className="flex-1">
-            {loading ? (
-              <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t('review.loading', 'Loading changes...')}
-              </div>
-            ) : diffs.length === 0 ? (
-              <p className="text-xs text-muted-foreground p-3">{t('review.noChanges')}</p>
-            ) : filteredDiffs.length === 0 ? (
-              <p className="text-xs text-muted-foreground p-3">{t('review.noMatchingFiles', 'No matching files')}</p>
-            ) : (
-              filteredDiffs.map((f) => {
-                const Icon = fileStatusIcons[f.status] || FileCode;
-                const isChecked = checkedFiles.has(f.path);
-                return (
-                  <div
-                    key={f.path}
-                    className={cn(
-                      'group flex items-center gap-1.5 px-4 py-1 text-xs cursor-pointer transition-colors',
-                      selectedFile === f.path
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : 'hover:bg-sidebar-accent/50 text-muted-foreground'
-                    )}
-                    onClick={() => setSelectedFile(f.path)}
-                  >
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleFile(f.path); }}
+          {/* File list (virtualized) */}
+          {loading ? (
+            <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t('review.loading', 'Loading changes...')}
+            </div>
+          ) : summaries.length === 0 ? (
+            <p className="text-xs text-muted-foreground p-3">{t('review.noChanges')}</p>
+          ) : filteredDiffs.length === 0 ? (
+            <p className="text-xs text-muted-foreground p-3">{t('review.noMatchingFiles', 'No matching files')}</p>
+          ) : (
+            <div ref={fileListRef} className="flex-1 overflow-auto">
+              <div
+                style={{ height: `${virtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}
+              >
+                {virtualizer.getVirtualItems().map((virtualRow) => {
+                  const f = filteredDiffs[virtualRow.index];
+                  const isChecked = checkedFiles.has(f.path);
+                  return (
+                    <div
+                      key={f.path}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
                       className={cn(
-                        'flex items-center justify-center h-3.5 w-3.5 rounded border transition-colors flex-shrink-0',
-                        isChecked
-                          ? 'bg-primary border-primary text-primary-foreground'
-                          : 'border-muted-foreground/40'
+                        'group flex items-center gap-1.5 px-4 text-xs cursor-pointer transition-colors',
+                        selectedFile === f.path
+                          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                          : 'hover:bg-sidebar-accent/50 text-muted-foreground'
                       )}
+                      onClick={() => setSelectedFile(f.path)}
                     >
-                      {isChecked && <Check className="h-2.5 w-2.5" />}
-                    </button>
-                    <span className="flex-1 truncate font-mono text-[11px]">{f.path}</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleRevertFile(f.path); }}
-                          className="hidden group-hover:flex items-center justify-center h-4 w-4 rounded text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
-                        >
-                          <Undo2 className="h-3 w-3" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left">{t('review.revert')}</TooltipContent>
-                    </Tooltip>
-                    <span className={cn(
-                      'text-[10px] font-medium flex-shrink-0',
-                      f.status === 'added' && 'text-status-success',
-                      f.status === 'modified' && 'text-status-pending',
-                      f.status === 'deleted' && 'text-destructive',
-                      f.status === 'renamed' && 'text-status-info',
-                    )}>
-                      {f.status === 'added' ? 'A' : f.status === 'modified' ? 'M' : f.status === 'deleted' ? 'D' : 'R'}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </ScrollArea>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleFile(f.path); }}
+                        className={cn(
+                          'flex items-center justify-center h-3.5 w-3.5 rounded border transition-colors flex-shrink-0',
+                          isChecked
+                            ? 'bg-primary border-primary text-primary-foreground'
+                            : 'border-muted-foreground/40'
+                        )}
+                      >
+                        {isChecked && <Check className="h-2.5 w-2.5" />}
+                      </button>
+                      <span className="flex-1 truncate font-mono text-[11px]">{f.path}</span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center justify-center h-4 w-4 rounded text-muted-foreground hover:text-foreground transition-all flex-shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                          >
+                            <MoreHorizontal className="h-3 w-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-[220px]">
+                          <DropdownMenuItem
+                            onClick={() => handleRevertFile(f.path)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Undo2 />
+                            {t('review.discardChanges')}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleIgnore(f.path)}>
+                            <EyeOff />
+                            {t('review.ignoreFile')}
+                          </DropdownMenuItem>
+                          {(() => {
+                            const folders = getParentFolders(f.path);
+                            if (folders.length === 0) return null;
+                            if (folders.length === 1) {
+                              return (
+                                <DropdownMenuItem onClick={() => handleIgnore(folders[0])}>
+                                  <FolderX />
+                                  {t('review.ignoreFolder')}
+                                </DropdownMenuItem>
+                              );
+                            }
+                            return (
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger>
+                                  <FolderX />
+                                  {t('review.ignoreFolder')}
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  {folders.map((folder) => (
+                                    <DropdownMenuItem key={folder} onClick={() => handleIgnore(folder)}>
+                                      {folder}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                            );
+                          })()}
+                          {(() => {
+                            const ext = getFileExtension(f.path);
+                            if (!ext) return null;
+                            return (
+                              <DropdownMenuItem onClick={() => handleIgnore(`*${ext}`)}>
+                                <EyeOff />
+                                {t('review.ignoreExtension', { ext })}
+                              </DropdownMenuItem>
+                            );
+                          })()}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleCopyPath(f.path, false)}>
+                            <Copy />
+                            {t('review.copyFilePath')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleCopyPath(f.path, true)}>
+                            <ClipboardCopy />
+                            {t('review.copyRelativePath')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <span className={cn(
+                        'text-[10px] font-medium flex-shrink-0',
+                        f.status === 'added' && 'text-status-success',
+                        f.status === 'modified' && 'text-status-pending',
+                        f.status === 'deleted' && 'text-destructive',
+                        f.status === 'renamed' && 'text-status-info',
+                      )}>
+                        {f.status === 'added' ? 'A' : f.status === 'modified' ? 'M' : f.status === 'deleted' ? 'D' : 'R'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Commit controls */}
-          {diffs.length > 0 && (
+          {summaries.length > 0 && (
             <div className="border-t border-sidebar-border p-2 space-y-1.5 flex-shrink-0">
               <input
                 type="text"
@@ -537,7 +711,7 @@ export function ReviewPane() {
                         variant="ghost"
                         size="icon-xs"
                         onClick={handleGenerateCommitMsg}
-                        disabled={diffs.length === 0 || generatingMsg || !!actionInProgress}
+                        disabled={summaries.length === 0 || generatingMsg || !!actionInProgress}
                       >
                         <Sparkles className={cn('h-2.5 w-2.5', generatingMsg && 'animate-pulse')} />
                       </Button>
@@ -590,25 +764,32 @@ export function ReviewPane() {
       <Dialog open={!!expandedFile} onOpenChange={(open) => { if (!open) setExpandedFile(null); }}>
         <DialogContent className="max-w-[90vw] w-[90vw] h-[85vh] flex flex-col p-0 gap-0">
           {(() => {
-            const expandedDiff = diffs.find(d => d.path === expandedFile);
-            if (!expandedDiff) return null;
-            const Icon = fileStatusIcons[expandedDiff.status] || FileCode;
+            if (!expandedFile) return null;
+            const expandedSummary = summaries.find(s => s.path === expandedFile);
+            if (!expandedSummary) return null;
+            const expandedDiffContent = diffCache.get(expandedFile);
+            const Icon = fileStatusIcons[expandedSummary.status] || FileCode;
             return (
               <>
                 <DialogHeader className="px-4 py-3 pr-10 border-b border-border flex-shrink-0">
                   <div className="flex items-center gap-2 min-w-0">
                     <Icon className="h-4 w-4 flex-shrink-0" />
-                    <DialogTitle className="font-mono text-sm truncate">{expandedDiff.path}</DialogTitle>
+                    <DialogTitle className="font-mono text-sm truncate">{expandedSummary.path}</DialogTitle>
                   </div>
                   <DialogDescription className="sr-only">
-                    {t('review.diffFor', { file: expandedDiff.path, defaultValue: `Diff for ${expandedDiff.path}` })}
+                    {t('review.diffFor', { file: expandedSummary.path, defaultValue: `Diff for ${expandedSummary.path}` })}
                   </DialogDescription>
                 </DialogHeader>
                 <ScrollArea className="flex-1 min-h-0">
-                  {expandedDiff.diff ? (
+                  {loadingDiff === expandedFile ? (
+                    <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading diff...
+                    </div>
+                  ) : expandedDiffContent ? (
                     <div className="[&_.diff-container]:font-mono [&_table]:w-full [&_td]:overflow-hidden [&_td]:text-ellipsis">
                       <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading diff...</div>}>
-                        <MemoizedDiffView diff={expandedDiff.diff} splitView={true} />
+                        <MemoizedDiffView diff={expandedDiffContent} splitView={true} />
                       </Suspense>
                     </div>
                   ) : (

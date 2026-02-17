@@ -58,17 +58,19 @@ threadRoutes.get('/search/content', (c) => {
 
 // GET /api/threads/:id?messageLimit=50
 threadRoutes.get('/:id', (c) => {
+  const userId = c.get('userId') as string;
   const messageLimitParam = c.req.query('messageLimit');
   const messageLimit = messageLimitParam ? Math.min(200, Math.max(1, parseInt(messageLimitParam, 10))) : undefined;
-  const thread = tm.getThreadWithMessages(c.req.param('id'), messageLimit);
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-  return c.json(thread);
+  const threadResult = requireThreadWithMessages(c.req.param('id'), userId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+  return c.json(threadResult.value);
 });
 
 // GET /api/threads/:id/messages?cursor=<ISO>&limit=50
 threadRoutes.get('/:id/messages', (c) => {
   const id = c.req.param('id');
-  const threadResult = requireThread(id);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
   const cursor = c.req.query('cursor');
@@ -249,7 +251,8 @@ threadRoutes.post('/:id/message', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
   const { content, provider, model, permissionMode, images, allowedTools, disallowedTools, fileReferences } = parsed.value;
 
-  const threadResult = requireThread(id);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   const thread = threadResult.value;
 
@@ -311,8 +314,10 @@ threadRoutes.post('/:id/message', async (c) => {
 // POST /api/threads/:id/stop
 threadRoutes.post('/:id/stop', async (c) => {
   const id = c.req.param('id');
-  const thread = tm.getThread(id);
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+  const thread = threadResult.value;
   if (thread.provider === 'external') {
     return c.json({ error: 'Cannot stop an external thread' }, 409);
   }
@@ -323,12 +328,13 @@ threadRoutes.post('/:id/stop', async (c) => {
 // POST /api/threads/:id/approve-tool
 threadRoutes.post('/:id/approve-tool', async (c) => {
   const id = c.req.param('id');
+  const userId = c.get('userId') as string;
   const raw = await c.req.json();
   const parsed = validate(approveToolSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
   const { toolName, approved, allowedTools: clientAllowedTools, disallowedTools: clientDisallowedTools } = parsed.value;
 
-  const threadResult = requireThread(id);
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   const thread = threadResult.value;
 
@@ -404,11 +410,12 @@ threadRoutes.post('/:id/approve-tool', async (c) => {
 // PATCH /api/threads/:id — update thread fields (e.g. archived)
 threadRoutes.patch('/:id', async (c) => {
   const id = c.req.param('id');
+  const userId = c.get('userId') as string;
   const raw = await c.req.json();
   const parsed = validate(updateThreadSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
-  const threadResult = requireThread(id);
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   const thread = threadResult.value;
 
@@ -486,7 +493,8 @@ threadRoutes.patch('/:id', async (c) => {
 // GET /api/threads/:id/comments
 threadRoutes.get('/:id/comments', (c) => {
   const id = c.req.param('id');
-  const threadResult = requireThread(id);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   return c.json(tm.listComments(id));
 });
@@ -494,15 +502,14 @@ threadRoutes.get('/:id/comments', (c) => {
 // POST /api/threads/:id/comments
 threadRoutes.post('/:id/comments', async (c) => {
   const id = c.req.param('id');
-  const threadResult = requireThread(id);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
   const { content } = await c.req.json();
   if (!content || typeof content !== 'string') {
     return c.json({ error: 'content is required' }, 400);
   }
-
-  const userId = c.get('userId') as string;
   const comment = tm.insertComment({ threadId: id, userId, source: 'user', content });
   return c.json(comment, 201);
 });
@@ -511,7 +518,8 @@ threadRoutes.post('/:id/comments', async (c) => {
 threadRoutes.delete('/:id/comments/:commentId', (c) => {
   const id = c.req.param('id');
   const commentId = c.req.param('commentId');
-  const threadResult = requireThread(id);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
   tm.deleteComment(commentId);
@@ -521,7 +529,10 @@ threadRoutes.delete('/:id/comments/:commentId', (c) => {
 // DELETE /api/threads/:id
 threadRoutes.delete('/:id', async (c) => {
   const id = c.req.param('id');
-  const thread = tm.getThread(id);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+  const thread = threadResult.value;
 
   if (thread) {
     threadEventBus.emit('thread:deleted', {

@@ -43,6 +43,10 @@ export function listMcpServers(projectPath: string): ResultAsync<McpServer[], Do
 
 /**
  * Parse the text output of `claude mcp list`.
+ *
+ * Handles two formats from `claude mcp list`:
+ *   name: url (HTTP|SSE) - status       → HTTP/SSE server with explicit type
+ *   name: command args - status          → stdio server (no type in parens)
  */
 function parseMcpListOutput(output: string): McpServer[] {
   const servers: McpServer[] = [];
@@ -52,12 +56,13 @@ function parseMcpListOutput(output: string): McpServer[] {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('─') || trimmed.startsWith('Name') || trimmed.startsWith('Checking')) continue;
 
-    const statusMatch = trimmed.match(/^(\S+):\s+(.+?)\s+\((HTTP|http|SSE|sse|stdio|STDIO)\)(?:\s*-\s*(.+))?/);
-    if (statusMatch) {
-      const name = statusMatch[1];
-      const value = statusMatch[2].trim();
-      const type = statusMatch[3].toLowerCase() as McpServerType;
-      const statusText = statusMatch[4]?.trim().toLowerCase() || '';
+    // Match lines WITH explicit type: "name: value (HTTP|SSE|stdio) - status"
+    const typedMatch = trimmed.match(/^(\S+):\s+(.+?)\s+\((HTTP|http|SSE|sse|stdio|STDIO)\)(?:\s*-\s*(.+))?/);
+    if (typedMatch) {
+      const name = typedMatch[1];
+      const value = typedMatch[2].trim();
+      const type = typedMatch[3].toLowerCase() as McpServerType;
+      const statusText = typedMatch[4]?.trim().toLowerCase() || '';
 
       const server: McpServer = { name, type };
 
@@ -69,18 +74,30 @@ function parseMcpListOutput(output: string): McpServer[] {
         server.args = cmdParts.slice(1);
       }
 
-      if (statusText.includes('needs auth') || statusText.includes('authentication')) {
-        server.status = 'needs_auth';
-      } else if (statusText.includes('error') || statusText.includes('failed')) {
-        server.status = 'error';
-      } else if (statusText) {
-        server.status = 'ok';
-      }
-
+      applyStatus(server, statusText);
       servers.push(server);
       continue;
     }
 
+    // Match lines WITHOUT explicit type: "name: command args - status"
+    // These are stdio servers (the CLI omits the type for stdio)
+    const untypedMatch = trimmed.match(/^(\S+):\s+(.+?)(?:\s+-\s+(.+))?$/);
+    if (untypedMatch) {
+      const name = untypedMatch[1];
+      const value = untypedMatch[2].trim();
+      const statusText = untypedMatch[3]?.trim().toLowerCase() || '';
+
+      const server: McpServer = { name, type: 'stdio' };
+      const cmdParts = value.split(/\s+/);
+      server.command = cmdParts[0];
+      server.args = cmdParts.slice(1);
+
+      applyStatus(server, statusText);
+      servers.push(server);
+      continue;
+    }
+
+    // Fallback: tab/multi-space separated columns
     const parts = trimmed.split(/\s{2,}/);
     if (parts.length >= 2) {
       const name = parts[0].trim();
@@ -104,6 +121,17 @@ function parseMcpListOutput(output: string): McpServer[] {
   }
 
   return servers;
+}
+
+function applyStatus(server: McpServer, statusText: string): void {
+  if (!statusText) return;
+  if (statusText.includes('needs auth') || statusText.includes('authentication')) {
+    server.status = 'needs_auth';
+  } else if (statusText.includes('error') || statusText.includes('failed')) {
+    server.status = 'error';
+  } else {
+    server.status = 'ok';
+  }
 }
 
 /**

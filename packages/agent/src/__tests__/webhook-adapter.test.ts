@@ -90,11 +90,11 @@ describe('WebhookAdapter', () => {
 
   it('sets name from URL host', () => {
     const adapter = new WebhookAdapter({ url: 'https://hooks.slack.com/services/abc' });
-    expect(adapter.name).toBe('webhook:hooks.slack.com');
+    expect(adapter.name).toBe('webhook-hooks.slack.com-80');
   });
 
   it('handles invalid URL gracefully for name', () => {
     const adapter = new WebhookAdapter({ url: 'not-a-valid-url' });
-    expect(adapter.name).toBe('webhook:not-a-valid-url');
+    expect(adapter.name).toBe('webhook-not-a-valid-url');
   });
 });

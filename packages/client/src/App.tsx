@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'motion/react';
 import { useWS } from '@/hooks/use-ws';
 import { useRouteSync } from '@/hooks/use-route-sync';
 import { useProjectStore } from '@/stores/project-store';
@@ -8,9 +9,25 @@ import { setAppNavigate } from '@/stores/thread-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { AppSidebar } from '@/components/Sidebar';
 import { ThreadView } from '@/components/ThreadView';
-import { SidebarProvider, SidebarInset, Sidebar, SidebarContent } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { Toaster } from 'sonner';
 import { TOAST_DURATION } from '@/lib/utils';
+import { PanelLeft } from 'lucide-react';
+
+/** Thin vertical strip visible when the sidebar is collapsed, click to reopen */
+function CollapsedSidebarStrip() {
+  const { state, toggleSidebar } = useSidebar();
+  if (state === 'expanded') return null;
+  return (
+    <button
+      onClick={toggleSidebar}
+      className="flex-shrink-0 w-10 h-full border-r border-border bg-sidebar flex items-start justify-center pt-3 hover:bg-sidebar-accent transition-colors cursor-pointer"
+      title="Expand sidebar"
+    >
+      <PanelLeft className="h-4 w-4 text-muted-foreground" />
+    </button>
+  );
+}
 
 // Lazy-load conditional views (bundle-conditional / bundle-dynamic-imports)
 const AllThreadsView = lazy(() => import('@/components/AllThreadsView').then(m => ({ default: m.AllThreadsView })));
@@ -113,6 +130,7 @@ export function App() {
       className="h-screen overflow-hidden"
     >
       <AppSidebar />
+      <CollapsedSidebarStrip />
 
       <SidebarInset className="flex flex-col overflow-hidden">
         {/* Main content + terminal */}
@@ -125,24 +143,23 @@ export function App() {
         <Suspense><TerminalPanel /></Suspense>
       </SidebarInset>
 
-      {/* Right sidebar for review pane */}
-      <SidebarProvider
-        open={reviewPaneOpen && !settingsOpen}
-        onOpenChange={setReviewPaneOpen}
-        keyboardShortcut={false}
-        style={
-          {
-            '--sidebar-width': '50vw',
-          } as React.CSSProperties
-        }
-        className="!min-h-0 !w-auto"
-      >
-        <Sidebar side="right" collapsible="offcanvas">
-          <SidebarContent className="p-0 gap-0">
-            <Suspense><ReviewPane /></Suspense>
-          </SidebarContent>
-        </Sidebar>
-      </SidebarProvider>
+      {/* Right sidebar for review pane — animated slide in/out */}
+      <AnimatePresence>
+        {reviewPaneOpen && !settingsOpen && (
+          <motion.div
+            key="review-pane"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: '50vw', opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+            className="h-full overflow-hidden flex-shrink-0 border-l border-border"
+          >
+            <div className="h-full w-[50vw]">
+              <Suspense><ReviewPane /></Suspense>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <Toaster position="bottom-right" theme="dark" duration={TOAST_DURATION} />
       <Suspense><CircuitBreakerDialog /></Suspense>

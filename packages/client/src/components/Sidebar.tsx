@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/stores/project-store';
@@ -15,6 +15,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import {
   Dialog,
@@ -24,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Plus, FolderPlus, Columns3, BarChart3 } from 'lucide-react';
+import { FolderPlus, Columns3, BarChart3, PanelLeftClose, Settings } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -33,7 +34,7 @@ import {
 import { AutomationInboxButton } from './sidebar/AutomationInboxButton';
 import { ThreadList } from './sidebar/ThreadList';
 import { ProjectItem } from './sidebar/ProjectItem';
-import { Logo3D } from './Logo3D';
+import { GeneralSettingsDialog } from './GeneralSettingsDialog';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
 export function AppSidebar() {
@@ -57,12 +58,12 @@ export function AppSidebar() {
   // ui-store
   const settingsOpen = useUIStore(s => s.settingsOpen);
   const startNewThread = useUIStore(s => s.startNewThread);
-  const showAllThreads = useUIStore(s => s.showAllThreads);
   const setAddProjectOpen = useUIStore(s => s.setAddProjectOpen);
   const showGlobalSearch = useUIStore(s => s.showGlobalSearch);
   const authMode = useAuthStore(s => s.mode);
   const authUser = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
+  const { toggleSidebar } = useSidebar();
 
   const [archiveConfirm, setArchiveConfirm] = useState<{
     threadId: string;
@@ -86,6 +87,19 @@ export function AppSidebar() {
     name: string;
   } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [generalSettingsOpen, setGeneralSettingsOpen] = useState(false);
+  const projectsScrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll projects list to selected project (e.g. after Ctrl+K)
+  useEffect(() => {
+    if (!selectedProjectId || !projectsScrollRef.current) return;
+    const el = projectsScrollRef.current.querySelector(
+      `[data-project-id="${selectedProjectId}"]`
+    );
+    if (el) {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [selectedProjectId]);
 
   // Drag & drop: monitor for project reordering
   useEffect(() => {
@@ -175,43 +189,22 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="offcanvas" className="select-none">
-      {/* Logo area */}
-      <SidebarHeader className="px-4 py-3">
-        <div className="flex items-center justify-between">
-          <Logo3D scale={0.75} glow={0.3} />
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => {
-                    localStorage.setItem('threadViewMode', 'board');
-                    showGlobalSearch();
-                    navigate('/search');
-                  }}
-                  className="text-muted-foreground"
-                >
-                  <Columns3 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Kanban</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => navigate('/analytics')}
-                  className="text-muted-foreground"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t('sidebar.analytics')}</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
+      {/* Header with collapse toggle */}
+      <SidebarHeader className="px-3 py-2 flex-row items-center justify-between">
+        <span className="text-sm font-semibold text-sidebar-foreground">a-parallel</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={toggleSidebar}
+              className="text-muted-foreground h-7 w-7"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t('sidebar.collapse', 'Collapse sidebar')}</TooltipContent>
+        </Tooltip>
       </SidebarHeader>
 
       {/* Active threads section (own scroll) */}
@@ -237,23 +230,55 @@ export function AppSidebar() {
       {/* Projects header (fixed, outside scroll) */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('sidebar.projects')}</h2>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setAddProjectOpen(true)}
-              className="text-muted-foreground"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{t('sidebar.addProject')}</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => {
+                  localStorage.setItem('threadViewMode', 'board');
+                  showGlobalSearch();
+                  navigate('/search?view=board');
+                }}
+                className="text-muted-foreground"
+              >
+                <Columns3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Kanban</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => navigate('/analytics')}
+                className="text-muted-foreground"
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('sidebar.analytics')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setAddProjectOpen(true)}
+                className="text-muted-foreground"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('sidebar.addProject')}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Projects list (fills remaining space, own scroll) */}
-      <SidebarContent className="px-2 pb-2">
+      <SidebarContent ref={projectsScrollRef} className="px-2 pb-2">
         {projects.length === 0 && (
           <button
             onClick={() => setAddProjectOpen(true)}
@@ -272,17 +297,25 @@ export function AppSidebar() {
               isSelected={selectedProjectId === project.id}
               selectedThreadId={selectedThreadId}
               onToggle={() => {
+                const wasExpanded = expandedProjects.has(project.id);
                 toggleProject(project.id);
-                const willExpand = !expandedProjects.has(project.id);
-                if (willExpand) {
-                  useGitStatusStore.getState().fetchForProject(project.id);
-                  startNewThread(project.id);
-                  navigate(`/projects/${project.id}`);
-                }
+                // Defer expensive work (API calls, navigation) so the browser can paint the toggle immediately
+                setTimeout(() => {
+                  if (!wasExpanded) {
+                    // startNewThread → selectProject already triggers fetchForProject
+                    startNewThread(project.id);
+                    navigate(`/projects/${project.id}`);
+                  } else if (selectedProjectId !== project.id) {
+                    useGitStatusStore.getState().fetchForProject(project.id);
+                    navigate(`/projects/${project.id}`);
+                  }
+                }, 0);
               }}
               onNewThread={() => {
-                startNewThread(project.id);
-                navigate(`/projects/${project.id}`);
+                setTimeout(() => {
+                  startNewThread(project.id);
+                  navigate(`/projects/${project.id}`);
+                }, 0);
               }}
               onRenameProject={() => {
                 setRenameProjectState({ projectId: project.id, currentName: project.name, newName: project.name });
@@ -291,12 +324,14 @@ export function AppSidebar() {
                 setDeleteProjectConfirm({ projectId: project.id, name: project.name });
               }}
               onSelectThread={(threadId) => {
-                const store = useThreadStore.getState();
-                // If already on this thread's URL but activeThread didn't load, re-select directly
-                if (store.selectedThreadId === threadId && (!store.activeThread || store.activeThread.id !== threadId)) {
-                  store.selectThread(threadId);
-                }
-                navigate(`/projects/${project.id}/threads/${threadId}`);
+                setTimeout(() => {
+                  const store = useThreadStore.getState();
+                  // If already on this thread's URL but activeThread didn't load, re-select directly
+                  if (store.selectedThreadId === threadId && (!store.activeThread || store.activeThread.id !== threadId)) {
+                    store.selectThread(threadId);
+                  }
+                  navigate(`/projects/${project.id}/threads/${threadId}`);
+                }, 0);
               }}
               onArchiveThread={(threadId, title) => {
                 const threads = threadsByProject[project.id] ?? [];
@@ -312,25 +347,46 @@ export function AppSidebar() {
                 setDeleteThreadConfirm({ threadId, projectId: project.id, title, isWorktree: th?.mode === 'worktree' && !!th?.branch && th?.provider !== 'external' });
               }}
               onShowAllThreads={() => {
-                showAllThreads(project.id);
-                navigate(`/projects/${project.id}/threads`);
+                showGlobalSearch();
+                navigate(`/search?project=${project.id}`);
               }}
             />
           ))}
         </div>
       </SidebarContent>
 
-      {/* User section (multi mode only) */}
-      {authMode === 'multi' && authUser && (
-        <SidebarFooter>
-          <div className="flex items-center justify-between px-1">
+      {/* Footer with settings gear + user section */}
+      <SidebarFooter>
+        <div className="flex items-center justify-between px-1">
+          {authMode === 'multi' && authUser ? (
             <span className="text-sm text-sidebar-foreground truncate">{authUser.displayName}</span>
-            <Button variant="ghost" size="sm" onClick={logout} className="text-xs text-muted-foreground">
-              {t('auth.logout')}
-            </Button>
+          ) : (
+            <div />
+          )}
+          <div className="flex items-center gap-1">
+            {authMode === 'multi' && authUser && (
+              <Button variant="ghost" size="sm" onClick={logout} className="text-xs text-muted-foreground">
+                {t('auth.logout')}
+              </Button>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setGeneralSettingsOpen(true)}
+                  className="text-muted-foreground h-7 w-7"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('settings.title')}</TooltipContent>
+            </Tooltip>
           </div>
-        </SidebarFooter>
-      )}
+        </div>
+      </SidebarFooter>
+
+      <GeneralSettingsDialog open={generalSettingsOpen} onOpenChange={setGeneralSettingsOpen} />
 
       {/* Archive confirmation dialog */}
       <Dialog

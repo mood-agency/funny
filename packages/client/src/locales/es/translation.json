@@ -135,7 +135,16 @@
     "commitAndCreatePR": "Commit & Crear PR",
     "commitAndMerge": "Commit & Merge",
     "commitAndMergeSuccess": "Cambios confirmados y fusionados en {{target}} exitosamente",
-    "continue": "Continuar"
+    "continue": "Continuar",
+    "discardChanges": "Descartar cambios...",
+    "ignoreFile": "Ignorar archivo (agregar a .gitignore)",
+    "ignoreFolder": "Ignorar carpeta (agregar a .gitignore)",
+    "ignoreExtension": "Ignorar todos los archivos {{ext}} (agregar a .gitignore)",
+    "copyFilePath": "Copiar ruta del archivo",
+    "copyRelativePath": "Copiar ruta relativa del archivo",
+    "pathCopied": "Ruta copiada",
+    "ignoreFailed": "Error al agregar a .gitignore: {{message}}",
+    "ignoreSuccess": "Agregado a .gitignore"
   },
   "newThread": {
     "title": "Nuevo Hilo",

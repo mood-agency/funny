@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import {
   validatePath,
@@ -28,20 +28,31 @@ describe('validatePath (async)', () => {
     setup();
     try {
       const result = await validatePath(TEST_DIR);
-      expect(result).toBe(resolve(TEST_DIR));
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value).toBe(resolve(TEST_DIR));
+      }
     } finally {
       cleanup();
     }
   });
 
-  test('throws for relative path', async () => {
-    expect(validatePath('relative/path')).rejects.toThrow('Path must be absolute');
+  test('returns error for relative path', async () => {
+    const result = await validatePath('relative/path');
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('BAD_REQUEST');
+      expect(result.error.message).toContain('absolute');
+    }
   });
 
-  test('throws for non-existent path', async () => {
-    expect(validatePath('/this/path/does/not/exist/xyz123')).rejects.toThrow(
-      'Path does not exist'
-    );
+  test('returns error for non-existent path', async () => {
+    const result = await validatePath('/this/path/does/not/exist/xyz123');
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('BAD_REQUEST');
+      expect(result.error.message).toContain('not accessible');
+    }
   });
 });
 
@@ -83,22 +94,31 @@ describe('pathExists', () => {
 });
 
 describe('sanitizePath', () => {
-  // Use an absolute path appropriate for the current platform
-  const base = process.platform === 'win32' ? 'C:\\Users\\test\\project' : '/home/user/project';
+  // Use a resolved absolute path for the current platform
+  const base = resolve(process.platform === 'win32' ? 'C:\\Users\\test\\project' : '/home/user/project');
 
   test('resolves safe path within base', () => {
     const result = sanitizePath(base, 'src/file.ts');
-    expect(result).toBe(resolve(base, 'src/file.ts'));
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe(join(base, 'src', 'file.ts'));
+    }
   });
 
-  test('throws on path traversal with ../', () => {
-    expect(() => sanitizePath(base, '../../../etc/passwd')).toThrow(
-      'Path traversal detected'
-    );
+  test('rejects path traversal with ../', () => {
+    const result = sanitizePath(base, '../../../etc/passwd');
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.type).toBe('FORBIDDEN');
+      expect(result.error.message).toContain('traversal');
+    }
   });
 
   test('allows paths that resolve within base', () => {
     const result = sanitizePath(base, 'src/../src/file.ts');
-    expect(result).toBe(resolve(base, 'src/file.ts'));
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toBe(join(base, 'src', 'file.ts'));
+    }
   });
 });

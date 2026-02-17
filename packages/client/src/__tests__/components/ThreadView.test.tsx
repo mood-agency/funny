@@ -8,7 +8,8 @@ import { useAppStore } from '@/stores/app-store';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string, fallbackOrOpts?: string | Record<string, any>) =>
+      typeof fallbackOrOpts === 'string' ? fallbackOrOpts : key,
     i18n: { language: 'en' },
   }),
 }));
@@ -40,6 +41,55 @@ vi.mock('@/components/thread/AgentStatusCards', () => ({
     <div data-testid="agent-result-card">{status} - ${cost}</div>
   ),
   AgentInterruptedCard: () => <div data-testid="agent-interrupted-card" />,
+  AgentStoppedCard: () => <div data-testid="agent-stopped-card" />,
+}));
+
+vi.mock('@/hooks/use-minute-tick', () => ({
+  useMinuteTick: () => {},
+}));
+
+vi.mock('@/hooks/use-todo-panel', () => ({
+  useTodoSnapshots: () => [],
+}));
+
+vi.mock('@/stores/settings-store', () => ({
+  useSettingsStore: Object.assign(() => ({}), { getState: () => ({ toolPermissions: {} }) }),
+  deriveToolLists: () => ({ allowedTools: [], disallowedTools: [] }),
+}));
+
+vi.mock('@/components/thread/StickyUserMessage', () => ({
+  StickyUserMessage: () => null,
+}));
+
+vi.mock('@/components/thread/TodoPanel', () => ({
+  TodoPanel: () => null,
+}));
+
+vi.mock('@/components/ToolCallCard', () => ({
+  ToolCallCard: ({ name }: any) => <div data-testid="tool-call-card">{name}</div>,
+}));
+
+vi.mock('@/components/ToolCallGroup', () => ({
+  ToolCallGroup: ({ name }: any) => <div data-testid="tool-call-group">{name}</div>,
+}));
+
+vi.mock('@/components/PromptInput', () => ({
+  PromptInput: () => <div data-testid="prompt-input" />,
+}));
+
+vi.mock('motion/react', () => ({
+  motion: {
+    div: ({ children, ...props }: any) => <div {...Object.fromEntries(Object.entries(props).filter(([k]) => !['initial', 'animate', 'transition', 'exit'].includes(k)))}>{children}</div>,
+  },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
+
+vi.mock('react-markdown', () => ({
+  default: ({ children }: any) => <div>{children}</div>,
+}));
+
+vi.mock('remark-gfm', () => ({
+  default: [],
 }));
 
 // ── Setup ───────────────────────────────────────────────────────
@@ -58,9 +108,16 @@ beforeEach(() => {
 // ── Tests ───────────────────────────────────────────────────────
 
 describe('ThreadView', () => {
-  test('shows empty state when no thread selected', () => {
+  test('shows empty state when no thread or project selected', () => {
+    useAppStore.setState({ selectedProjectId: null });
     renderWithProviders(<ThreadView />);
     expect(screen.getByText('thread.selectOrCreate')).toBeInTheDocument();
+  });
+
+  test('shows new thread input when project is selected but no thread', () => {
+    // With selectedProjectId set but no thread, shows NewThreadInput
+    renderWithProviders(<ThreadView />);
+    expect(screen.getByTestId('new-thread-input')).toBeInTheDocument();
   });
 
   test('shows new thread input when newThreadProjectId is set', () => {
@@ -117,8 +174,8 @@ describe('ThreadView', () => {
 
     renderWithProviders(<ThreadView />);
 
-    // ToolCallCard renders the tool label (translated key)
-    expect(screen.getByText('tools.readFile')).toBeInTheDocument();
+    // ToolCallCard mock renders the tool name
+    expect(screen.getByText('Read')).toBeInTheDocument();
   });
 
   test('shows running indicator when status is running', () => {
@@ -156,7 +213,7 @@ describe('ThreadView', () => {
     expect(screen.getByTestId('agent-result-card')).toBeInTheDocument();
   });
 
-  test('shows waiting actions when status is waiting', () => {
+  test('shows plan waiting actions when status is waiting with plan reason', () => {
     useAppStore.setState({
       selectedThreadId: 't1',
       activeThread: {
@@ -165,6 +222,25 @@ describe('ThreadView', () => {
         title: 'Test Thread',
         status: 'waiting',
         waitingReason: 'plan',
+        cost: 0,
+        messages: [],
+      } as any,
+    });
+
+    renderWithProviders(<ThreadView />);
+    // PlanWaitingActions shows "Accept Plan" and "Reject Plan"
+    expect(screen.getByText('tools.acceptPlan')).toBeInTheDocument();
+    expect(screen.getByText('thread.rejectPlan')).toBeInTheDocument();
+  });
+
+  test('shows generic waiting actions when status is waiting without reason', () => {
+    useAppStore.setState({
+      selectedThreadId: 't1',
+      activeThread: {
+        id: 't1',
+        projectId: 'p1',
+        title: 'Test Thread',
+        status: 'waiting',
         cost: 0,
         messages: [],
       } as any,

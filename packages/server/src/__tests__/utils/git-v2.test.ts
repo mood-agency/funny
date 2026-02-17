@@ -45,8 +45,6 @@ describe('extractRepoName', () => {
 
   // Edge cases
   test('handles URL with trailing slash', () => {
-    // The trailing slash produces an empty last segment after split
-    // This reflects actual behavior — URLs with trailing slashes are uncommon
     expect(extractRepoName('https://github.com/user/repo/')).toBe('');
   });
 
@@ -114,21 +112,34 @@ describe('git integration (temp repo)', () => {
   });
 
   test('getCurrentBranch returns a branch name', async () => {
-    const branch = await getCurrentBranch(TEST_REPO);
-    expect(typeof branch).toBe('string');
-    expect(branch.length).toBeGreaterThan(0);
+    const result = await getCurrentBranch(TEST_REPO);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(typeof result.value).toBe('string');
+      expect(result.value.length).toBeGreaterThan(0);
+    }
   });
 
   test('listBranches includes current branch', async () => {
-    const branches = await listBranches(TEST_REPO);
-    expect(branches.length).toBeGreaterThan(0);
-    const current = await getCurrentBranch(TEST_REPO);
-    expect(branches).toContain(current);
+    const branchesResult = await listBranches(TEST_REPO);
+    expect(branchesResult.isOk()).toBe(true);
+    if (branchesResult.isOk()) {
+      expect(branchesResult.value.length).toBeGreaterThan(0);
+
+      const currentResult = await getCurrentBranch(TEST_REPO);
+      expect(currentResult.isOk()).toBe(true);
+      if (currentResult.isOk()) {
+        expect(branchesResult.value).toContain(currentResult.value);
+      }
+    }
   });
 
   test('git runs a command successfully', async () => {
     const result = await git(['status', '--short'], TEST_REPO);
-    expect(typeof result).toBe('string');
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(typeof result.value).toBe('string');
+    }
   });
 
   test('gitSync runs a command successfully', () => {
@@ -143,21 +154,29 @@ describe('git integration (temp repo)', () => {
 
   test('stageFiles stages a file', async () => {
     writeFileSync(resolve(TEST_REPO, 'new-file.txt'), 'content');
-    await stageFiles(TEST_REPO, ['new-file.txt']);
-    const status = await git(['status', '--short'], TEST_REPO);
-    expect(status).toContain('new-file.txt');
+    const stageResult = await stageFiles(TEST_REPO, ['new-file.txt']);
+    expect(stageResult.isOk()).toBe(true);
+
+    const statusResult = await git(['status', '--short'], TEST_REPO);
+    expect(statusResult.isOk()).toBe(true);
+    if (statusResult.isOk()) {
+      expect(statusResult.value).toContain('new-file.txt');
+    }
   });
 
   test('stageFiles does nothing with empty array', async () => {
-    await stageFiles(TEST_REPO, []);
-    // Should not throw
+    const result = await stageFiles(TEST_REPO, []);
+    expect(result.isOk()).toBe(true);
   });
 
   test('commit creates a commit', async () => {
     writeFileSync(resolve(TEST_REPO, 'commit-test.txt'), 'data');
     await stageFiles(TEST_REPO, ['commit-test.txt']);
     const result = await commit(TEST_REPO, 'test commit message');
-    expect(result).toContain('test commit message');
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toContain('test commit message');
+    }
   });
 
   test('getDiff returns diffs for modified files', async () => {
@@ -166,21 +185,27 @@ describe('git integration (temp repo)', () => {
     await commit(TEST_REPO, 'add diff-test');
 
     writeFileSync(resolve(TEST_REPO, 'diff-test.txt'), 'modified');
-    const diffs = await getDiff(TEST_REPO);
-    const diffFile = diffs.find((d) => d.path === 'diff-test.txt');
-    expect(diffFile).toBeTruthy();
-    expect(diffFile!.status).toBe('modified');
-    expect(diffFile!.staged).toBe(false);
+    const diffsResult = await getDiff(TEST_REPO);
+    expect(diffsResult.isOk()).toBe(true);
+    if (diffsResult.isOk()) {
+      const diffFile = diffsResult.value.find((d) => d.path === 'diff-test.txt');
+      expect(diffFile).toBeTruthy();
+      expect(diffFile!.status).toBe('modified');
+      expect(diffFile!.staged).toBe(false);
+    }
   });
 
   test('getDiff returns staged diffs', async () => {
     writeFileSync(resolve(TEST_REPO, 'staged-test.txt'), 'staged content');
     await stageFiles(TEST_REPO, ['staged-test.txt']);
 
-    const diffs = await getDiff(TEST_REPO);
-    const stagedFile = diffs.find((d) => d.path === 'staged-test.txt');
-    expect(stagedFile).toBeTruthy();
-    expect(stagedFile!.staged).toBe(true);
+    const diffsResult = await getDiff(TEST_REPO);
+    expect(diffsResult.isOk()).toBe(true);
+    if (diffsResult.isOk()) {
+      const stagedFile = diffsResult.value.find((d) => d.path === 'staged-test.txt');
+      expect(stagedFile).toBeTruthy();
+      expect(stagedFile!.staged).toBe(true);
+    }
   });
 
   // ── Edge cases ──────────────────────────────────────────────────
@@ -190,10 +215,13 @@ describe('git integration (temp repo)', () => {
     writeFileSync(resolve(TEST_REPO, 'multi-b.txt'), 'b');
     writeFileSync(resolve(TEST_REPO, 'multi-c.txt'), 'c');
     await stageFiles(TEST_REPO, ['multi-a.txt', 'multi-b.txt', 'multi-c.txt']);
-    const status = await git(['status', '--short'], TEST_REPO);
-    expect(status).toContain('multi-a.txt');
-    expect(status).toContain('multi-b.txt');
-    expect(status).toContain('multi-c.txt');
+    const statusResult = await git(['status', '--short'], TEST_REPO);
+    expect(statusResult.isOk()).toBe(true);
+    if (statusResult.isOk()) {
+      expect(statusResult.value).toContain('multi-a.txt');
+      expect(statusResult.value).toContain('multi-b.txt');
+      expect(statusResult.value).toContain('multi-c.txt');
+    }
     // cleanup
     await commit(TEST_REPO, 'multi stage test');
   });
@@ -201,18 +229,20 @@ describe('git integration (temp repo)', () => {
   test('handles files with spaces in name', async () => {
     writeFileSync(resolve(TEST_REPO, 'file with spaces.txt'), 'content');
     await stageFiles(TEST_REPO, ['file with spaces.txt']);
-    const status = await git(['status', '--short'], TEST_REPO);
-    expect(status).toContain('file with spaces.txt');
+    const statusResult = await git(['status', '--short'], TEST_REPO);
+    expect(statusResult.isOk()).toBe(true);
+    if (statusResult.isOk()) {
+      expect(statusResult.value).toContain('file with spaces.txt');
+    }
     await commit(TEST_REPO, 'spaces test');
   });
 
   test('getDiff returns empty array for clean repo', async () => {
-    // After the previous commit, repo should be clean
-    const diffs = await getDiff(TEST_REPO);
-    // Filter only our test files (other tests may leave residue)
-    const cleanDiffs = diffs.filter((d) => !d.path.includes('new-file') && !d.path.includes('diff-test'));
-    // There may be leftover files, so just verify it returns an array
-    expect(Array.isArray(diffs)).toBe(true);
+    const diffsResult = await getDiff(TEST_REPO);
+    expect(diffsResult.isOk()).toBe(true);
+    if (diffsResult.isOk()) {
+      expect(Array.isArray(diffsResult.value)).toBe(true);
+    }
   });
 
   test('getDiff handles deleted files', async () => {
@@ -221,27 +251,30 @@ describe('git integration (temp repo)', () => {
     await commit(TEST_REPO, 'add to-delete');
 
     rmSync(resolve(TEST_REPO, 'to-delete.txt'));
-    const diffs = await getDiff(TEST_REPO);
-    const deleted = diffs.find((d) => d.path === 'to-delete.txt');
-    expect(deleted).toBeTruthy();
-    expect(deleted!.status).toBe('deleted');
-    // Restore for next tests: checkout the file back
-    await git(['checkout', '--', 'to-delete.txt'], TEST_REPO);
+    const diffsResult = await getDiff(TEST_REPO);
+    expect(diffsResult.isOk()).toBe(true);
+    if (diffsResult.isOk()) {
+      const deleted = diffsResult.value.find((d) => d.path === 'to-delete.txt');
+      expect(deleted).toBeTruthy();
+      expect(deleted!.status).toBe('deleted');
+    }
+    // Restore for next tests
+    const restoreResult = await git(['checkout', '--', 'to-delete.txt'], TEST_REPO);
+    expect(restoreResult.isOk()).toBe(true);
   });
 
-  test('git throws on non-existent path', async () => {
-    try {
-      await git(['status'], '/nonexistent/path/xyz');
-      expect.unreachable('Should have thrown');
-    } catch (err: any) {
-      expect(err.message).toBeTruthy();
-    }
+  test('git returns error on non-existent path', async () => {
+    const result = await git(['status'], '/nonexistent/path/xyz');
+    expect(result.isErr()).toBe(true);
   });
 
   test('listBranches after creating a new branch', async () => {
     executeSync('git', ['branch', 'test-edge-branch'], { cwd: TEST_REPO });
-    const branches = await listBranches(TEST_REPO);
-    expect(branches).toContain('test-edge-branch');
+    const branchesResult = await listBranches(TEST_REPO);
+    expect(branchesResult.isOk()).toBe(true);
+    if (branchesResult.isOk()) {
+      expect(branchesResult.value).toContain('test-edge-branch');
+    }
     // cleanup
     executeSync('git', ['branch', '-d', 'test-edge-branch'], { cwd: TEST_REPO });
   });

@@ -7,6 +7,7 @@ import { startCommand, stopCommand, isCommandRunning } from '../services/command
 import { createProjectSchema, renameProjectSchema, updateProjectSchema, reorderProjectsSchema, createCommandSchema, validate } from '../validation/schemas.js';
 import { requireProject } from '../utils/route-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
+import { requireAdmin } from '../middleware/auth.js';
 
 export const projectRoutes = new Hono<HonoEnv>();
 
@@ -29,6 +30,10 @@ projectRoutes.post('/', async (c) => {
 // PATCH /api/projects/:id
 projectRoutes.patch('/:id', async (c) => {
   const id = c.req.param('id');
+  const userId = c.get('userId') as string;
+  const projectResult = requireProject(id, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
   const raw = await c.req.json();
   const result = validate(updateProjectSchema, raw)
     .andThen((fields) => pm.updateProject(id, fields));
@@ -38,6 +43,10 @@ projectRoutes.patch('/:id', async (c) => {
 // DELETE /api/projects/:id
 projectRoutes.delete('/:id', (c) => {
   const id = c.req.param('id');
+  const userId = c.get('userId') as string;
+  const projectResult = requireProject(id, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
   pm.deleteProject(id);
   return c.json({ ok: true });
 });
@@ -64,14 +73,12 @@ projectRoutes.get('/:id/branches', async (c) => {
     getCurrentBranch(project.path),
   ]);
 
-  if (branchesResult.isErr()) return resultToResponse(c, branchesResult);
-  if (defaultBranchResult.isErr()) return resultToResponse(c, defaultBranchResult);
-  if (currentBranchResult.isErr()) return resultToResponse(c, currentBranchResult);
-
+  // For empty repos (no commits), branches and currentBranch will fail.
+  // Return empty/null defaults instead of an error.
   return c.json({
-    branches: branchesResult.value,
-    defaultBranch: defaultBranchResult.value,
-    currentBranch: currentBranchResult.value,
+    branches: branchesResult.isOk() ? branchesResult.value : [],
+    defaultBranch: defaultBranchResult.isOk() ? defaultBranchResult.value : null,
+    currentBranch: currentBranchResult.isOk() ? currentBranchResult.value : null,
   });
 });
 
@@ -116,9 +123,10 @@ projectRoutes.delete('/:id/commands/:cmdId', (c) => {
 });
 
 // ─── Command Execution ─────────────────────────────────
+// Command execution is restricted to admin users since it runs arbitrary shell commands.
 
 // POST /api/projects/:id/commands/:cmdId/start
-projectRoutes.post('/:id/commands/:cmdId/start', async (c) => {
+projectRoutes.post('/:id/commands/:cmdId/start', requireAdmin, async (c) => {
   const projectId = c.req.param('id');
   const cmdId = c.req.param('cmdId');
 

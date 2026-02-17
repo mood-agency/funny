@@ -58,8 +58,11 @@ export function SettingsPanel() {
   const authMode = useAuthStore(s => s.mode);
   const authUser = useAuthStore(s => s.user);
 
-  // Build items list dynamically (add Profile and Users in multi mode)
-  const items: Array<{ id: string; label: string; icon: typeof Settings }> = [...baseSettingsItems];
+  // Build items list dynamically
+  // Hide "Archived Threads" when viewing per-project settings
+  const items: Array<{ id: string; label: string; icon: typeof Settings }> = selectedProjectId
+    ? [...baseSettingsItems].filter((item) => item.id !== 'archived-threads')
+    : [...baseSettingsItems];
   if (authMode === 'multi') {
     items.push({ id: 'profile', label: 'Profile', icon: User });
     if (authUser?.role === 'admin') {

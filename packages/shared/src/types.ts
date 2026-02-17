@@ -301,6 +301,19 @@ export interface FileDiff {
   staged: boolean;
 }
 
+/** Lightweight file metadata without diff content (for summary endpoint). */
+export interface FileDiffSummary {
+  path: string;
+  status: FileStatus;
+  staged: boolean;
+}
+
+export interface DiffSummaryResponse {
+  files: FileDiffSummary[];
+  total: number;
+  truncated: boolean;
+}
+
 // ─── Git Sync Status ────────────────────────────────────
 
 export type GitSyncState = 'dirty' | 'unpushed' | 'pushed' | 'merged' | 'clean';

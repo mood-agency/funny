@@ -9,6 +9,7 @@ vi.stubGlobal('window', { ...globalThis.window });
 
 // Now import after mocks are set up
 const { api } = await import('@/lib/api');
+const { useCircuitBreakerStore } = await import('@/stores/circuit-breaker-store');
 
 function mockJsonResponse(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -20,6 +21,8 @@ function mockJsonResponse(data: any, status = 200) {
 describe('API Client', () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    // Reset circuit breaker so error tests don't affect subsequent tests
+    useCircuitBreakerStore.setState({ state: 'closed', failureCount: 0, _cooldownTimer: null });
   });
 
   describe('Projects', () => {

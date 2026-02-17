@@ -78,11 +78,9 @@ describe('mapAgentMessage (stateless)', () => {
     expect(event!.event_type).toBe('pipeline.agent.started');
   });
 
-  it('maps regular assistant text to pipeline.message', () => {
+  it('returns null for regular assistant text (no lifecycle event)', () => {
     const event = mapAgentMessage(makeAssistantText('Running tests now'), 'req-4');
-    expect(event).not.toBeNull();
-    expect(event!.event_type).toBe('pipeline.message');
-    expect(event!.data.text).toBe('Running tests now');
+    expect(event).toBeNull();
   });
 
   it('maps result success to pipeline.completed', () => {
@@ -165,10 +163,9 @@ describe('PipelineEventMapper', () => {
   it('does NOT detect correction if no agents have started', () => {
     const mapper = new PipelineEventMapper('req-104');
 
-    // Text mentions correction but no agents started → regular message
+    // Text mentions correction but no agents started → null (no lifecycle event)
     const event = mapper.map(makeAssistantText('Starting correction cycle'));
-    expect(event).not.toBeNull();
-    expect(event!.event_type).toBe('pipeline.message');
+    expect(event).toBeNull();
   });
 
   it('includes corrections_count in completed event', () => {
@@ -203,8 +200,8 @@ describe('PipelineEventMapper', () => {
     const first = mapper.map(makeAssistantText('Correction cycle 1'));
     expect(first!.event_type).toBe('pipeline.correcting');
 
-    // Second correction text while still correcting → pipeline.message
+    // Second correction text while still correcting → null (no lifecycle event, already correcting)
     const second = mapper.map(makeAssistantText('Still in correction cycle 1'));
-    expect(second!.event_type).toBe('pipeline.message');
+    expect(second).toBeNull();
   });
 });

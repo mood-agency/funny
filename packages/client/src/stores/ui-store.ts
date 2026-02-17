@@ -18,7 +18,6 @@ interface UIState {
   setActiveSettingsPage: (page: string | null) => void;
   startNewThread: (projectId: string, idleOnly?: boolean) => void;
   cancelNewThread: () => void;
-  showAllThreads: (projectId: string) => void;
   closeAllThreads: () => void;
   setAutomationInboxOpen: (open: boolean) => void;
   setAddProjectOpen: (open: boolean) => void;
@@ -67,13 +66,6 @@ export const useUIStore = create<UIState>((set) => ({
 
   cancelNewThread: () => {
     set({ newThreadProjectId: null, newThreadIdleOnly: false });
-  },
-
-  showAllThreads: (projectId: string) => {
-    invalidateSelectThread();
-    useProjectStore.getState().selectProject(projectId);
-    useThreadStore.setState({ selectedThreadId: null, activeThread: null });
-    set({ allThreadsProjectId: projectId, newThreadProjectId: null, automationInboxOpen: false, addProjectOpen: false });
   },
 
   closeAllThreads: () => {

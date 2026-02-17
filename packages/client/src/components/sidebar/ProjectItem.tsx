@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Folder, FolderOpen, FolderOpenDot, Search, Trash2, MoreHorizontal, Terminal, Settings, Pencil, Plus } from 'lucide-react';
+import { Folder, FolderOpen, FolderOpenDot, Search, Trash2, MoreHorizontal, Terminal, Settings, Pencil, Plus, BarChart3 } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -97,6 +97,7 @@ export function ProjectItem({
       open={isExpanded}
       onOpenChange={onToggle}
       className="min-w-0"
+      data-project-id={project.id}
     >
       <div
         ref={dragRef}
@@ -198,6 +199,15 @@ export function ProjectItem({
                 >
                   <Settings className="h-3.5 w-3.5" />
                   {t('sidebar.settings')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/projects/${project.id}/analytics`);
+                  }}
+                >
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  {t('sidebar.analytics')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

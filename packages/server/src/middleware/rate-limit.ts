@@ -23,10 +23,10 @@ export function rateLimit(opts: { windowMs: number; max: number }) {
   }, windowMs).unref();
 
   return async (c: Context, next: Next) => {
-    const ip =
-      c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-      c.req.header('x-real-ip') ||
-      'unknown';
+    // Use Bun's socket address when available; only fall back to proxy
+    // headers if a trusted proxy is explicitly configured.
+    const socketAddr = (c.env as any)?.remoteAddress;
+    const ip = socketAddr || 'unknown';
 
     const now = Date.now();
     const timestamps = hits.get(ip) ?? [];

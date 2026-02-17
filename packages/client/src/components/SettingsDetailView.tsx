@@ -1,17 +1,10 @@
 import { useAppStore } from '@/stores/app-store';
 import { useProjectStore } from '@/stores/project-store';
-import { useSettingsStore, editorLabels, ALL_STANDARD_TOOLS, TOOL_LABELS, type Theme, type Editor, type ThreadMode, type ClaudeModel, type PermissionMode } from '@/stores/settings-store';
+import { useSettingsStore, ALL_STANDARD_TOOLS, TOOL_LABELS, type ThreadMode, type ClaudeModel, type PermissionMode } from '@/stores/settings-store';
 import type { ToolPermission } from '@a-parallel/shared';
 import { settingsItems, settingsLabelKeys, type SettingsItemId } from './SettingsPanel';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Breadcrumb,
   BreadcrumbList,
@@ -20,7 +13,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { Sun, Moon, Monitor, GitBranch, RotateCcw } from 'lucide-react';
+import { Monitor, GitBranch, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { McpServerSettings } from './McpServerSettings';
 import { SkillsSettings } from './SkillsSettings';
@@ -30,15 +23,6 @@ import { AutomationSettings } from './AutomationSettings';
 import { ArchivedThreadsSettings } from './ArchivedThreadsSettings';
 import { UserManagement } from './settings/UserManagement';
 import { ProfileSettings } from './settings/ProfileSettings';
-
-function getLanguageName(code: string): string {
-  try {
-    const name = new Intl.DisplayNames([code], { type: 'language' }).of(code);
-    return name ? name.charAt(0).toUpperCase() + name.slice(1) : code;
-  } catch {
-    return code;
-  }
-}
 
 /* ── Reusable setting row ── */
 function SettingRow({
@@ -181,11 +165,11 @@ function ProjectColorPicker({ projectId, currentColor }: { projectId: string; cu
 
 /* ── General settings content ── */
 function GeneralSettings() {
-  const { theme, defaultEditor, defaultThreadMode, defaultModel, defaultPermissionMode, toolPermissions, setTheme, setDefaultEditor, setDefaultThreadMode, setDefaultModel, setDefaultPermissionMode, setToolPermission, resetToolPermissions } = useSettingsStore();
+  const { defaultThreadMode, defaultModel, defaultPermissionMode, toolPermissions, setDefaultThreadMode, setDefaultModel, setDefaultPermissionMode, setToolPermission, resetToolPermissions } = useSettingsStore();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const projects = useAppStore((s) => s.projects);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
 
   return (
     <>
@@ -200,69 +184,6 @@ function GeneralSettings() {
           </div>
         </>
       )}
-
-      {/* General section */}
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-2">
-        {t('settings.general')}
-      </h3>
-      <div className="rounded-lg border border-border/50 overflow-hidden mb-6">
-        <SettingRow
-          title={t('settings.defaultEditor')}
-          description={t('settings.defaultEditorDesc')}
-        >
-          <Select value={defaultEditor} onValueChange={(v) => setDefaultEditor(v as Editor)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.entries(editorLabels) as [Editor, string][]).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-
-        <SettingRow
-          title={t('settings.language')}
-          description={t('settings.languageDesc')}
-        >
-          <Select value={i18n.language} onValueChange={(v) => i18n.changeLanguage(v)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.keys(i18n.options.resources ?? {}).map((code) => (
-                <SelectItem key={code} value={code}>
-                  {getLanguageName(code)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </SettingRow>
-      </div>
-
-      {/* Appearance section */}
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-2">
-        {t('settings.appearance')}
-      </h3>
-      <div className="rounded-lg border border-border/50 overflow-hidden">
-        <SettingRow
-          title={t('settings.theme')}
-          description={t('settings.themeDesc')}
-        >
-          <SegmentedControl<Theme>
-            value={theme}
-            onChange={setTheme}
-            options={[
-              { value: 'light', label: t('settings.light'), icon: <Sun className="h-3 w-3" /> },
-              { value: 'dark', label: t('settings.dark'), icon: <Moon className="h-3 w-3" /> },
-              { value: 'system', label: t('settings.system'), icon: <Monitor className="h-3 w-3" /> },
-            ]}
-          />
-        </SettingRow>
-      </div>
 
       {/* Threads section */}
       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-2 mt-6">

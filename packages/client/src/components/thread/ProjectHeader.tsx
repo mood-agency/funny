@@ -33,8 +33,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
-import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
 import type { StartupCommand } from '@a-parallel/shared';
 
 
@@ -193,8 +191,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
     <div className="px-4 py-2 border-b border-border">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0 max-w-[50%]">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="h-4" />
         <Breadcrumb className="min-w-0">
           <BreadcrumbList>
             {project && (

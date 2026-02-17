@@ -133,6 +133,9 @@ app.get('/api/bootstrap', (c) => {
   if (authMode === 'local') {
     response.token = getAuthToken();
   }
+  // Prevent caching of auth tokens by browsers/proxies
+  c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+  c.header('Pragma', 'no-cache');
   return c.json(response);
 });
 
@@ -204,9 +207,18 @@ console.log(`[server] Auth mode: ${authMode}`);
 // Detect available providers at startup
 await logProviderStatus();
 
+// Stop previous server instance on bun --watch restarts.
+// globalThis persists across watch re-evaluations — this is the standard pattern.
+const prev = (globalThis as any).__bunServer;
+if (prev) {
+  prev.stop(true);
+  console.log('[server] Stopped previous server instance (watch restart)');
+}
+
 const server = Bun.serve({
   port,
   hostname: host,
+  reusePort: true, // Allow binding even if old socket is in TIME_WAIT
   async fetch(req: Request, server: any) {
     // Handle WebSocket upgrade
     const url = new URL(req.url);
@@ -247,9 +259,22 @@ const server = Bun.serve({
         const userId = ws.data?.userId ?? '__local__';
 
         switch (type) {
-          case 'pty:spawn':
+          case 'pty:spawn': {
+            // Validate that cwd is within a registered project for this user
+            const userProjects = pm.listProjects(userId);
+            const resolvedCwd = resolve(data.cwd);
+            const isAllowed = userProjects.some((p: any) => {
+              const projectPath = resolve(p.path);
+              return resolvedCwd.startsWith(projectPath);
+            });
+            if (!isAllowed) {
+              console.warn(`[ws] PTY spawn denied: cwd ${data.cwd} not in user's projects (userId=${userId})`);
+              try { ws.send(JSON.stringify({ type: 'pty:error', data: { ptyId: data.id, error: 'Access denied: directory not in a registered project' } })); } catch {}
+              break;
+            }
             ptyManager.spawnPty(data.id, data.cwd, data.cols, data.rows, userId);
             break;
+          }
           case 'pty:write':
             ptyManager.writePty(data.id, data.data);
             break;
@@ -269,12 +294,33 @@ const server = Bun.serve({
   },
 });
 
-// Graceful shutdown — kill agents and close the server so the port is released immediately
+// Store for next --watch restart
+(globalThis as any).__bunServer = server;
+
+// Graceful shutdown — release the port FIRST, then clean up everything else.
+// Previous bug: server.stop() was called AFTER stopAllAgents() which could hang,
+// leaving the port occupied indefinitely.
+let shuttingDown = false;
 async function shutdown() {
+  if (shuttingDown) return; // Prevent double-shutdown
+  shuttingDown = true;
   console.log('[server] Shutting down...');
-  stopScheduler();
-  await stopAllAgents();
+
+  // 1. Release the port IMMEDIATELY — this is the most critical step
   server.stop(true);
+
+  // 2. Force exit after 5s in case cleanup hangs
+  const forceExit = setTimeout(() => {
+    console.warn('[server] Force exit after timeout');
+    process.exit(1);
+  }, 5000);
+
+  // 3. Clean up everything else (order doesn't matter since port is already free)
+  stopScheduler();
+  ptyManager.killAllPtys();
+  await stopAllAgents();
+
+  clearTimeout(forceExit);
   process.exit(0);
 }
 process.on('SIGINT', shutdown);

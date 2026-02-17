@@ -10,6 +10,7 @@ vi.mock('@/lib/api', () => ({
     listThreads: vi.fn(),
     getThread: vi.fn(),
     archiveThread: vi.fn(),
+    getGitStatuses: vi.fn().mockReturnValue({ isOk: () => false, isErr: () => true }),
   },
 }));
 
@@ -139,13 +140,14 @@ describe('AppStore', () => {
       expect(useAppStore.getState().activeThread).toBeNull();
     });
 
-    test('clears on fetch error', async () => {
+    test('clears activeThread on fetch error but keeps selectedThreadId', async () => {
       const error: DomainError = { type: 'NOT_FOUND', message: 'Not found' };
       mockApi.getThread.mockReturnValueOnce(errAsync(error) as any);
 
       await useAppStore.getState().selectThread('nonexistent');
       expect(useAppStore.getState().activeThread).toBeNull();
-      expect(useAppStore.getState().selectedThreadId).toBeNull();
+      // selectedThreadId is kept so the UI knows which thread was attempted
+      expect(useAppStore.getState().selectedThreadId).toBe('nonexistent');
     });
   });
 
@@ -178,7 +180,7 @@ describe('AppStore', () => {
   });
 
   describe('archiveThread', () => {
-    test('removes thread from list and clears selection', async () => {
+    test('marks thread as archived (optimistic) and keeps it in list', async () => {
       mockApi.archiveThread.mockReturnValueOnce(okAsync({}) as any);
 
       useAppStore.setState({
@@ -193,9 +195,12 @@ describe('AppStore', () => {
       });
 
       await useAppStore.getState().archiveThread('t1', 'p1');
-      expect(useAppStore.getState().threadsByProject['p1']).toHaveLength(1);
-      expect(useAppStore.getState().selectedThreadId).toBeNull();
-      expect(useAppStore.getState().activeThread).toBeNull();
+      // Thread stays in list but with archived: true (optimistic update)
+      expect(useAppStore.getState().threadsByProject['p1']).toHaveLength(2);
+      const archivedThread = useAppStore.getState().threadsByProject['p1'].find((t: any) => t.id === 't1');
+      expect(archivedThread?.archived).toBe(true);
+      // Active thread also gets archived flag
+      expect(useAppStore.getState().activeThread?.archived).toBe(true);
     });
   });
 
@@ -548,7 +553,7 @@ describe('AppStore', () => {
       mockApi.listThreads.mockReturnValueOnce(okAsync([]) as any);
 
       useAppStore.getState().toggleProject('p1');
-      expect(mockApi.listThreads).toHaveBeenCalledWith('p1');
+      expect(mockApi.listThreads).toHaveBeenCalledWith('p1', true);
     });
 
     test('toggleProject does not reload threads on re-expand', () => {

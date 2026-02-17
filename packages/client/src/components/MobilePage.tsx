@@ -297,8 +297,9 @@ function NewThreadView({
       </header>
       <div className="flex-1 flex items-center justify-center text-muted-foreground p-4">
         <div className="text-center">
-          <p className="text-sm">{t('thread.whatShouldAgentDo')}</p>
-          <p className="text-xs mt-1">{t('thread.describeTask')}</p>
+          <p className="text-4xl mb-4">✨</p>
+          <p className="text-2xl font-semibold text-foreground">{t('thread.whatShouldAgentDo')}</p>
+          <p className="text-sm mt-2">{t('thread.describeTask')}</p>
         </div>
       </div>
       <PromptInput

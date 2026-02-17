@@ -59,11 +59,18 @@ export async function execute(
   });
 
   try {
-    const exitCode = await Promise.race([proc.exited, timeoutPromise]);
+    // Read streams BEFORE awaiting exit to avoid race condition.
+    // In Bun, once proc.exited resolves the ReadableStreams may already be
+    // closed/drained, causing read failures and ECONNRESET on the HTTP side.
+    const [stdout, stderr, exitCode] = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]),
+      timeoutPromise,
+    ]);
     clearTimeout(timeoutId);
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
 
     const shouldReject = options.reject ?? true;
     if (shouldReject && exitCode !== 0) {

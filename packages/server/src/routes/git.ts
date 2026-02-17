@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { existsSync } from 'fs';
 import * as tm from '../services/thread-manager.js';
-import { getDiff, stageFiles, unstageFiles, revertFiles, commit, push, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState, type GitIdentityOptions, removeWorktree, removeBranch, sanitizePath } from '@a-parallel/core/git';
+import { getDiff, getDiffSummary, getSingleFileDiff, stageFiles, unstageFiles, revertFiles, addToGitignore, commit, push, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState, type GitIdentityOptions, removeWorktree, removeBranch, sanitizePath } from '@a-parallel/core/git';
 import { validate, mergeSchema, stageFilesSchema, commitSchema, createPRSchema } from '../validation/schemas.js';
 import { requireThread, requireThreadCwd, requireProject } from '../utils/route-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
@@ -80,7 +80,8 @@ gitRoutes.get('/status', async (c) => {
 // GET /api/git/:threadId/status — single thread git status
 gitRoutes.get('/:threadId/status', async (c) => {
   const threadId = c.req.param('threadId');
-  const threadResult = requireThread(threadId);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(threadId, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   const thread = threadResult.value;
 
@@ -104,9 +105,44 @@ gitRoutes.get('/:threadId/status', async (c) => {
   });
 });
 
-// GET /api/git/:threadId/diff
+// GET /api/git/:threadId/diff/summary — lightweight file list without diff content
+gitRoutes.get('/:threadId/diff/summary', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+  const cwd = cwdResult.value;
+  if (!existsSync(cwd)) {
+    return resultToResponse(c, err(badRequest(`Working directory does not exist: ${cwd}`)));
+  }
+  const excludeRaw = c.req.query('exclude');
+  const excludePatterns = excludeRaw ? excludeRaw.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+  const maxFilesRaw = c.req.query('maxFiles');
+  const maxFiles = maxFilesRaw ? parseInt(maxFilesRaw, 10) : undefined;
+  const result = await getDiffSummary(cwd, { excludePatterns, maxFiles });
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json(result.value);
+});
+
+// GET /api/git/:threadId/diff/file — diff content for a single file
+gitRoutes.get('/:threadId/diff/file', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+  const cwd = cwdResult.value;
+  const filePath = c.req.query('path');
+  if (!filePath) {
+    return resultToResponse(c, err(badRequest('Missing required query parameter: path')));
+  }
+  const staged = c.req.query('staged') === 'true';
+  const result = await getSingleFileDiff(cwd, filePath, staged);
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ diff: result.value });
+});
+
+// GET /api/git/:threadId/diff — full diff (legacy, kept for backward compatibility)
 gitRoutes.get('/:threadId/diff', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
   if (!existsSync(cwd)) {
@@ -119,7 +155,8 @@ gitRoutes.get('/:threadId/diff', async (c) => {
 
 // POST /api/git/:threadId/stage
 gitRoutes.post('/:threadId/stage', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
 
@@ -137,7 +174,8 @@ gitRoutes.post('/:threadId/stage', async (c) => {
 
 // POST /api/git/:threadId/unstage
 gitRoutes.post('/:threadId/unstage', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
 
@@ -155,7 +193,8 @@ gitRoutes.post('/:threadId/unstage', async (c) => {
 
 // POST /api/git/:threadId/revert
 gitRoutes.post('/:threadId/revert', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
 
@@ -173,7 +212,8 @@ gitRoutes.post('/:threadId/revert', async (c) => {
 
 // POST /api/git/:threadId/commit
 gitRoutes.post('/:threadId/commit', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
 
@@ -181,7 +221,6 @@ gitRoutes.post('/:threadId/commit', async (c) => {
   const parsed = validate(commitSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
-  const userId = c.get('userId') as string;
   const identity = resolveIdentity(userId);
   const result = await commit(cwd, parsed.value.message, identity);
   if (result.isErr()) return resultToResponse(c, result);
@@ -190,10 +229,10 @@ gitRoutes.post('/:threadId/commit', async (c) => {
 
 // POST /api/git/:threadId/push
 gitRoutes.post('/:threadId/push', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
 
-  const userId = c.get('userId') as string;
   const identity = resolveIdentity(userId);
   const result = await push(cwdResult.value, identity);
   if (result.isErr()) return resultToResponse(c, result);
@@ -203,7 +242,8 @@ gitRoutes.post('/:threadId/push', async (c) => {
 // POST /api/git/:threadId/pr
 gitRoutes.post('/:threadId/pr', async (c) => {
   const threadId = c.req.param('threadId');
-  const cwdResult = requireThreadCwd(threadId);
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(threadId, userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
   const thread = tm.getThread(threadId);
@@ -212,7 +252,6 @@ gitRoutes.post('/:threadId/pr', async (c) => {
   const parsed = validate(createPRSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
-  const userId = c.get('userId') as string;
   const identity = resolveIdentity(userId);
   const result = await createPR(cwd, parsed.value.title, parsed.value.body, thread?.baseBranch ?? undefined, identity);
   if (result.isErr()) return resultToResponse(c, result);
@@ -221,7 +260,8 @@ gitRoutes.post('/:threadId/pr', async (c) => {
 
 // POST /api/git/:threadId/generate-commit-message
 gitRoutes.post('/:threadId/generate-commit-message', async (c) => {
-  const cwdResult = requireThreadCwd(c.req.param('threadId'));
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const cwd = cwdResult.value;
 
@@ -322,7 +362,8 @@ ${diffSummary}`;
 // POST /api/git/:threadId/merge
 gitRoutes.post('/:threadId/merge', async (c) => {
   const threadId = c.req.param('threadId');
-  const threadResult = requireThread(threadId);
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(threadId, userId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   const thread = threadResult.value;
 
@@ -343,7 +384,6 @@ gitRoutes.post('/:threadId/merge', async (c) => {
     return resultToResponse(c, err(badRequest('No target branch specified and no baseBranch set on thread')));
   }
 
-  const userId = c.get('userId') as string;
   const identity = resolveIdentity(userId);
   const mergeResult = await mergeBranch(project.path, thread.branch, targetBranch, identity);
   if (mergeResult.isErr()) return resultToResponse(c, mergeResult);
@@ -363,4 +403,22 @@ gitRoutes.post('/:threadId/merge', async (c) => {
   }
 
   return c.json({ ok: true, output: mergeResult.value });
+});
+
+// POST /api/git/:threadId/gitignore
+gitRoutes.post('/:threadId/gitignore', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+  const cwd = cwdResult.value;
+
+  const raw = await c.req.json().catch(() => ({}));
+  const pattern = raw?.pattern;
+  if (!pattern || typeof pattern !== 'string') {
+    return c.json({ error: 'pattern is required' }, 400);
+  }
+
+  const result = addToGitignore(cwd, pattern);
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ ok: true });
 });

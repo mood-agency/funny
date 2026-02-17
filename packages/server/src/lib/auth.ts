@@ -53,16 +53,23 @@ export async function initBetterAuth(): Promise<void> {
   try {
     const { users } = await auth.api.listUsers({ query: { limit: 1 } });
     if (users.length === 0) {
+      // Generate a random password instead of using a hardcoded default
+      const password = randomBytes(16).toString('hex');
       await auth.api.createUser({
         body: {
           email: 'admin@local.host',
-          password: 'admin',
+          password,
           name: 'Admin',
           username: 'admin',
           role: 'admin',
         },
       });
-      console.log('[auth] Created default admin. Username: admin, Password: admin');
+      console.log('[auth] ──────────────────────────────────────────────');
+      console.log('[auth] Created default admin account.');
+      console.log('[auth]   Username: admin');
+      console.log(`[auth]   Password: ${password}`);
+      console.log('[auth]   IMPORTANT: Change this password immediately!');
+      console.log('[auth] ──────────────────────────────────────────────');
     }
   } catch (err) {
     console.error('[auth] Failed to initialize Better Auth:', err);

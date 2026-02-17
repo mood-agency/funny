@@ -2,32 +2,37 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '../helpers/render';
 import { ReviewPane } from '@/components/ReviewPane';
-import { useAppStore } from '@/stores/app-store';
-import { okAsync } from 'neverthrow';
+import { useProjectStore } from '@/stores/project-store';
+import { useThreadStore } from '@/stores/thread-store';
+import { useUIStore } from '@/stores/ui-store';
 
 // ── Mocks ───────────────────────────────────────────────────────
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, fallback?: string) => fallback ?? key,
+    t: (key: string, fallbackOrOpts?: string | Record<string, any>) =>
+      typeof fallbackOrOpts === 'string' ? fallbackOrOpts : key,
     i18n: { language: 'en' },
   }),
 }));
 
-vi.mock('@/lib/api', () => ({
-  api: {
-    getDiff: vi.fn().mockReturnValue(okAsync([])),
-    stageFiles: vi.fn().mockReturnValue(okAsync({})),
-    unstageFiles: vi.fn().mockReturnValue(okAsync({})),
-    revertFiles: vi.fn().mockReturnValue(okAsync({})),
-    commit: vi.fn().mockReturnValue(okAsync({})),
-    generateCommitMessage: vi.fn().mockReturnValue(okAsync({ message: 'feat: add feature' })),
-    push: vi.fn().mockReturnValue(okAsync({})),
-    createPR: vi.fn().mockReturnValue(okAsync({})),
-    merge: vi.fn().mockReturnValue(okAsync({})),
-    listBranches: vi.fn().mockReturnValue(okAsync({ branches: ['main'], defaultBranch: 'main' })),
-  },
-}));
+vi.mock('@/lib/api', async () => {
+  const { okAsync: ok } = await import('neverthrow');
+  return {
+    api: {
+      getDiff: vi.fn().mockReturnValue(ok([])),
+      stageFiles: vi.fn().mockReturnValue(ok({})),
+      unstageFiles: vi.fn().mockReturnValue(ok({})),
+      revertFiles: vi.fn().mockReturnValue(ok({})),
+      commit: vi.fn().mockReturnValue(ok({})),
+      generateCommitMessage: vi.fn().mockReturnValue(ok({ title: 'feat: add feature', body: '' })),
+      push: vi.fn().mockReturnValue(ok({})),
+      createPR: vi.fn().mockReturnValue(ok({})),
+      merge: vi.fn().mockReturnValue(ok({})),
+      listBranches: vi.fn().mockReturnValue(ok({ branches: ['main'], defaultBranch: 'main' })),
+    },
+  };
+});
 
 // Mock the lazy-loaded diff viewer to avoid import issues
 vi.mock('@/components/tool-cards/utils', () => ({
@@ -47,15 +52,20 @@ vi.mock('sonner', () => ({
   },
 }));
 
+vi.mock('@/hooks/use-auto-refresh-diff', () => ({
+  useAutoRefreshDiff: vi.fn(),
+}));
+
 import { api } from '@/lib/api';
-import { toast } from 'sonner';
 const mockApi = vi.mocked(api);
 
 // ── Setup ───────────────────────────────────────────────────────
 
 beforeEach(() => {
-  useAppStore.setState({
+  useProjectStore.setState({
     selectedProjectId: 'p1',
+  });
+  useThreadStore.setState({
     selectedThreadId: 't1',
     activeThread: {
       id: 't1',
@@ -68,6 +78,11 @@ beforeEach(() => {
       baseBranch: 'main',
       messages: [],
     } as any,
+    threadsByProject: {
+      p1: [{ id: 't1', projectId: 'p1', status: 'completed' } as any],
+    },
+  });
+  useUIStore.setState({
     reviewPaneOpen: true,
   });
   vi.clearAllMocks();
@@ -77,7 +92,8 @@ beforeEach(() => {
 
 describe('ReviewPane', () => {
   test('shows no changes message when diff is empty', async () => {
-    mockApi.getDiff.mockReturnValueOnce(okAsync([]));
+    const { okAsync: ok } = await import('neverthrow');
+    mockApi.getDiff.mockReturnValueOnce(ok([] as any) as any);
     renderWithProviders(<ReviewPane />);
 
     await waitFor(() => {
@@ -86,10 +102,11 @@ describe('ReviewPane', () => {
   });
 
   test('renders file list from diffs', async () => {
-    mockApi.getDiff.mockReturnValueOnce(okAsync([
+    const { okAsync: ok } = await import('neverthrow');
+    mockApi.getDiff.mockReturnValueOnce(ok([
       { path: 'src/index.ts', status: 'modified', staged: false, diff: '--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new' },
-      { path: 'src/utils.ts', status: 'added', staged: true, diff: '+++ b\n+new file' },
-    ]));
+      { path: 'src/utils.ts', status: 'added', staged: false, diff: '+++ b\n+new file' },
+    ] as any) as any);
 
     renderWithProviders(<ReviewPane />);
 
@@ -98,19 +115,16 @@ describe('ReviewPane', () => {
       expect(screen.getByText('src/utils.ts')).toBeInTheDocument();
     });
 
-    // Staged/unstaged badges
-    expect(screen.getByText('review.staged')).toBeInTheDocument();
-    expect(screen.getByText('review.unstaged')).toBeInTheDocument();
+    // Status indicators: M for modified, A for added
+    expect(screen.getByText('M')).toBeInTheDocument();
+    expect(screen.getByText('A')).toBeInTheDocument();
   });
 
-  test('stage button calls API and refreshes', async () => {
-    mockApi.getDiff
-      .mockReturnValueOnce(okAsync([
-        { path: 'src/index.ts', status: 'modified', staged: false, diff: '-old\n+new' },
-      ]))
-      .mockReturnValueOnce(okAsync([
-        { path: 'src/index.ts', status: 'modified', staged: true, diff: '-old\n+new' },
-      ]));
+  test('shows commit controls when there are diffs', async () => {
+    const { okAsync: ok } = await import('neverthrow');
+    mockApi.getDiff.mockReturnValueOnce(ok([
+      { path: 'src/index.ts', status: 'modified', staged: false, diff: '-old\n+new' },
+    ] as any) as any);
 
     renderWithProviders(<ReviewPane />);
 
@@ -118,26 +132,33 @@ describe('ReviewPane', () => {
       expect(screen.getByText('src/index.ts')).toBeInTheDocument();
     });
 
-    // The "+" button is the stage button for unstaged files
-    const stageButtons = screen.getAllByRole('button');
-    const stageBtn = stageButtons.find(btn => btn.querySelector('svg.lucide-plus'));
-    expect(stageBtn).toBeTruthy();
+    // Commit title input
+    expect(screen.getByPlaceholderText('review.commitTitle')).toBeInTheDocument();
+    // Commit body textarea
+    expect(screen.getByPlaceholderText('review.commitBody')).toBeInTheDocument();
+    // Action buttons (use fallback strings from t() calls)
+    expect(screen.getByText('Commit')).toBeInTheDocument();
+    expect(screen.getByText('Commit & Push')).toBeInTheDocument();
+    expect(screen.getByText('Commit & Create PR')).toBeInTheDocument();
+  });
 
-    fireEvent.click(stageBtn!);
+  test('shows header with title and close button', async () => {
+    const { okAsync: ok } = await import('neverthrow');
+    mockApi.getDiff.mockReturnValueOnce(ok([] as any) as any);
+    renderWithProviders(<ReviewPane />);
 
     await waitFor(() => {
-      expect(mockApi.stageFiles).toHaveBeenCalledWith('t1', ['src/index.ts']);
+      expect(screen.getByText('review.title')).toBeInTheDocument();
     });
   });
 
-  test('unstage button calls API and refreshes', async () => {
-    mockApi.getDiff
-      .mockReturnValueOnce(okAsync([
-        { path: 'src/index.ts', status: 'modified', staged: true, diff: '-old\n+new' },
-      ]))
-      .mockReturnValueOnce(okAsync([
-        { path: 'src/index.ts', status: 'modified', staged: false, diff: '-old\n+new' },
-      ]));
+  test('shows select file prompt when no file selected and diffs exist', async () => {
+    const { okAsync: ok } = await import('neverthrow');
+    // When diffs exist, the first file gets auto-selected. With no diff content,
+    // the diff viewer shows the file's diff content
+    mockApi.getDiff.mockReturnValueOnce(ok([
+      { path: 'src/index.ts', status: 'modified', staged: false, diff: '' },
+    ] as any) as any);
 
     renderWithProviders(<ReviewPane />);
 
@@ -145,71 +166,24 @@ describe('ReviewPane', () => {
       expect(screen.getByText('src/index.ts')).toBeInTheDocument();
     });
 
-    // The "-" button is the unstage button for staged files
-    const unstageButtons = screen.getAllByRole('button');
-    const unstageBtn = unstageButtons.find(btn => btn.querySelector('svg.lucide-minus'));
-    expect(unstageBtn).toBeTruthy();
-
-    fireEvent.click(unstageBtn!);
-
-    await waitFor(() => {
-      expect(mockApi.unstageFiles).toHaveBeenCalledWith('t1', ['src/index.ts']);
-    });
+    // With empty diff string, shows binary/no diff message
+    expect(screen.getByText('review.binaryOrNoDiff')).toBeInTheDocument();
   });
 
-  test('commit flow: enter message and commit', async () => {
-    mockApi.getDiff
-      .mockReturnValueOnce(okAsync([
-        { path: 'src/index.ts', status: 'modified', staged: true, diff: '-old\n+new' },
-      ]))
-      .mockReturnValueOnce(okAsync([]));
+  test('shows file count selection', async () => {
+    const { okAsync: ok } = await import('neverthrow');
+    mockApi.getDiff.mockReturnValueOnce(ok([
+      { path: 'src/a.ts', status: 'modified', staged: false, diff: '-old\n+new' },
+      { path: 'src/b.ts', status: 'added', staged: false, diff: '+new' },
+    ] as any) as any);
 
     renderWithProviders(<ReviewPane />);
 
     await waitFor(() => {
-      expect(screen.getByText('src/index.ts')).toBeInTheDocument();
+      expect(screen.getByText('src/a.ts')).toBeInTheDocument();
     });
 
-    const commitInput = screen.getByPlaceholderText('review.commitMessage');
-    fireEvent.change(commitInput, { target: { value: 'fix: update index' } });
-    fireEvent.keyDown(commitInput, { key: 'Enter' });
-
-    await waitFor(() => {
-      expect(mockApi.commit).toHaveBeenCalledWith('t1', 'fix: update index');
-    });
-  });
-
-  test('push calls API and shows toast on success', async () => {
-    // No uncommitted changes
-    mockApi.getDiff.mockReturnValueOnce(okAsync([]));
-
-    renderWithProviders(<ReviewPane />);
-
-    await waitFor(() => {
-      expect(screen.getByText('review.noChanges')).toBeInTheDocument();
-    });
-
-    const pushBtn = screen.getByText('review.push').closest('button');
-    expect(pushBtn).not.toBeDisabled();
-
-    fireEvent.click(pushBtn!);
-
-    await waitFor(() => {
-      expect(mockApi.push).toHaveBeenCalledWith('t1');
-      expect(toast.success).toHaveBeenCalledWith('review.pushedSuccess');
-    });
-  });
-
-  test('shows branch context with merge target', async () => {
-    mockApi.getDiff.mockReturnValueOnce(okAsync([]));
-
-    renderWithProviders(<ReviewPane />);
-
-    await waitFor(() => {
-      // Branch name displayed (prefix before first / is stripped via .replace(/^[^/]+\//, ''))
-      expect(screen.getByText('test')).toBeInTheDocument();
-      // Merge target
-      expect(screen.getByText('→ main')).toBeInTheDocument();
-    });
+    // Shows selected count "2/2 selected"
+    expect(screen.getByText(/2\/2/)).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { cn } from '@/lib/utils';
+import { cn, TOAST_DURATION } from '@/lib/utils';
 
 describe('cn utility', () => {
   test('merges class names', () => {
@@ -44,5 +44,11 @@ describe('cn utility', () => {
     expect(result).toContain('arr1');
     expect(result).toContain('arr2');
     expect(result).toContain('conditional');
+  });
+});
+
+describe('TOAST_DURATION', () => {
+  test('is 5000ms', () => {
+    expect(TOAST_DURATION).toBe(5000);
   });
 });

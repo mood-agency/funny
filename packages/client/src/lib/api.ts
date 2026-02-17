@@ -159,7 +159,7 @@ export const api = {
   reorderProjects: (projectIds: string[]) =>
     request<void>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
   listBranches: (projectId: string) =>
-    request<{ branches: string[]; defaultBranch: string | null; currentBranch: string }>(`/projects/${projectId}/branches`),
+    request<{ branches: string[]; defaultBranch: string | null; currentBranch: string | null }>(`/projects/${projectId}/branches`),
 
   // Threads
   listThreads: (projectId?: string, includeArchived?: boolean) => {
@@ -255,6 +255,19 @@ export const api = {
 
   // Git
   getDiff: (threadId: string) => request<FileDiff[]>(`/git/${threadId}/diff`),
+  getDiffSummary: (threadId: string, excludePatterns?: string[], maxFiles?: number) => {
+    const params = new URLSearchParams();
+    if (excludePatterns?.length) params.set('exclude', excludePatterns.join(','));
+    if (maxFiles) params.set('maxFiles', String(maxFiles));
+    const qs = params.toString();
+    return request<import('@a-parallel/shared').DiffSummaryResponse>(
+      `/git/${threadId}/diff/summary${qs ? `?${qs}` : ''}`
+    );
+  },
+  getFileDiff: (threadId: string, filePath: string, staged: boolean) =>
+    request<{ diff: string }>(
+      `/git/${threadId}/diff/file?path=${encodeURIComponent(filePath)}&staged=${staged}`
+    ),
   stageFiles: (threadId: string, paths: string[]) =>
     request<{ ok: boolean }>(`/git/${threadId}/stage`, {
       method: 'POST',
@@ -291,6 +304,11 @@ export const api = {
     request<{ title: string; body: string }>(`/git/${threadId}/generate-commit-message`, {
       method: 'POST',
       body: JSON.stringify({ includeUnstaged: includeUnstaged ?? false }),
+    }),
+  addToGitignore: (threadId: string, pattern: string) =>
+    request<{ ok: boolean }>(`/git/${threadId}/gitignore`, {
+      method: 'POST',
+      body: JSON.stringify({ pattern }),
     }),
   getGitStatuses: (projectId: string) =>
     request<{ statuses: GitStatusInfo[] }>(`/git/status?projectId=${projectId}`),

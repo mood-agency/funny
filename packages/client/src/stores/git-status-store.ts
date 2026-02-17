@@ -13,6 +13,9 @@ interface GitStatusState {
   clearForThread: (threadId: string) => void;
 }
 
+const FETCH_COOLDOWN_MS = 5_000;
+const _lastFetchByProject = new Map<string, number>();
+
 export const useGitStatusStore = create<GitStatusState>((set, get) => ({
   statusByThread: {},
   loadingProjects: new Set(),
@@ -20,6 +23,11 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
 
   fetchForProject: async (projectId) => {
     if (get().loadingProjects.has(projectId)) return;
+    // Skip if fetched recently (prevents duplicate calls during cascading state updates)
+    const now = Date.now();
+    const lastFetch = _lastFetchByProject.get(projectId) ?? 0;
+    if (now - lastFetch < FETCH_COOLDOWN_MS) return;
+    _lastFetchByProject.set(projectId, now);
     set((s) => ({ loadingProjects: new Set([...s.loadingProjects, projectId]) }));
 
     const result = await api.getGitStatuses(projectId);

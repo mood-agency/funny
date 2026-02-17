@@ -54,9 +54,10 @@ export async function pathExists(path: string): Promise<boolean> {
  * Returns Result<string, DomainError>.
  */
 export function sanitizePath(basePath: string, userPath: string): Result<string, DomainError> {
-  const normalized = resolve(basePath, userPath);
+  const resolvedBase = resolve(basePath);
+  const normalized = resolve(resolvedBase, userPath);
 
-  if (!normalized.startsWith(basePath)) {
+  if (!normalized.startsWith(resolvedBase)) {
     return err(forbidden('Path traversal detected'));
   }
 

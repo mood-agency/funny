@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -198,12 +199,12 @@ function AddThreadButton({ projectId, projects, onSelect }: { projectId?: string
       <PopoverContent align="start" className="w-56 p-0">
         <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border/50">
           <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <input
+          <Input
             ref={inputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t('kanban.searchProject')}
-            className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            className="flex-1 h-auto border-0 bg-transparent text-xs shadow-none focus-visible:ring-0 px-0 py-0 placeholder:text-muted-foreground"
             autoFocus
           />
         </div>

@@ -4,8 +4,8 @@ import { eq } from 'drizzle-orm';
 import { resolve } from 'path';
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { createTestDb, seedProject, seedThread } from '../helpers/test-db.js';
-import { executeSync } from '../../utils/process.js';
-import { getDiff, stageFiles, unstageFiles, commit } from '../../utils/git-v2.js';
+import { executeSync } from '@a-parallel/core/git';
+import { getDiff, stageFiles, unstageFiles, commit } from '@a-parallel/core/git';
 
 const TEST_REPO = resolve(import.meta.dir, '..', '..', '..', '.test-tmp-git-routes');
 
@@ -57,12 +57,9 @@ describe('Git Routes', () => {
     app.get('/:threadId/diff', async (c) => {
       const cwd = resolveThreadCwd(c.req.param('threadId'));
       if (!cwd) return c.json({ error: 'Thread not found' }, 404);
-      try {
-        const diffs = await getDiff(cwd);
-        return c.json(diffs);
-      } catch (e: any) {
-        return c.json({ error: e.message }, 500);
-      }
+      const result = await getDiff(cwd);
+      if (result.isErr()) return c.json({ error: result.error.message }, 500);
+      return c.json(result.value);
     });
 
     // POST /:threadId/stage
@@ -70,12 +67,9 @@ describe('Git Routes', () => {
       const cwd = resolveThreadCwd(c.req.param('threadId'));
       if (!cwd) return c.json({ error: 'Thread not found' }, 404);
       const { paths } = await c.req.json<{ paths: string[] }>();
-      try {
-        await stageFiles(cwd, paths);
-        return c.json({ ok: true });
-      } catch (e: any) {
-        return c.json({ error: e.message }, 500);
-      }
+      const result = await stageFiles(cwd, paths);
+      if (result.isErr()) return c.json({ error: result.error.message }, 500);
+      return c.json({ ok: true });
     });
 
     // POST /:threadId/commit
@@ -83,12 +77,9 @@ describe('Git Routes', () => {
       const cwd = resolveThreadCwd(c.req.param('threadId'));
       if (!cwd) return c.json({ error: 'Thread not found' }, 404);
       const { message } = await c.req.json<{ message: string }>();
-      try {
-        const result = await commit(cwd, message);
-        return c.json({ ok: true, output: result });
-      } catch (e: any) {
-        return c.json({ error: e.message }, 500);
-      }
+      const result = await commit(cwd, message);
+      if (result.isErr()) return c.json({ error: result.error.message }, 500);
+      return c.json({ ok: true, output: result.value });
     });
   });
 

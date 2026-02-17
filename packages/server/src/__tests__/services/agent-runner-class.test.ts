@@ -13,6 +13,16 @@ class MockClaudeProcess extends EventEmitter implements IClaudeProcess {
 
   start(): void {
     this.started = true;
+    // Emit a synthetic init message synchronously so the orchestrator's
+    // resume-check promise resolves immediately (its handlers are already
+    // wired before start() is called) instead of waiting 3 seconds.
+    this.emit('message', {
+      type: 'system',
+      subtype: 'init',
+      session_id: 'mock-sess',
+      tools: [],
+      cwd: '/tmp',
+    });
   }
 
   async kill(): Promise<void> {
@@ -94,6 +104,17 @@ function createMockThreadManager(): IThreadManager & {
       }
       return undefined;
     },
+    getToolCall(id: string) {
+      const tc = toolCalls.get(id);
+      if (!tc) return undefined;
+      return { id: tc.id, name: tc.name, input: tc.input ?? null, output: tc.output ?? null };
+    },
+    getThreadWithMessages(id: string) {
+      const thread = threads.get(id);
+      if (!thread) return null;
+      const msgs = Array.from(messages.values()).filter((m: any) => m.threadId === id);
+      return { ...thread, messages: msgs };
+    },
   };
 }
 
@@ -102,6 +123,9 @@ function createMockWSBroker(): IWSBroker & { events: WSEvent[] } {
   return {
     events,
     emit(event: WSEvent) {
+      events.push(event);
+    },
+    emitToUser(_userId: string, event: WSEvent) {
       events.push(event);
     },
   };
@@ -198,7 +222,11 @@ describe('AgentRunner class', () => {
   // ── handleCLIMessage: system init ───────────────────────────
 
   describe('handleCLIMessage — system init', () => {
-    test('saves session_id and emits agent:init', () => {
+    test('saves session_id and emits agent:init', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLISystemMessage = {
         type: 'system',
         subtype: 'init',
@@ -208,7 +236,7 @@ describe('AgentRunner class', () => {
         cwd: '/tmp',
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       expect(tmMock.threads.get('t1')?.sessionId).toBe('sess-xyz');
 
@@ -225,7 +253,12 @@ describe('AgentRunner class', () => {
   // ── handleCLIMessage: assistant text ────────────────────────
 
   describe('handleCLIMessage — assistant text', () => {
-    test('inserts a new message on first text', () => {
+    test('inserts a new message on first text', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+      const startupMsgCount = tmMock.messages.size;
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -234,19 +267,24 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const msgs = [...tmMock.messages.values()];
-      expect(msgs).toHaveLength(1);
-      expect(msgs[0].role).toBe('assistant');
-      expect(msgs[0].content).toBe('Hello');
+      expect(msgs).toHaveLength(startupMsgCount + 1);
+      const lastMsg = msgs[msgs.length - 1];
+      expect(lastMsg.role).toBe('assistant');
+      expect(lastMsg.content).toBe('Hello');
 
       const wsMsg = wsMock.events.find(e => e.type === 'agent:message');
       expect(wsMsg).toBeTruthy();
       expect(wsMsg!.data).toMatchObject({ role: 'assistant', content: 'Hello' });
     });
 
-    test('updates existing message on cumulative streaming', () => {
+    test('updates existing message on cumulative streaming', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      const startupMsgCount = tmMock.messages.size;
+
       const msg1: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -262,16 +300,19 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg1);
-      runner.handleCLIMessage('t1', msg2);
+      lastProcess.simulateMessage(msg1);
+      lastProcess.simulateMessage(msg2);
 
-      // Should only have 1 message, not 2
+      // Should only have 1 new message, not 2
       const msgs = [...tmMock.messages.values()];
-      expect(msgs).toHaveLength(1);
-      expect(msgs[0].content).toBe('Hello world');
+      expect(msgs).toHaveLength(startupMsgCount + 1);
+      expect(msgs[msgs.length - 1].content).toBe('Hello world');
     });
 
-    test('combines multiple text blocks into one', () => {
+    test('combines multiple text blocks into one', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -283,13 +324,16 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const msgs = [...tmMock.messages.values()];
-      expect(msgs[0].content).toBe('First paragraph\n\nSecond paragraph');
+      expect(msgs[msgs.length - 1].content).toBe('First paragraph\n\nSecond paragraph');
     });
 
-    test('decodes Unicode escapes in text', () => {
+    test('decodes Unicode escapes in text', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -298,17 +342,21 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const msgs = [...tmMock.messages.values()];
-      expect(msgs[0].content).toBe('café');
+      expect(msgs[msgs.length - 1].content).toBe('café');
     });
   });
 
   // ── handleCLIMessage: tool_use ──────────────────────────────
 
   describe('handleCLIMessage — tool_use', () => {
-    test('creates a tool call record and emits WS event', () => {
+    test('creates a tool call record and emits WS event', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -319,7 +367,7 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const tcs = [...tmMock.toolCalls.values()];
       expect(tcs).toHaveLength(1);
@@ -331,7 +379,10 @@ describe('AgentRunner class', () => {
       expect(tcEvent!.data).toMatchObject({ name: 'Read' });
     });
 
-    test('deduplicates tool_use blocks with the same CLI ID', () => {
+    test('deduplicates tool_use blocks with the same CLI ID', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+
       const content = [
         { type: 'tool_use' as const, id: 'tu-1', name: 'Read', input: { file: 'a.ts' } },
       ];
@@ -344,14 +395,18 @@ describe('AgentRunner class', () => {
         message: { id: 'cli-msg-1', content },
       };
 
-      runner.handleCLIMessage('t1', msg1);
-      runner.handleCLIMessage('t1', msg2);
+      lastProcess.simulateMessage(msg1);
+      lastProcess.simulateMessage(msg2);
 
       const tcs = [...tmMock.toolCalls.values()];
       expect(tcs).toHaveLength(1);
     });
 
-    test('creates parent assistant message when no text preceded tool_use', () => {
+    test('creates parent assistant message when no text preceded tool_use', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      const startupMsgCount = tmMock.messages.size;
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -362,16 +417,20 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
-      // Should have an empty assistant message as parent
+      // Should have an empty assistant message as parent (in addition to startup messages)
       const msgs = [...tmMock.messages.values()];
-      expect(msgs).toHaveLength(1);
-      expect(msgs[0].role).toBe('assistant');
-      expect(msgs[0].content).toBe('');
+      expect(msgs).toHaveLength(startupMsgCount + 1);
+      const lastMsg = msgs[msgs.length - 1];
+      expect(lastMsg.role).toBe('assistant');
+      expect(lastMsg.content).toBe('');
     });
 
-    test('handles multiple tool_use blocks in one message', () => {
+    test('handles multiple tool_use blocks in one message', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -383,14 +442,18 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const tcs = [...tmMock.toolCalls.values()];
       expect(tcs).toHaveLength(2);
       expect(tcs.map(tc => tc.name)).toEqual(['Read', 'Edit']);
     });
 
-    test('tracks AskUserQuestion as pending user input', () => {
+    test('tracks AskUserQuestion as pending user input', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -403,7 +466,7 @@ describe('AgentRunner class', () => {
       };
 
       // We need a result after this to check the waiting status
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const resultMsg: CLIResultMessage = {
         type: 'result',
@@ -415,14 +478,18 @@ describe('AgentRunner class', () => {
         session_id: 'sess-1',
       };
 
-      runner.handleCLIMessage('t1', resultMsg);
+      lastProcess.simulateMessage(resultMsg);
 
       expect(tmMock.threads.get('t1')?.status).toBe('waiting');
       const resultEvent = wsMock.events.find(e => e.type === 'agent:result');
       expect(resultEvent!.data).toMatchObject({ status: 'waiting', waitingReason: 'question' });
     });
 
-    test('tracks ExitPlanMode as pending user input', () => {
+    test('tracks ExitPlanMode as pending user input', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -433,7 +500,7 @@ describe('AgentRunner class', () => {
         },
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const resultMsg: CLIResultMessage = {
         type: 'result',
@@ -445,7 +512,7 @@ describe('AgentRunner class', () => {
         session_id: 'sess-1',
       };
 
-      runner.handleCLIMessage('t1', resultMsg);
+      lastProcess.simulateMessage(resultMsg);
 
       expect(tmMock.threads.get('t1')?.status).toBe('waiting');
       const resultEvent = wsMock.events.find(e => e.type === 'agent:result');
@@ -456,7 +523,11 @@ describe('AgentRunner class', () => {
   // ── handleCLIMessage: user (tool results) ───────────────────
 
   describe('handleCLIMessage — user tool results', () => {
-    test('updates tool call output and emits WS event', () => {
+    test('updates tool call output and emits WS event', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       // First, create a tool call via an assistant message
       const assistantMsg: CLIAssistantMessage = {
         type: 'assistant',
@@ -467,7 +538,7 @@ describe('AgentRunner class', () => {
           ],
         },
       };
-      runner.handleCLIMessage('t1', assistantMsg);
+      lastProcess.simulateMessage(assistantMsg);
 
       const tcId = [...tmMock.toolCalls.values()][0].id;
 
@@ -480,7 +551,7 @@ describe('AgentRunner class', () => {
           ],
         },
       };
-      runner.handleCLIMessage('t1', userMsg);
+      lastProcess.simulateMessage(userMsg);
 
       expect(tmMock.toolCalls.get(tcId)?.output).toBe('file contents here');
 
@@ -489,7 +560,10 @@ describe('AgentRunner class', () => {
       expect(outputEvent!.data).toMatchObject({ toolCallId: tcId, output: 'file contents here' });
     });
 
-    test('decodes Unicode in tool output', () => {
+    test('decodes Unicode in tool output', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+
       const assistantMsg: CLIAssistantMessage = {
         type: 'assistant',
         message: {
@@ -499,7 +573,7 @@ describe('AgentRunner class', () => {
           ],
         },
       };
-      runner.handleCLIMessage('t1', assistantMsg);
+      lastProcess.simulateMessage(assistantMsg);
 
       const userMsg: CLIUserMessage = {
         type: 'user',
@@ -509,7 +583,7 @@ describe('AgentRunner class', () => {
           ],
         },
       };
-      runner.handleCLIMessage('t1', userMsg);
+      lastProcess.simulateMessage(userMsg);
 
       const tc = [...tmMock.toolCalls.values()][0];
       expect(tc.output).toBe('café');
@@ -519,7 +593,11 @@ describe('AgentRunner class', () => {
   // ── handleCLIMessage: result ────────────────────────────────
 
   describe('handleCLIMessage — result', () => {
-    test('success result sets thread to completed', () => {
+    test('success result sets thread to completed', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLIResultMessage = {
         type: 'result',
         subtype: 'success',
@@ -531,7 +609,7 @@ describe('AgentRunner class', () => {
         session_id: 'sess-1',
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       expect(tmMock.threads.get('t1')?.status).toBe('completed');
       expect(tmMock.threads.get('t1')?.cost).toBe(0.05);
@@ -545,7 +623,10 @@ describe('AgentRunner class', () => {
       });
     });
 
-    test('error result sets thread to failed', () => {
+    test('error result sets thread to failed', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+
       const msg: CLIResultMessage = {
         type: 'result',
         subtype: 'error_max_turns',
@@ -556,12 +637,16 @@ describe('AgentRunner class', () => {
         session_id: 'sess-1',
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       expect(tmMock.threads.get('t1')?.status).toBe('failed');
     });
 
-    test('deduplicates result messages', () => {
+    test('deduplicates result messages', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLIResultMessage = {
         type: 'result',
         subtype: 'success',
@@ -572,14 +657,18 @@ describe('AgentRunner class', () => {
         session_id: 'sess-1',
       };
 
-      runner.handleCLIMessage('t1', msg);
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
+      lastProcess.simulateMessage(msg);
 
       const resultEvents = wsMock.events.filter(e => e.type === 'agent:result');
       expect(resultEvents).toHaveLength(1);
     });
 
-    test('decodes Unicode in result text', () => {
+    test('decodes Unicode in result text', async () => {
+      tmMock.threads.set('t1', { sessionId: null });
+      await runner.startAgent('t1', 'test', '/tmp');
+      wsMock.events.length = 0;
+
       const msg: CLIResultMessage = {
         type: 'result',
         subtype: 'success',
@@ -591,7 +680,7 @@ describe('AgentRunner class', () => {
         session_id: 'sess-1',
       };
 
-      runner.handleCLIMessage('t1', msg);
+      lastProcess.simulateMessage(msg);
 
       const resultEvent = wsMock.events.find(e => e.type === 'agent:result');
       expect(resultEvent!.data).toMatchObject({ result: 'café' });
@@ -668,7 +757,7 @@ describe('AgentRunner class', () => {
           ],
         },
       };
-      runner.handleCLIMessage('t1', assistantMsg);
+      lastProcess.simulateMessage(assistantMsg);
 
       expect(runner.isAgentRunning('t1')).toBe(true);
 

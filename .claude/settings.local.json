@@ -12,7 +12,9 @@
       "Bash(npx kill-port:*)",
       "Bash(npx vite)",
       "Bash(nvm:*)",
-      "Bash(fnm:*)"
+      "Bash(fnm:*)",
+      "mcp__chrome-devtools__new_page",
+      "mcp__chrome-devtools__performance_start_trace"
     ]
   },
   "disabledMcpjsonServers": [
