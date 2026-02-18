@@ -722,7 +722,7 @@ export function ThreadView() {
         <div className="flex-1 flex items-center justify-center text-muted-foreground px-6">
           <div className="text-center max-w-3xl">
             <p className="text-4xl mb-4">✨</p>
-            <p className="text-2xl font-semibold text-foreground mb-1">{activeThread.title}</p>
+            <p className="text-2xl font-semibold text-foreground mb-1 line-clamp-3">{activeThread.title}</p>
             <p className="text-sm">{t('thread.describeTask')}</p>
           </div>
         </div>

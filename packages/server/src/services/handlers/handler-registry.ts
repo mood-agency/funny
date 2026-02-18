@@ -13,11 +13,13 @@ import type { EventHandler, HandlerServiceContext } from './types.js';
 // ── Import handlers ─────────────────────────────────────────────
 
 import { commentHandler } from './comment-handler.js';
+import { gitStatusHandler } from './git-status-handler.js';
 
 // ── Handler list ────────────────────────────────────────────────
 
 const allHandlers: EventHandler<any>[] = [
   commentHandler,
+  gitStatusHandler,
 ];
 
 // ── Registration ────────────────────────────────────────────────

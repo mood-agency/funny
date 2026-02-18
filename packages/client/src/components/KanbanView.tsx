@@ -113,7 +113,7 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
           {projectInfo.name}
         </span>
       )}
-      <HighlightText text={thread.title} query={search || ''} className="text-xs font-medium mb-1.5 line-clamp-3 pr-5 block" />
+      <HighlightText text={thread.title} query={search || ''} className="text-xs font-medium mb-1.5 line-clamp-3 pr-5" />
       {contentSnippet && search && !normalize(thread.title).includes(normalize(search)) && (
         <HighlightText
           text={contentSnippet}

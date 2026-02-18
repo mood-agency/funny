@@ -225,6 +225,23 @@ export class AgentMessageHandler {
               toolUseId: block.tool_use_id,
             });
           }
+
+          // Emit git:changed event for file-modifying tools
+          const FILE_MODIFYING_TOOLS = new Set(['Write', 'Edit', 'Bash', 'NotebookEdit']);
+          if (tc?.name && FILE_MODIFYING_TOOLS.has(tc.name) && !permissionDeniedMatch) {
+            const thread = this.threadManager.getThread(threadId);
+            if (thread) {
+              const project = pm.getProject(thread.projectId);
+              threadEventBus.emit('git:changed', {
+                threadId,
+                projectId: thread.projectId,
+                userId: thread.userId,
+                worktreePath: thread.worktreePath ?? null,
+                cwd: thread.worktreePath ?? project?.path ?? '',
+                toolName: tc.name,
+              });
+            }
+          }
         }
       }
     }

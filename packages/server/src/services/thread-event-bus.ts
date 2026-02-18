@@ -46,6 +46,10 @@ export interface AgentCompletedEvent extends ThreadLifecycleContext {
   cost: number;
 }
 
+export interface GitChangedEvent extends ThreadLifecycleContext {
+  toolName: string;
+}
+
 // ── Event map ─────────────────────────────────────────────────────
 
 export interface ThreadEventMap {
@@ -54,6 +58,7 @@ export interface ThreadEventMap {
   'thread:deleted': (event: ThreadDeletedEvent) => void;
   'agent:started': (event: AgentStartedEvent) => void;
   'agent:completed': (event: AgentCompletedEvent) => void;
+  'git:changed': (event: GitChangedEvent) => void;
 }
 
 // ── Typed EventEmitter ────────────────────────────────────────────
