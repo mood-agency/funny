@@ -47,10 +47,11 @@ interface KanbanViewProps {
 
 const STAGES: ThreadStage[] = ['backlog', 'in_progress', 'review', 'done', 'archived'];
 
-function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnippet }: { thread: Thread; projectInfo?: { name: string; color?: string }; onDelete: (thread: Thread) => void; search?: string; ghost?: boolean; contentSnippet?: string }) {
+function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnippet, projectId }: { thread: Thread; projectInfo?: { name: string; color?: string }; onDelete: (thread: Thread) => void; search?: string; ghost?: boolean; contentSnippet?: string; projectId?: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const statusByThread = useGitStatusStore((s) => s.statusByThread);
+  const setKanbanContext = useUIStore((s) => s.setKanbanContext);
   const ref = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -88,6 +89,7 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
       )}
       onClick={() => {
         if (!isDragging) {
+          setKanbanContext({ projectId, search });
           navigate(`/projects/${thread.projectId}/threads/${thread.id}`);
         }
       }}
@@ -293,7 +295,7 @@ function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, pr
           </div>
         ) : (
           <>
-            {visibleThreads.map((thread) => <KanbanCard key={thread.id} thread={thread} projectInfo={projectInfoById?.[thread.projectId]} onDelete={onDelete} search={search} ghost={stage === 'archived'} contentSnippet={contentSnippets?.get(thread.id)} />)}
+            {visibleThreads.map((thread) => <KanbanCard key={thread.id} thread={thread} projectInfo={projectInfoById?.[thread.projectId]} onDelete={onDelete} search={search} ghost={stage === 'archived'} contentSnippet={contentSnippets?.get(thread.id)} projectId={projectId} />)}
             {hasMore && (
               <button
                 onClick={() => setVisibleCount((prev) => prev + 20)}

@@ -501,7 +501,8 @@
     "addThread": "Agregar hilo",
     "searchProject": "Buscar proyecto...",
     "titlePlaceholder": "Título del hilo...",
-    "loadMore": "Cargar {{count}} más"
+    "loadMore": "Cargar {{count}} más",
+    "backToBoard": "Volver al Kanban"
   },
   "analytics": {
     "title": "Analíticas",

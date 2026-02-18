@@ -503,7 +503,8 @@
     "addThread": "Add thread",
     "searchProject": "Search project...",
     "titlePlaceholder": "Thread title...",
-    "loadMore": "Load {{count}} more"
+    "loadMore": "Load {{count}} more",
+    "backToBoard": "Back to Kanban"
   },
   "analytics": {
     "title": "Analytics",

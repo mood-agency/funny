@@ -12,6 +12,7 @@ interface UIState {
   automationInboxOpen: boolean;
   addProjectOpen: boolean;
   analyticsOpen: boolean;
+  kanbanContext: { projectId?: string; search?: string } | null;
 
   setReviewPaneOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -23,6 +24,7 @@ interface UIState {
   setAddProjectOpen: (open: boolean) => void;
   showGlobalSearch: () => void;
   setAnalyticsOpen: (open: boolean) => void;
+  setKanbanContext: (context: { projectId?: string; search?: string } | null) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -35,6 +37,7 @@ export const useUIStore = create<UIState>((set) => ({
   automationInboxOpen: false,
   addProjectOpen: false,
   analyticsOpen: false,
+  kanbanContext: null,
 
   setReviewPaneOpen: (open) => set({ reviewPaneOpen: open }),
   setSettingsOpen: (open) => set(open ? { settingsOpen: true, automationInboxOpen: false, addProjectOpen: false } : { settingsOpen: false, activeSettingsPage: null }),
@@ -85,4 +88,6 @@ export const useUIStore = create<UIState>((set) => ({
     }
     set(open ? { analyticsOpen: true, reviewPaneOpen: false, settingsOpen: false, activeSettingsPage: null, allThreadsProjectId: null, addProjectOpen: false, automationInboxOpen: false } : { analyticsOpen: false });
   },
+
+  setKanbanContext: (context) => set({ kanbanContext: context }),
 }));

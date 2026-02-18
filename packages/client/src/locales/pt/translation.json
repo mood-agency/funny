@@ -497,7 +497,8 @@
     "addThread": "Adicionar thread",
     "searchProject": "Buscar projeto...",
     "titlePlaceholder": "Título da thread...",
-    "loadMore": "Carregar mais {{count}}"
+    "loadMore": "Carregar mais {{count}}",
+    "backToBoard": "Voltar ao Kanban"
   },
   "analytics": {
     "title": "Analíticas",

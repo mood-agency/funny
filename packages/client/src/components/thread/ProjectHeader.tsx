@@ -1,11 +1,13 @@
 import { memo, useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
+import { useUIStore } from '@/stores/ui-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { editorLabels, type Editor } from '@/stores/settings-store';
 import { usePreviewWindow } from '@/hooks/use-preview-window';
-import { GitCompare, Globe, Terminal, ExternalLink, Pin, PinOff, Rocket, Play, Square, Loader2 } from 'lucide-react';
+import { GitCompare, Globe, Terminal, ExternalLink, Pin, PinOff, Rocket, Play, Square, Loader2, Columns3, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
@@ -146,12 +148,15 @@ function StartupCommandsPopover({ projectId }: { projectId: string }) {
 
 export const ProjectHeader = memo(function ProjectHeader() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const activeThread = useAppStore(s => s.activeThread);
   const selectedProjectId = useAppStore(s => s.selectedProjectId);
   const projects = useAppStore(s => s.projects);
   const setReviewPaneOpen = useAppStore(s => s.setReviewPaneOpen);
   const reviewPaneOpen = useAppStore(s => s.reviewPaneOpen);
   const pinThread = useAppStore(s => s.pinThread);
+  const kanbanContext = useUIStore(s => s.kanbanContext);
+  const setKanbanContext = useUIStore(s => s.setKanbanContext);
   const { openPreview, isTauri } = usePreviewWindow();
   const toggleTerminalPanel = useTerminalStore(s => s.togglePanel);
   const terminalPanelVisible = useTerminalStore(s => s.panelVisible);
@@ -187,10 +192,38 @@ export const ProjectHeader = memo(function ProjectHeader() {
     }
   };
 
+  const handleBackToKanban = useCallback(() => {
+    if (!kanbanContext) return;
+
+    const targetProjectId = kanbanContext.projectId || '__all__';
+    const searchParam = kanbanContext.search ? `&search=${encodeURIComponent(kanbanContext.search)}` : '';
+
+    // Navigate to search view with board mode
+    navigate(`/search?view=board${targetProjectId !== '__all__' ? `&project=${targetProjectId}` : ''}${searchParam}`);
+
+    // Clear the context after navigation
+    setKanbanContext(null);
+  }, [kanbanContext, navigate, setKanbanContext]);
+
   return (
     <div className="px-4 py-2 border-b border-border">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0 max-w-[50%]">
+        {kanbanContext && activeThread && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleBackToKanban}
+                className="text-muted-foreground hover:text-foreground shrink-0"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('kanban.backToBoard', 'Back to Kanban')}</TooltipContent>
+          </Tooltip>
+        )}
         <Breadcrumb className="min-w-0">
           <BreadcrumbList>
             {project && (
