@@ -294,6 +294,9 @@ function InitInfoCard({ initInfo }: { initInfo: { tools: string[]; cwd: string; 
       <div className="flex items-start gap-2">
         <span className="font-medium shrink-0">{t('initInfo.tools')}</span>
         <div className="font-mono flex flex-wrap gap-1 items-start">
+          {builtIn.length === 0 && mcpGroups.size === 0 && (
+            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60" />
+          )}
           {builtIn.map((tool) => (
             <span key={tool} className="bg-secondary px-1.5 py-0.5 rounded text-xs">
               {tool}

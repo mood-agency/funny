@@ -382,9 +382,18 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const machineEvent = { type: 'START' as const };
       const newStatus = transitionThreadStatus(threadId, machineEvent, activeThread.status, activeThread.cost);
 
+      // Pre-populate initInfo so the card renders immediately instead of
+      // waiting for the agent:init WebSocket event from the server.
+      const initInfo = activeThread.initInfo ?? (() => {
+        const project = useProjectStore.getState().projects.find(p => p.id === pid);
+        const cwd = activeThread.worktreePath || project?.path || '';
+        return { model: model || activeThread.model, cwd, tools: [] as string[] };
+      })();
+
       set({
         activeThread: {
           ...activeThread,
+          initInfo,
           status: newStatus,
           waitingReason: undefined,
           pendingPermission: undefined,
