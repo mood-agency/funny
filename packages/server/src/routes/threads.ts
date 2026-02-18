@@ -277,7 +277,13 @@ threadRoutes.post('/:id/message', async (c) => {
 
   // Auto-move idle backlog threads to in_progress when a message is sent
   if (thread.status === 'idle' && thread.stage === 'backlog') {
-    tm.updateThread(id, { stage: 'in_progress' });
+    const stageUpdates: Record<string, any> = { stage: 'in_progress' };
+    // Update title if the prompt changed from the original initialPrompt
+    if (thread.initialPrompt && content !== thread.initialPrompt) {
+      stageUpdates.title = content.slice(0, 200);
+      stageUpdates.initialPrompt = content;
+    }
+    tm.updateThread(id, stageUpdates);
   }
 
   // Augment prompt with file contents if file references were provided
