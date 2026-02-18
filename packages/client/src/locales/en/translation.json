@@ -414,7 +414,8 @@
     "add": "Add",
     "save": "Save",
     "loading": "Loading...",
-    "stop": "Stop"
+    "stop": "Stop",
+    "continue": "Continue"
   },
   "dialog": {
     "archiveThread": "Archive thread",
@@ -427,7 +428,9 @@
     "deleteProjectDesc": "Are you sure you want to delete the project \"{{name}}\"? All threads in this project will also be removed. This action cannot be undone.",
     "worktreeWarning": "This thread has a worktree. The branch and worktree will be deleted. Any commits not pushed or merged will be lost.",
     "deleteWorktree": "Delete worktree",
-    "deleteWorktreeDesc": "Are you sure you want to delete the worktree for branch \"{{branch}}\"? Any uncommitted changes will be lost."
+    "deleteWorktreeDesc": "Are you sure you want to delete the worktree for branch \"{{branch}}\"? Any uncommitted changes will be lost.",
+    "unmergedChanges": "Unmerged changes",
+    "unmergedChangesDesc": "The thread \"{{title}}\" has changes that haven't been merged into the base branch yet. Are you sure you want to mark it as Done?"
   },
   "toast": {
     "threadArchived": "Thread archived successfully",

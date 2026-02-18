@@ -120,7 +120,7 @@ export function RecentThreads({ onArchiveThread, onDeleteThread }: RecentThreads
             <button
               onClick={() => {
                 showGlobalSearch();
-                navigate('/search');
+                navigate('/search?filter=activity');
               }}
               className="text-sm text-muted-foreground hover:text-foreground px-2 py-1.5 transition-colors"
             >

@@ -414,7 +414,8 @@
     "add": "Agregar",
     "save": "Guardar",
     "loading": "Cargando...",
-    "stop": "Detener"
+    "stop": "Detener",
+    "continue": "Continuar"
   },
   "dialog": {
     "archiveThread": "Archivar hilo",
@@ -427,7 +428,9 @@
     "deleteProjectDesc": "¿Estás seguro de que quieres eliminar el proyecto \"{{name}}\"? Todos los hilos de este proyecto también serán eliminados. Esta acción no se puede deshacer.",
     "worktreeWarning": "Este hilo tiene un worktree. La rama y el worktree serán eliminados. Los commits no pusheados ni mergeados se perderán.",
     "deleteWorktree": "Eliminar worktree",
-    "deleteWorktreeDesc": "¿Estás seguro de que quieres eliminar el worktree de la rama \"{{branch}}\"? Los cambios no commiteados se perderán."
+    "deleteWorktreeDesc": "¿Estás seguro de que quieres eliminar el worktree de la rama \"{{branch}}\"? Los cambios no commiteados se perderán.",
+    "unmergedChanges": "Cambios sin fusionar",
+    "unmergedChangesDesc": "El hilo \"{{title}}\" tiene cambios que aún no se han fusionado con la rama base. ¿Estás seguro de que quieres marcarlo como Completado?"
   },
   "toast": {
     "threadArchived": "Hilo archivado exitosamente",

@@ -335,6 +335,12 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
   const [slideUpStage, setSlideUpStage] = useState<ThreadStage>('backlog');
   const [creating, setCreating] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [mergeWarning, setMergeWarning] = useState<{
+    threadId: string;
+    title: string;
+    newStage: ThreadStage;
+  } | null>(null);
+  const statusByThread = useGitStatusStore((s) => s.statusByThread);
 
   const handleAddThread = useCallback((threadProjectId: string, stage: ThreadStage) => {
     setSlideUpProjectId(threadProjectId);
@@ -362,6 +368,16 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
     toast.success(t('toast.threadDeleted', { title }));
     if (wasSelected) navigate(`/projects/${threadProjectId}`);
   }, [deleteConfirm, selectedThreadId, deleteThread, navigate, t]);
+
+  const handleMergeWarningConfirm = useCallback(() => {
+    if (!mergeWarning) return;
+    const { threadId, newStage } = mergeWarning;
+    const targetProjectId = projectId || threads.find((t) => t.id === threadId)?.projectId;
+    if (targetProjectId) {
+      updateThreadStage(threadId, targetProjectId, newStage);
+    }
+    setMergeWarning(null);
+  }, [mergeWarning, projectId, threads, updateThreadStage]);
 
   const handlePromptSubmit = useCallback(async (
     prompt: string,
@@ -478,6 +494,22 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
 
       const targetProjectId = projectId || threadProjectId;
 
+      // Check if moving to "Done" with unmerged changes
+      if (newStage === 'done') {
+        const gitStatus = statusByThread[threadId];
+        const thread = threads.find((t) => t.id === threadId);
+
+        // If the thread has a branch and git status shows it's not merged
+        if (thread?.branch && gitStatus && !gitStatus.isMergedIntoBase) {
+          setMergeWarning({
+            threadId,
+            title: thread.title,
+            newStage,
+          });
+          return;
+        }
+      }
+
       if (newStage === 'archived') {
         // Dragging to archived column → archive the thread
         archiveThread(threadId, targetProjectId);
@@ -488,7 +520,7 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
         updateThreadStage(threadId, targetProjectId, newStage);
       }
     },
-    [projectId, updateThreadStage, archiveThread, unarchiveThread]
+    [projectId, updateThreadStage, archiveThread, unarchiveThread, statusByThread, threads]
   );
 
   useEffect(() => {
@@ -525,6 +557,28 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
             </Button>
             <Button variant="destructive" size="sm" onClick={handleDeleteConfirm} loading={deleteLoading}>
               {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!mergeWarning}
+        onOpenChange={(open) => { if (!open) setMergeWarning(null); }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t('dialog.unmergedChanges')}</DialogTitle>
+            <DialogDescription className="break-all">
+              {t('dialog.unmergedChangesDesc', { title: mergeWarning?.title && mergeWarning.title.length > 80 ? mergeWarning.title.slice(0, 80) + '…' : mergeWarning?.title })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setMergeWarning(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="default" size="sm" onClick={handleMergeWarningConfirm}>
+              {t('common.continue')}
             </Button>
           </DialogFooter>
         </DialogContent>
