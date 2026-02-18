@@ -1,4 +1,5 @@
 import { ResultAsync } from 'neverthrow';
+import pLimit from 'p-limit';
 import { processError, internal, type DomainError } from '@funny/shared/errors';
 
 export interface ProcessResult {
@@ -13,6 +14,8 @@ export interface ProcessOptions {
   env?: Record<string, string>;
   reject?: boolean; // false = don't throw on non-zero exit
   stdin?: string; // data to write to stdin
+  /** Skip the concurrency pool (e.g. for critical single-shot commands). */
+  skipPool?: boolean;
 }
 
 export class ProcessExecutionError extends Error {
@@ -28,13 +31,28 @@ export class ProcessExecutionError extends Error {
   }
 }
 
+// Limits how many git/child processes run at once.
+// Each getStatusSummary() spawns ~7 processes per worktree thread; without a
+// cap, a page load with many projects can spawn 200+ processes simultaneously.
+const processPool = pLimit(6);
+
 /**
- * Execute a command asynchronously with proper error handling
+ * Execute a command asynchronously with proper error handling.
+ * Respects the global concurrency pool unless options.skipPool is set.
  */
 export async function execute(
   command: string,
   args: string[],
   options: ProcessOptions = {}
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  if (options.skipPool) return _executeRaw(command, args, options);
+  return processPool(() => _executeRaw(command, args, options));
+}
+
+async function _executeRaw(
+  command: string,
+  args: string[],
+  options: ProcessOptions
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = Bun.spawn([command, ...args], {
     cwd: options.cwd,

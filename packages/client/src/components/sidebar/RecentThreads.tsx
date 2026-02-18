@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useThreadStore } from '@/stores/thread-store';
@@ -63,6 +63,16 @@ export function RecentThreads({ onArchiveThread, onDeleteThread }: RecentThreads
 
     return result.slice(0, 5);
   }, [threadsByProject, projects]);
+
+  // Eagerly fetch git status for visible worktree threads that don't have it yet
+  useEffect(() => {
+    const { fetchForThread, statusByThread } = useGitStatusStore.getState();
+    for (const thread of recentThreads) {
+      if (thread.mode === 'worktree' && !statusByThread[thread.id]) {
+        fetchForThread(thread.id);
+      }
+    }
+  }, [recentThreads]);
 
   if (recentThreads.length === 0) return null;
 

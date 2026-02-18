@@ -114,22 +114,20 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
             </span>
           )}
         </div>
-        {/* Git status icon (worktree threads only) */}
-        {showGitIcon && GitIcon && (
-          <div className="h-3 w-3 flex-shrink-0 mt-[3px]">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <GitIcon className={cn('h-3 w-3', gitCfg!.className)} />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                {gitTooltip}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
         <div className="flex flex-col gap-0 min-w-0 flex-1">
           <div className="flex items-center gap-1">
             <span className="text-sm leading-tight truncate">{thread.title}</span>
+            {/* Git status icon (worktree threads only) */}
+            {showGitIcon && GitIcon && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <GitIcon className={cn('h-3 w-3 flex-shrink-0', gitCfg!.className)} />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {gitTooltip}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
           {subtitle && (
             <span className="text-xs text-muted-foreground font-mono truncate">{subtitle}</span>

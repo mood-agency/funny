@@ -37,10 +37,27 @@ function validateFilePaths(cwd: string, paths: string[]): string | null {
   return null;
 }
 
+// In-memory cache for bulk git status to avoid spawning excessive git processes.
+// Each getStatusSummary() call spawns ~7 git processes per worktree thread.
+const _gitStatusCache = new Map<string, { data: any; ts: number }>();
+const GIT_STATUS_CACHE_TTL_MS = 30_000; // 30 seconds
+
+/** Invalidate cached git status for a project after mutating git operations. */
+function invalidateGitStatusCache(threadId: string) {
+  const thread = tm.getThread(threadId);
+  if (thread) _gitStatusCache.delete(thread.projectId);
+}
+
 // GET /api/git/status?projectId=xxx — bulk git status for all worktree threads
 gitRoutes.get('/status', async (c) => {
   const projectId = c.req.query('projectId');
   if (!projectId) return c.json({ error: 'projectId required' }, 400);
+
+  // Return cached result if still fresh
+  const cached = _gitStatusCache.get(projectId);
+  if (cached && Date.now() - cached.ts < GIT_STATUS_CACHE_TTL_MS) {
+    return c.json(cached.data);
+  }
 
   const projectResult = requireProject(projectId);
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
@@ -74,7 +91,9 @@ gitRoutes.get('/status', async (c) => {
     .map((r) => r.value)
     .filter(Boolean);
 
-  return c.json({ statuses });
+  const response = { statuses };
+  _gitStatusCache.set(projectId, { data: response, ts: Date.now() });
+  return c.json(response);
 });
 
 // GET /api/git/:threadId/status — single thread git status
@@ -169,6 +188,7 @@ gitRoutes.post('/:threadId/stage', async (c) => {
 
   const result = await stageFiles(cwd, parsed.value.paths);
   if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
   return c.json({ ok: true });
 });
 
@@ -188,6 +208,7 @@ gitRoutes.post('/:threadId/unstage', async (c) => {
 
   const result = await unstageFiles(cwd, parsed.value.paths);
   if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
   return c.json({ ok: true });
 });
 
@@ -207,6 +228,7 @@ gitRoutes.post('/:threadId/revert', async (c) => {
 
   const result = await revertFiles(cwd, parsed.value.paths);
   if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
   return c.json({ ok: true });
 });
 
@@ -224,6 +246,7 @@ gitRoutes.post('/:threadId/commit', async (c) => {
   const identity = resolveIdentity(userId);
   const result = await commit(cwd, parsed.value.message, identity);
   if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
   return c.json({ ok: true, output: result.value });
 });
 
@@ -236,6 +259,7 @@ gitRoutes.post('/:threadId/push', async (c) => {
   const identity = resolveIdentity(userId);
   const result = await push(cwdResult.value, identity);
   if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
   return c.json({ ok: true, output: result.value });
 });
 
@@ -402,6 +426,7 @@ gitRoutes.post('/:threadId/merge', async (c) => {
     tm.updateThread(threadId, { worktreePath: null, branch: null });
   }
 
+  invalidateGitStatusCache(threadId);
   return c.json({ ok: true, output: mergeResult.value });
 });
 

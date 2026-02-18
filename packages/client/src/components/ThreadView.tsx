@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Loader2, Clock, Copy, Check, Send, CheckCircle2, XCircle, ArrowDown, ShieldQuestion, FileText, ChevronRight } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { timeAgo } from '@/lib/thread-utils';
+import { timeAgo, resolveModelLabel } from '@/lib/thread-utils';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { api } from '@/lib/api';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
@@ -277,7 +277,7 @@ function InitInfoCard({ initInfo }: { initInfo: { tools: string[]; cwd: string; 
     <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
       <div className="flex items-center gap-2">
         <span className="font-medium">{t('initInfo.model')}</span>
-        <span className="font-mono">{initInfo.model}</span>
+        <span className="font-mono">{resolveModelLabel(initInfo.model, t)}</span>
       </div>
       <div className="flex items-center gap-2">
         <span className="font-medium">{t('initInfo.cwd')}</span>

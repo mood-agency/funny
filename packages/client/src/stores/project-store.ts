@@ -40,16 +40,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // Threads load in background and fill in progressively.
         set({ projects, initialized: true });
 
-        // Load threads first, then fetch git statuses once threads are available.
-        // This ensures git status icons are consistent from the start instead of
-        // popping in later when the user clicks a thread.
+        // Load threads first, then fetch git statuses only for expanded projects.
+        // Fetching all projects at startup spawns too many git processes and can
+        // crash Bun. Non-expanded projects get their status when the user opens them.
         const threadStore = useThreadStore.getState();
         Promise.all(
           projects.map((p) => threadStore.loadThreadsForProject(p.id))
         ).then(() => {
           const gitStore = useGitStatusStore.getState();
+          const { expandedProjects } = get();
           for (const p of projects) {
-            gitStore.fetchForProject(p.id);
+            if (expandedProjects.has(p.id)) {
+              gitStore.fetchForProject(p.id);
+            }
           }
         }).catch(() => {});
       } finally {
@@ -72,6 +75,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!threadStore.threadsByProject[projectId]) {
         threadStore.loadThreadsForProject(projectId);
       }
+      // Fetch git status when expanding (lazy load instead of at startup)
+      useGitStatusStore.getState().fetchForProject(projectId);
     }
     set({ expandedProjects: next });
   },

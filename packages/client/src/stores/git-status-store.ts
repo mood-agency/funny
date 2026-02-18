@@ -13,7 +13,7 @@ interface GitStatusState {
   clearForThread: (threadId: string) => void;
 }
 
-const FETCH_COOLDOWN_MS = 5_000;
+const FETCH_COOLDOWN_MS = 30_000;
 const _lastFetchByProject = new Map<string, number>();
 
 export const useGitStatusStore = create<GitStatusState>((set, get) => ({

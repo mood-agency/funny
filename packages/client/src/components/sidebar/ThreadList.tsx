@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useThreadStore } from '@/stores/thread-store';
@@ -62,6 +62,17 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
     // Always show at most 5 threads total, prioritizing running ones
     return result.slice(0, 5);
   }, [threadsByProject, projects]);
+
+  // Eagerly fetch git status for visible worktree threads that don't have it yet.
+  // This ensures icons show up in the global thread list without requiring a click.
+  useEffect(() => {
+    const { fetchForThread, statusByThread } = useGitStatusStore.getState();
+    for (const thread of threads) {
+      if (thread.mode === 'worktree' && !statusByThread[thread.id]) {
+        fetchForThread(thread.id);
+      }
+    }
+  }, [threads]);
 
   if (threads.length === 0) return null;
 

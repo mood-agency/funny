@@ -6,6 +6,7 @@ import { useWS } from '@/hooks/use-ws';
 import { initAuth } from '@/lib/api';
 import { api } from '@/lib/api';
 import { cn, TOAST_DURATION } from '@/lib/utils';
+import { resolveModelLabel } from '@/lib/thread-utils';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
 import {
@@ -440,7 +441,7 @@ function ChatView({
                 <div className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{t('initInfo.model')}</span>
-                    <span className="font-mono">{activeThread.initInfo.model}</span>
+                    <span className="font-mono">{resolveModelLabel(activeThread.initInfo.model, t)}</span>
                   </div>
                 </div>
               )}

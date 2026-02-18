@@ -48,12 +48,24 @@ export function timeAgo(dateStr: string, t: (key: string, opts?: any) => string)
 }
 
 export const gitSyncStateConfig: Record<GitSyncState, { icon: typeof Clock; className: string; labelKey: string }> = {
-  dirty:    { icon: CircleDot,            className: 'text-orange-400', labelKey: 'gitStatus.dirty' },
-  unpushed: { icon: ArrowUpCircle,        className: 'text-yellow-400', labelKey: 'gitStatus.unpushed' },
-  pushed:   { icon: GitPullRequestArrow,  className: 'text-blue-400',   labelKey: 'gitStatus.pushed' },
-  merged:   { icon: GitMerge,             className: 'text-emerald-400', labelKey: 'gitStatus.merged' },
-  clean:    { icon: CheckCircle2,         className: 'text-green-400',  labelKey: 'gitStatus.clean' },
+  dirty:    { icon: CircleDot,            className: 'text-muted-foreground', labelKey: 'gitStatus.dirty' },
+  unpushed: { icon: ArrowUpCircle,        className: 'text-muted-foreground', labelKey: 'gitStatus.unpushed' },
+  pushed:   { icon: GitPullRequestArrow,  className: 'text-muted-foreground', labelKey: 'gitStatus.pushed' },
+  merged:   { icon: GitMerge,             className: 'text-muted-foreground', labelKey: 'gitStatus.merged' },
+  clean:    { icon: CheckCircle2,         className: 'text-muted-foreground', labelKey: 'gitStatus.clean' },
 };
+
+/** Map full model IDs (from Claude SDK) back to friendly keys used in translations. */
+const MODEL_ID_TO_KEY: Record<string, string> = {
+  'claude-opus-4-6': 'opus',
+  'claude-sonnet-4-5-20250929': 'sonnet',
+  'claude-haiku-4-5-20251001': 'haiku',
+};
+
+export function resolveModelLabel(modelId: string, t: (key: string, opts?: any) => string): string {
+  const key = MODEL_ID_TO_KEY[modelId] ?? modelId;
+  return t(`thread.model.${key}`, { defaultValue: modelId });
+}
 
 export function getStatusLabels(t: (key: string) => string): Record<ThreadStatus, string> {
   return {

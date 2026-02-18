@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useThreadStore } from '@/stores/thread-store';
@@ -46,6 +46,16 @@ export function RunningThreads() {
     }
     return result;
   }, [threadsByProject, projects]);
+
+  // Eagerly fetch git status for visible worktree threads that don't have it yet
+  useEffect(() => {
+    const { fetchForThread, statusByThread } = useGitStatusStore.getState();
+    for (const thread of runningThreads) {
+      if (thread.mode === 'worktree' && !statusByThread[thread.id]) {
+        fetchForThread(thread.id);
+      }
+    }
+  }, [runningThreads]);
 
   if (runningThreads.length === 0) return null;
 
