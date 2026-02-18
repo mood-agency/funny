@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
+import { useAppStore } from '@/stores/app-store';
+import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -199,6 +201,44 @@ export function ReviewPane() {
 
   // Show standalone merge button when worktree has no dirty files but has unmerged commits
   const showMergeOnly = isWorktree && summaries.length === 0 && !loading && gitStatus && !gitStatus.isMergedIntoBase;
+
+  const showMergeConflictToast = useCallback((errorMessage: string, threadId: string) => {
+    const target = baseBranch || 'main';
+    const isConflict = errorMessage.toLowerCase().includes('conflict') ||
+                       errorMessage.toLowerCase().includes('rebase failed');
+
+    if (!isConflict) {
+      toast.error(t('review.mergeFailed', { message: errorMessage }));
+      return;
+    }
+
+    const worktreePath = useThreadStore.getState().activeThread?.worktreePath;
+
+    toast.error(
+      t('review.mergeConflict', { target }),
+      {
+        duration: 15000,
+        action: {
+          label: t('review.askAgentResolve'),
+          onClick: () => {
+            const prompt = t('review.agentResolvePrompt', { target });
+            useAppStore.getState().appendOptimisticMessage(threadId, prompt);
+            const { allowedTools, disallowedTools } = deriveToolLists(
+              useSettingsStore.getState().toolPermissions
+            );
+            api.sendMessage(threadId, prompt, { allowedTools, disallowedTools });
+            toast.success(t('review.agentResolveSent'));
+          },
+        },
+        cancel: worktreePath ? {
+          label: t('review.openInVSCode'),
+          onClick: () => {
+            api.openInEditor(worktreePath, 'vscode');
+          },
+        } : undefined,
+      }
+    );
+  }, [t, baseBranch]);
 
   const fileListRef = useRef<HTMLDivElement>(null);
 
@@ -416,7 +456,7 @@ export function ReviewPane() {
     } else if (selectedAction === 'commit-merge') {
       const mergeResult = await api.merge(effectiveThreadId, { cleanup: true });
       if (mergeResult.isErr()) {
-        toast.error(t('review.mergeFailed', { message: mergeResult.error.message }));
+        showMergeConflictToast(mergeResult.error.message, effectiveThreadId);
         setActionInProgress(null);
         await refresh();
         return;
@@ -460,7 +500,7 @@ export function ReviewPane() {
     setMergeInProgress(true);
     const mergeResult = await api.merge(effectiveThreadId, { cleanup: true });
     if (mergeResult.isErr()) {
-      toast.error(t('review.mergeFailed', { message: mergeResult.error.message }));
+      showMergeConflictToast(mergeResult.error.message, effectiveThreadId);
     } else {
       const target = baseBranch || 'base';
       toast.success(t('review.mergeSuccess', { target, defaultValue: `Merged into ${target} successfully` }));
