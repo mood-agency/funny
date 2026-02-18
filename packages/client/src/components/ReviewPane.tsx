@@ -746,7 +746,15 @@ export function ReviewPane() {
                       >
                         {isChecked && <Check className="h-2.5 w-2.5" />}
                       </button>
-                      <span className="flex-1 truncate font-mono text-[11px]">{f.path}</span>
+                      <span
+                        className="flex-1 truncate font-mono text-[11px] hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFile(f.path);
+                          const fullPath = basePath ? `${basePath}/${f.path}` : f.path;
+                          openFileInEditor(fullPath);
+                        }}
+                      >{f.path}</span>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button
