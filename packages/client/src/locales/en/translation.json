@@ -321,7 +321,9 @@
     "sortUpdated": "Last updated",
     "sortCreated": "Created",
     "sortDesc": "Newest first",
-    "sortAsc": "Oldest first"
+    "sortAsc": "Oldest first",
+    "filterProject": "Project",
+    "allProjects": "All projects"
   },
   "archived": {
     "searchPlaceholder": "Search archived threads by title, project, branch, or status...",
