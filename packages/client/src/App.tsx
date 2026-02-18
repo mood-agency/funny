@@ -122,11 +122,6 @@ export function App() {
   return (
     <SidebarProvider
       defaultOpen={true}
-      style={
-        {
-          '--sidebar-width': '20rem',
-        } as React.CSSProperties
-      }
       className="h-screen overflow-hidden"
     >
       <AppSidebar />
