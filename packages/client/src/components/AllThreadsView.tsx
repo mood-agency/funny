@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { cn } from '@/lib/utils';
-import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown, LayoutList, Columns3, ChevronDown, Check, X, History } from 'lucide-react';
+import { ChevronLeft, Archive, Search, ArrowUp, ArrowDown, LayoutList, Columns3, ChevronDown, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -16,7 +16,6 @@ import { api } from '@/lib/api';
 import type { Thread, ThreadStatus, GitSyncState } from '@funny/shared';
 
 const ITEMS_PER_PAGE = 20;
-const FINISHED_STATUSES: ThreadStatus[] = ['completed', 'failed', 'stopped', 'interrupted'];
 
 type SortField = 'updated' | 'created';
 type SortDir = 'desc' | 'asc';
@@ -97,31 +96,30 @@ export function AllThreadsView() {
   const projects = useAppStore(s => s.projects);
   const statusByThread = useGitStatusStore(s => s.statusByThread);
 
-  // Activity mode: when navigating from "View All" in Recent Threads
-  const activityMode = searchParams.get('filter') === 'activity';
-
   // Project filter from URL query param ?project=<id>
   const [projectFilter, setProjectFilter] = useState<string | null>(() => {
     return searchParams.get('project') || null;
   });
 
   // View mode from URL query param ?view=list|board, fallback to localStorage
-  // Activity mode always forces list view
+  // When ?status= param is present, force list view
   const [viewMode, setViewMode] = useState<'list' | 'board'>(() => {
-    if (activityMode) return 'list';
+    if (searchParams.get('status')) return 'list';
     const param = searchParams.get('view');
     if (param === 'list' || param === 'board') return param;
     const saved = localStorage.getItem('threadViewMode');
     return (saved === 'board' || saved === 'list') ? saved : 'list';
   });
 
-  // Build search params from current filter state
+  // Build search params from current filter state (preserves status param if present)
   const buildSearchParams = (overrides?: { project?: string | null; view?: string }) => {
     const params: Record<string, string> = {};
     const proj = overrides?.project !== undefined ? overrides.project : projectFilter;
     const v = overrides?.view ?? viewMode;
     if (proj) params.project = proj;
     if (v === 'board') params.view = 'board';
+    const statusParam = searchParams.get('status');
+    if (statusParam) params.status = statusParam;
     return params;
   };
 
@@ -129,10 +127,18 @@ export function AllThreadsView() {
   useEffect(() => {
     const paramProject = searchParams.get('project') || null;
     const paramView = searchParams.get('view');
+    const paramStatus = searchParams.get('status');
+
     if (paramProject !== projectFilter) {
       setProjectFilter(paramProject);
     }
-    if (paramView === 'list' || paramView === 'board') {
+
+    // When ?status= param is present, force list view and pre-set status filter
+    if (paramStatus) {
+      const statuses = paramStatus.split(',').filter(Boolean);
+      setStatusFilter(new Set(statuses));
+      setViewMode('list');
+    } else if (paramView === 'list' || paramView === 'board') {
       if (paramView !== viewMode) setViewMode(paramView);
     }
   }, [searchParams]);
@@ -153,9 +159,11 @@ export function AllThreadsView() {
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(() =>
-    activityMode ? new Set(FINISHED_STATUSES) : new Set()
-  );
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(() => {
+    const paramStatus = searchParams.get('status');
+    if (paramStatus) return new Set(paramStatus.split(',').filter(Boolean));
+    return new Set();
+  });
   const [gitFilter, setGitFilter] = useState<Set<string>>(new Set());
   const [modeFilter, setModeFilter] = useState<Set<string>>(new Set());
   const [showArchived, setShowArchived] = useState(false);
@@ -353,15 +361,13 @@ export function AllThreadsView() {
           }}
           className="text-muted-foreground hover:text-foreground"
         >
-          {activityMode ? <History className="h-4 w-4" /> : projectFilter ? <ChevronLeft className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+          {projectFilter ? <ChevronLeft className="h-4 w-4" /> : <Search className="h-4 w-4" />}
         </Button>
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-medium">
-            {activityMode
-              ? t('sidebar.recentThreads')
-              : projectFilter && filteredProject
-                ? t('allThreads.title')
-                : t('allThreads.globalTitle')
+            {projectFilter && filteredProject
+              ? t('allThreads.title')
+              : t('allThreads.globalTitle')
             }
           </h2>
           <p className="text-xs text-muted-foreground">
@@ -372,31 +378,29 @@ export function AllThreadsView() {
           </p>
         </div>
 
-        {!activityMode && (
-          <div className="flex items-center gap-2">
-            {/* View mode toggle */}
-            <div className="flex items-center gap-1 bg-secondary/50 rounded-md p-0.5">
-              <Button
-                variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-                size="icon-xs"
-                onClick={() => handleViewModeChange('list')}
-                className="h-6 w-6"
-                title={t('kanban.listView')}
-              >
-                <LayoutList className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant={viewMode === 'board' ? 'secondary' : 'ghost'}
-                size="icon-xs"
-                onClick={() => handleViewModeChange('board')}
-                className="h-6 w-6"
-                title={t('kanban.boardView')}
-              >
-                <Columns3 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+        <div className="flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-md p-0.5">
+            <Button
+              variant={viewMode === 'list' ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => handleViewModeChange('list')}
+              className="h-6 w-6"
+              title={t('kanban.listView')}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={viewMode === 'board' ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              onClick={() => handleViewModeChange('board')}
+              className="h-6 w-6"
+              title={t('kanban.boardView')}
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+            </Button>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -472,18 +476,16 @@ export function AllThreadsView() {
           </PopoverContent>
         </Popover>
 
-        {/* Status dropdown (hidden in activity mode — pre-filtered) */}
-        {!activityMode && (
-          <FilterDropdown
-            label={t('allThreads.filterStatus')}
-            options={threadStatuses
-              .filter(s => (statusCounts[s] || 0) > 0)
-              .map(s => ({ value: s, label: statusLabels[s] }))}
-            selected={statusFilter}
-            onToggle={toggleFilter(setStatusFilter)}
-            counts={statusCounts}
-          />
-        )}
+        {/* Status dropdown */}
+        <FilterDropdown
+          label={t('allThreads.filterStatus')}
+          options={threadStatuses
+            .filter(s => (statusCounts[s] || 0) > 0)
+            .map(s => ({ value: s, label: statusLabels[s] }))}
+          selected={statusFilter}
+          onToggle={toggleFilter(setStatusFilter)}
+          counts={statusCounts}
+        />
 
         {/* Git dropdown */}
         <FilterDropdown
@@ -497,17 +499,15 @@ export function AllThreadsView() {
         />
 
         {/* Mode dropdown */}
-        {!activityMode && (
-          <FilterDropdown
-            label={t('allThreads.filterMode')}
-            options={[
-              { value: 'local', label: t('thread.mode.local') },
-              { value: 'worktree', label: t('thread.mode.worktree') },
-            ]}
-            selected={modeFilter}
-            onToggle={toggleFilter(setModeFilter)}
-          />
-        )}
+        <FilterDropdown
+          label={t('allThreads.filterMode')}
+          options={[
+            { value: 'local', label: t('thread.mode.local') },
+            { value: 'worktree', label: t('thread.mode.worktree') },
+          ]}
+          selected={modeFilter}
+          onToggle={toggleFilter(setModeFilter)}
+        />
 
         <div className="w-px h-4 bg-border" />
 
@@ -565,24 +565,22 @@ export function AllThreadsView() {
           </PopoverContent>
         </Popover>
 
-        {/* Archived toggle (hidden in activity mode) */}
-        {!activityMode && (
-          <button
-            onClick={() => { setShowArchived(!showArchived); setPage(1); }}
-            className={cn(
-              'inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-colors whitespace-nowrap',
-              showArchived
-                ? 'bg-status-warning/10 border-status-warning/20 text-status-warning/80'
-                : 'bg-transparent text-muted-foreground border-border hover:bg-accent/50 hover:text-foreground'
-            )}
-          >
-            <Archive className="h-3 w-3" />
-            {t('allThreads.showArchived')}
-          </button>
-        )}
+        {/* Archived toggle */}
+        <button
+          onClick={() => { setShowArchived(!showArchived); setPage(1); }}
+          className={cn(
+            'inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-colors whitespace-nowrap',
+            showArchived
+              ? 'bg-status-warning/10 border-status-warning/20 text-status-warning/80'
+              : 'bg-transparent text-muted-foreground border-border hover:bg-accent/50 hover:text-foreground'
+          )}
+        >
+          <Archive className="h-3 w-3" />
+          {t('allThreads.showArchived')}
+        </button>
 
         {/* Clear filters */}
-        {hasActiveFilters && !activityMode && (
+        {hasActiveFilters && (
           <button
             onClick={resetFilters}
             className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
@@ -595,7 +593,7 @@ export function AllThreadsView() {
 
       {/* Thread content */}
       <div className="flex-1 min-h-0 flex flex-col">
-        {viewMode === 'board' && !activityMode ? (
+        {viewMode === 'board' ? (
           <div className="flex-1 min-h-0">
             <KanbanView threads={filtered} projectId={projectFilter || undefined} search={search} contentSnippets={contentMatches} />
           </div>

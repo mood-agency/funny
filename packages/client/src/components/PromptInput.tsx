@@ -392,6 +392,16 @@ export function PromptInput({
   const { setPromptDraft, clearPromptDraft } = useDraftStore();
   const prevThreadIdRef = useRef<string | null | undefined>(selectedThreadId);
 
+  // Keep refs in sync so unmount cleanup can read the latest values
+  const promptRef = useRef(prompt);
+  const imagesRef = useRef(images);
+  const selectedFilesRef = useRef(selectedFiles);
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  promptRef.current = prompt;
+  imagesRef.current = images;
+  selectedFilesRef.current = selectedFiles;
+  selectedThreadIdRef.current = selectedThreadId;
+
   // Save draft when switching away from a thread, restore when switching to a new one
   useEffect(() => {
     const prevId = prevThreadIdRef.current;
@@ -415,6 +425,17 @@ export function PromptInput({
       setSelectedFiles([]);
     }
   }, [selectedThreadId]);
+
+  // Save draft when the component unmounts (e.g. navigating to AllThreadsView)
+  useEffect(() => {
+    return () => {
+      const threadId = selectedThreadIdRef.current;
+      if (threadId) {
+        const currentPrompt = textareaRef.current?.value ?? promptRef.current;
+        setPromptDraft(threadId, currentPrompt, imagesRef.current, selectedFilesRef.current);
+      }
+    };
+  }, []);
 
   // Derive project path and manage cwd override
   const projectPath = useMemo(

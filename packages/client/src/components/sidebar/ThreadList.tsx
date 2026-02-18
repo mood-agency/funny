@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useThreadStore } from '@/stores/thread-store';
 import { useProjectStore } from '@/stores/project-store';
-import { useUIStore } from '@/stores/ui-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { timeAgo } from '@/lib/thread-utils';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
@@ -32,7 +31,6 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
   const selectedThreadId = useThreadStore(s => s.selectedThreadId);
   const projects = useProjectStore(s => s.projects);
   const gitStatusByThread = useGitStatusStore(s => s.statusByThread);
-  const showGlobalSearch = useUIStore(s => s.showGlobalSearch);
 
   const { threads, totalCount } = useMemo(() => {
     const result: EnrichedThread[] = [];
@@ -107,10 +105,7 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
       })}
       {totalCount > 5 && (
         <button
-          onClick={() => {
-            showGlobalSearch();
-            navigate('/search');
-          }}
+          onClick={() => navigate('/search?status=completed,failed,stopped,interrupted')}
           className="text-sm text-muted-foreground hover:text-foreground px-2 py-1.5 transition-colors"
         >
           {t('sidebar.viewAll')}
