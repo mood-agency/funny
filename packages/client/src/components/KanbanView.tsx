@@ -43,11 +43,12 @@ interface KanbanViewProps {
   projectId?: string;
   search?: string;
   contentSnippets?: Map<string, string>;
+  highlightThreadId?: string;
 }
 
 const STAGES: ThreadStage[] = ['backlog', 'in_progress', 'review', 'done', 'archived'];
 
-function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnippet, projectId }: { thread: Thread; projectInfo?: { name: string; color?: string }; onDelete: (thread: Thread) => void; search?: string; ghost?: boolean; contentSnippet?: string; projectId?: string }) {
+function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnippet, projectId, highlighted }: { thread: Thread; projectInfo?: { name: string; color?: string }; onDelete: (thread: Thread) => void; search?: string; ghost?: boolean; contentSnippet?: string; projectId?: string; highlighted?: boolean }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const statusByThread = useGitStatusStore((s) => s.statusByThread);
@@ -72,6 +73,16 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
     });
   }, [thread.id, thread.stage, thread.archived, thread.projectId]);
 
+  // Scroll into view and highlight when returning from thread detail
+  useEffect(() => {
+    if (!highlighted || !ref.current) return;
+    // Small delay to ensure layout is settled
+    const timer = setTimeout(() => {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
+
   const StatusIcon = statusConfig[thread.status].icon;
   const statusClassName = statusConfig[thread.status].className;
 
@@ -83,13 +94,14 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
     <div
       ref={ref}
       className={cn(
-        'group/card relative rounded-md border bg-card p-2.5 cursor-pointer transition-opacity',
+        'group/card relative rounded-md border bg-card p-2.5 cursor-pointer transition-all duration-500',
         isDragging && 'opacity-40',
-        ghost && !isDragging && 'opacity-50 hover:opacity-80'
+        ghost && !isDragging && 'opacity-50 hover:opacity-80',
+        highlighted && 'ring-2 ring-ring shadow-md'
       )}
       onClick={() => {
         if (!isDragging) {
-          setKanbanContext({ projectId, search });
+          setKanbanContext({ projectId, search, threadId: thread.id });
           navigate(`/projects/${thread.projectId}/threads/${thread.id}`);
         }
       }}
@@ -240,7 +252,7 @@ function AddThreadButton({ projectId, projects, onSelect }: { projectId?: string
   );
 }
 
-function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, projects, onAddThread, search, contentSnippets }: { stage: ThreadStage; threads: Thread[]; projectInfoById?: Record<string, { name: string; color?: string }>; onDelete: (thread: Thread) => void; projectId?: string; projects: Project[]; onAddThread: (projectId: string, stage: ThreadStage) => void; search?: string; contentSnippets?: Map<string, string> }) {
+function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, projects, onAddThread, search, contentSnippets, highlightThreadId }: { stage: ThreadStage; threads: Thread[]; projectInfoById?: Record<string, { name: string; color?: string }>; onDelete: (thread: Thread) => void; projectId?: string; projects: Project[]; onAddThread: (projectId: string, stage: ThreadStage) => void; search?: string; contentSnippets?: Map<string, string>; highlightThreadId?: string }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [isDraggedOver, setIsDraggedOver] = useState(false);
@@ -295,7 +307,7 @@ function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, pr
           </div>
         ) : (
           <>
-            {visibleThreads.map((thread) => <KanbanCard key={thread.id} thread={thread} projectInfo={projectInfoById?.[thread.projectId]} onDelete={onDelete} search={search} ghost={stage === 'archived'} contentSnippet={contentSnippets?.get(thread.id)} projectId={projectId} />)}
+            {visibleThreads.map((thread) => <KanbanCard key={thread.id} thread={thread} projectInfo={projectInfoById?.[thread.projectId]} onDelete={onDelete} search={search} ghost={stage === 'archived'} contentSnippet={contentSnippets?.get(thread.id)} projectId={projectId} highlighted={thread.id === highlightThreadId} />)}
             {hasMore && (
               <button
                 onClick={() => setVisibleCount((prev) => prev + 20)}
@@ -311,7 +323,7 @@ function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, pr
   );
 }
 
-export function KanbanView({ threads, projectId, search, contentSnippets }: KanbanViewProps) {
+export function KanbanView({ threads, projectId, search, contentSnippets, highlightThreadId: initialHighlightId }: KanbanViewProps) {
   const { t } = useTranslation();
   useMinuteTick();
   const navigate = useNavigate();
@@ -344,6 +356,14 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
     gitState: string;
   } | null>(null);
   const statusByThread = useGitStatusStore((s) => s.statusByThread);
+
+  // Highlight the card the user came from, then fade it out
+  const [highlightThreadId, setHighlightThreadId] = useState<string | undefined>(initialHighlightId);
+  useEffect(() => {
+    if (!highlightThreadId) return;
+    const timer = setTimeout(() => setHighlightThreadId(undefined), 3000);
+    return () => clearTimeout(timer);
+  }, [highlightThreadId]);
 
   const handleAddThread = useCallback((threadProjectId: string, stage: ThreadStage) => {
     setSlideUpProjectId(threadProjectId);
@@ -535,7 +555,7 @@ export function KanbanView({ threads, projectId, search, contentSnippets }: Kanb
     <>
       <div className="flex gap-3 h-full overflow-x-auto p-4">
         {STAGES.map((stage) => (
-          <KanbanColumn key={stage} stage={stage} threads={threadsByStage[stage]} projectInfoById={projectInfoById} onDelete={handleDeleteRequest} projectId={projectId} projects={projects} onAddThread={handleAddThread} search={search} contentSnippets={contentSnippets} />
+          <KanbanColumn key={stage} stage={stage} threads={threadsByStage[stage]} projectInfoById={projectInfoById} onDelete={handleDeleteRequest} projectId={projectId} projects={projects} onAddThread={handleAddThread} search={search} contentSnippets={contentSnippets} highlightThreadId={highlightThreadId} />
         ))}
       </div>
 

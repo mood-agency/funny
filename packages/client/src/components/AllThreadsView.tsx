@@ -595,7 +595,7 @@ export function AllThreadsView() {
       <div className="flex-1 min-h-0 flex flex-col">
         {viewMode === 'board' ? (
           <div className="flex-1 min-h-0">
-            <KanbanView threads={filtered} projectId={projectFilter || undefined} search={search} contentSnippets={contentMatches} />
+            <KanbanView threads={filtered} projectId={projectFilter || undefined} search={search} contentSnippets={contentMatches} highlightThreadId={searchParams.get('highlight') || undefined} />
           </div>
         ) : (
           <div className="px-4 py-3 h-full">

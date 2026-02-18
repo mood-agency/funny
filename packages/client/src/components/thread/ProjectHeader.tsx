@@ -197,9 +197,10 @@ export const ProjectHeader = memo(function ProjectHeader() {
 
     const targetProjectId = kanbanContext.projectId || '__all__';
     const searchParam = kanbanContext.search ? `&search=${encodeURIComponent(kanbanContext.search)}` : '';
+    const highlightParam = kanbanContext.threadId ? `&highlight=${kanbanContext.threadId}` : '';
 
     // Navigate to search view with board mode
-    navigate(`/search?view=board${targetProjectId !== '__all__' ? `&project=${targetProjectId}` : ''}${searchParam}`);
+    navigate(`/search?view=board${targetProjectId !== '__all__' ? `&project=${targetProjectId}` : ''}${searchParam}${highlightParam}`);
 
     // Clear the context after navigation
     setKanbanContext(null);
