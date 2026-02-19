@@ -216,8 +216,7 @@ export function AppSidebar() {
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('sidebar.threadsTitle')}</h2>
         </div>
-        <div className="relative overflow-y-auto min-h-0 px-2 pb-2">
-          <div className="sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10" />
+        <div className="overflow-y-auto min-h-0 px-2 pb-2" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 12px)', WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 12px)' }}>
           <ThreadList
             onArchiveThread={(threadId, projectId, title, isWorktree) => {
               setArchiveConfirm({ threadId, projectId, title, isWorktree });
@@ -280,8 +279,7 @@ export function AppSidebar() {
       </div>
 
       {/* Projects list (fills remaining space, own scroll) */}
-      <SidebarContent ref={projectsScrollRef} className="px-2 pb-2 relative">
-        <div className="sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 shrink-0" />
+      <SidebarContent ref={projectsScrollRef} className="px-2 pb-2" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 12px)', WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 12px)' }}>
         {projects.length === 0 && (
           <button
             onClick={() => setAddProjectOpen(true)}
