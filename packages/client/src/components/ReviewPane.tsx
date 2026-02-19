@@ -146,25 +146,11 @@ export function ReviewPane() {
   const setReviewPaneOpen = useUIStore(s => s.setReviewPaneOpen);
   const selectedProjectId = useProjectStore(s => s.selectedProjectId);
 
-  // Derive effectiveThreadId with a stable selector that only returns a string,
-  // avoiding re-renders when unrelated thread/store fields change.
-  const effectiveThreadId = useThreadStore(s => {
-    const threadId = s.activeThread?.id;
-    if (threadId) return threadId;
-    if (!selectedProjectId) return undefined;
-    const threads = s.threadsByProject[selectedProjectId];
-    return threads?.[0]?.id;
-  });
-
-  // The git context key identifies the working directory for diffs.
-  // Worktree threads each have their own path; local threads share the project path.
-  // Only reset/refresh when this actually changes (not on every thread switch).
-  const gitContextKey = useThreadStore(s => {
-    const wt = s.activeThread?.worktreePath;
-    if (wt) return wt;
-    // Local mode threads share the project directory — use projectId as key
-    return s.activeThread?.projectId ?? selectedProjectId ?? '';
-  });
+  // Derive effectiveThreadId from the active thread only.
+  // Never fall back to the first thread in the project list — that can return
+  // a worktree thread when the user selected a local (master) thread, causing
+  // the review pane to show diff data from the wrong working directory.
+  const effectiveThreadId = useThreadStore(s => s.activeThread?.id);
 
   // The base directory path for constructing absolute file paths (worktree path or project path)
   const basePath = useThreadStore(s => {
@@ -325,8 +311,10 @@ export function ReviewPane() {
     }
   }, [expandedFile]);
 
-  // Reset state and refresh only when the git working directory changes.
-  // Restore commit draft for the new thread if available.
+  // Reset state and refresh when the active thread changes.
+  // Using effectiveThreadId (not just gitContextKey) ensures we refresh even
+  // when switching between two local threads of the same project that share
+  // the same git working directory.
   useEffect(() => {
     setSummaries([]);
     setDiffCache(new Map());
@@ -341,7 +329,7 @@ export function ReviewPane() {
     setCommitBodyRaw(draft?.commitBody ?? '');
 
     refresh();
-  }, [gitContextKey]);
+  }, [effectiveThreadId]);
 
   // Auto-refresh diffs when agent modifies files (debounced 2s)
   useAutoRefreshDiff(effectiveThreadId, refresh, 2000);
@@ -694,10 +682,10 @@ export function ReviewPane() {
     await refresh();
   };
 
-  // Load stash list on mount / context change
+  // Load stash list on mount / thread change
   useEffect(() => {
     refreshStashList();
-  }, [gitContextKey]);
+  }, [effectiveThreadId]);
 
   const canCommit = checkedFiles.size > 0 && commitTitle.trim().length > 0 && !actionInProgress && !isAgentRunning;
 
