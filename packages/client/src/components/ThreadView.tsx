@@ -487,6 +487,12 @@ export function ThreadView() {
     prevScrollHeightRef.current = 0;
     // Scroll immediately (before paint) to prevent layout shift
     viewport.scrollTop = viewport.scrollHeight;
+    // Also scroll after the browser finishes layout/paint to catch any
+    // content that rendered asynchronously (e.g. images, animations).
+    const rafId = requestAnimationFrame(() => {
+      viewport.scrollTop = viewport.scrollHeight;
+    });
+    return () => cancelAnimationFrame(rafId);
   }, [activeThread?.id]);
 
   // Derive displayed snapshot — only when scroll handler has detected a position
