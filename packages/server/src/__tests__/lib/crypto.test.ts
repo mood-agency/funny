@@ -145,7 +145,7 @@ describe('decrypt', () => {
       'short',
       'a longer piece of text with spaces and numbers 12345',
       '{"json": "value", "key": true}',
-      'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      `ghp_${'x'.repeat(36)}`,
       '',
       '\n\t\r',
     ];
