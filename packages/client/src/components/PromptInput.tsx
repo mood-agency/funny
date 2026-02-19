@@ -207,10 +207,12 @@ function SearchablePicker({
 function WorktreePicker({
   projectId,
   currentPath,
+  threadBranch,
   onChange,
 }: {
   projectId: string;
   currentPath: string;
+  threadBranch?: string;
   onChange: (path: string) => void;
 }) {
   const { t } = useTranslation();
@@ -218,6 +220,16 @@ function WorktreePicker({
   const [loading, setLoading] = useState(false);
   const [fetchTrigger, setFetchTrigger] = useState(0);
 
+  // Load worktrees on mount so the branch label is available immediately
+  useEffect(() => {
+    (async () => {
+      const result = await api.listWorktrees(projectId);
+      if (result.isOk()) setWorktrees(result.value);
+      else setWorktrees([]);
+    })();
+  }, [projectId]);
+
+  // Refresh worktrees when user interacts with the picker
   useEffect(() => {
     if (!fetchTrigger) return;
     setLoading(true);
@@ -233,7 +245,7 @@ function WorktreePicker({
   const currentWorktree = worktrees.find(
     (wt) => wt.path.replace(/\\/g, '/').toLowerCase() === normalizedCurrent
   );
-  const displayLabel = currentWorktree?.branch ?? currentPath.split(/[/\\]/).filter(Boolean).pop() ?? '...';
+  const displayLabel = currentWorktree?.branch ?? threadBranch ?? currentPath.split(/[/\\]/).filter(Boolean).pop() ?? '...';
 
   const items: SearchablePickerItem[] = worktrees.map((wt) => ({
     key: wt.path,
@@ -1033,6 +1045,7 @@ export function PromptInput({
                   <WorktreePicker
                     projectId={selectedProjectId}
                     currentPath={effectiveCwd}
+                    threadBranch={activeThread?.branch}
                     onChange={setCwdOverride}
                   />
                 ) : (activeThread?.branch || localCurrentBranch) ? (
