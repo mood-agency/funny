@@ -1049,7 +1049,7 @@ export function ReviewPane() {
                 placeholder={t('review.commitTitle')}
                 value={commitTitle}
                 onChange={(e) => setCommitTitle(e.target.value)}
-                disabled={!!actionInProgress}
+                disabled={!!actionInProgress || generatingMsg}
                 className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <div className="rounded-md border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
@@ -1059,7 +1059,7 @@ export function ReviewPane() {
                   placeholder={t('review.commitBody')}
                   value={commitBody}
                   onChange={(e) => setCommitBody(e.target.value)}
-                  disabled={!!actionInProgress}
+                  disabled={!!actionInProgress || generatingMsg}
                 />
                 <div className="flex items-center px-1.5 py-1">
                   <Tooltip>
