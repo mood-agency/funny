@@ -540,7 +540,8 @@ export function ReviewPane() {
       showMergeConflictToast(mergeResult.error.message, effectiveThreadId);
     } else {
       const target = baseBranch || 'base';
-      toast.success(t('review.mergeSuccess', { target, defaultValue: `Merged into ${target} successfully` }));
+      const branch = useThreadStore.getState().activeThread?.branch || '';
+      toast.success(t('review.mergeSuccess', { branch, target, defaultValue: `Merged "${branch}" into "${target}" successfully` }));
     }
     setMergeInProgress(false);
     useGitStatusStore.getState().fetchForThread(effectiveThreadId);
