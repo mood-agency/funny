@@ -674,10 +674,31 @@ export function getStatusSummary(
           { cwd: projectCwd, reject: false }
         );
         if (mergedResult.exitCode === 0 && mergedResult.stdout.trim()) {
-          isMergedIntoBase = mergedResult.stdout.trim()
+          const isBranchInMergedList = mergedResult.stdout.trim()
             .split('\n')
             .map((b) => b.trim())
             .includes(branch);
+          if (isBranchInMergedList) {
+            // Check if the branch actually had commits that were merged,
+            // vs simply never diverging from the base branch.
+            // If merge-base equals the branch tip, the branch never diverged — it's clean, not merged.
+            const mergeBaseResult = await execute(
+              'git', ['merge-base', baseBranch, branch],
+              { cwd: projectCwd, reject: false }
+            );
+            const branchTipResult = await execute(
+              'git', ['rev-parse', branch],
+              { cwd: projectCwd, reject: false }
+            );
+            if (mergeBaseResult.exitCode === 0 && branchTipResult.exitCode === 0) {
+              const mergeBase = mergeBaseResult.stdout.trim();
+              const branchTip = branchTipResult.stdout.trim();
+              // Only mark as merged if the branch actually had unique commits
+              isMergedIntoBase = mergeBase !== branchTip;
+            } else {
+              isMergedIntoBase = true;
+            }
+          }
         }
       }
 
