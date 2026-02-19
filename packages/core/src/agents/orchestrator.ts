@@ -163,45 +163,90 @@ export class AgentOrchestrator extends EventEmitter {
       return proc;
     };
 
-    // If resuming, wrap in a retry that falls back to a fresh session
+    // If resuming, wire custom handlers that auto-retry fresh on crash.
+    // Instead of a fixed timeout, we detect "crash with zero messages" at any
+    // point and transparently fall back to a brand-new session.
     if (isResume) {
-      const agentProcess = createAndWireProcess(sessionId);
-      const resumeSuccess = await new Promise<boolean>((resolve) => {
-        let gotMessage = false;
-        const onMessage = () => { gotMessage = true; resolve(true); };
-        const onError = () => { if (!gotMessage) resolve(false); };
-        const onExit = () => { if (!gotMessage) resolve(false); };
+      let gotMessage = false;
 
-        agentProcess.on('message', onMessage);
-        agentProcess.on('error', onError);
-        agentProcess.on('exit', onExit);
+      const resumeProcess = this.processFactory.create({
+        prompt: effectivePrompt,
+        cwd,
+        model: resolvedModel,
+        permissionMode: effectivePermissionMode,
+        allowedTools: effectiveAllowedTools,
+        disallowedTools,
+        maxTurns,
+        sessionId,
+        images,
+        provider,
+        mcpServers,
+        spawnClaudeCodeProcess,
+      });
 
+      this.activeAgents.set(threadId, resumeProcess);
+      this.resultReceived.delete(threadId);
+
+      const retryFresh = () => {
+        console.warn(`[orchestrator] Resume failed for thread=${threadId}, retrying without session`);
+        this.emit('agent:session-cleared', threadId);
+        const freshProcess = createAndWireProcess(undefined);
         try {
-          agentProcess.start();
-        } catch {
-          resolve(false);
+          freshProcess.start();
+        } catch (freshErr) {
+          this.activeAgents.delete(threadId);
+          this.emit('agent:error', threadId, freshErr instanceof Error ? freshErr : new Error(String(freshErr)));
+        }
+      };
+
+      resumeProcess.on('message', (msg: CLIMessage) => {
+        gotMessage = true;
+        if (msg.type === 'result') {
+          if (this.manuallyStopped.has(threadId)) return;
+          this.resultReceived.add(threadId);
+        }
+        this.emit('agent:message', threadId, msg);
+      });
+
+      resumeProcess.on('error', (err: Error) => {
+        if (!gotMessage) {
+          // Resume crashed before producing any output — will retry on exit
+          console.warn(`[orchestrator] Resume error for thread=${threadId}:`, String(err).slice(0, 200));
+          return;
+        }
+        // Session was live (got messages), so this is a real error
+        console.error(`[orchestrator] Error in thread ${threadId}:`, err);
+        if (!this.resultReceived.has(threadId) && !this.manuallyStopped.has(threadId)) {
+          this.emit('agent:error', threadId, err);
+        }
+      });
+
+      resumeProcess.on('exit', (code: number | null) => {
+        this.activeAgents.delete(threadId);
+
+        if (this.manuallyStopped.has(threadId)) {
+          this.manuallyStopped.delete(threadId);
+          this.resultReceived.delete(threadId);
           return;
         }
 
-        // Give the process a short window to fail (instant crash = resume failure)
-        setTimeout(() => resolve(true), 3000);
+        if (!gotMessage) {
+          // Process died without ever sending a message → stale session, retry fresh
+          retryFresh();
+          return;
+        }
+
+        if (!this.resultReceived.has(threadId)) {
+          this.emit('agent:unexpected-exit', threadId, code);
+        }
+        setTimeout(() => this.resultReceived.delete(threadId), 1000);
       });
 
-      if (resumeSuccess) {
-        this.emit('agent:started', threadId);
-        return;
-      }
-
-      // Resume failed — retry without session ID (fresh conversation)
-      console.warn(`[orchestrator] Resume failed for thread=${threadId}, retrying without session`);
-      this.emit('agent:session-cleared', threadId);
-      const freshProcess = createAndWireProcess(undefined);
       try {
-        freshProcess.start();
+        resumeProcess.start();
         this.emit('agent:started', threadId);
-      } catch (err) {
-        this.activeAgents.delete(threadId);
-        throw err;
+      } catch {
+        retryFresh();
       }
       return;
     }
