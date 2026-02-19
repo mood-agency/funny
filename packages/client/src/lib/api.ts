@@ -194,6 +194,7 @@ export const api = {
     allowedTools?: string[];
     disallowedTools?: string[];
     fileReferences?: { path: string }[];
+    worktreePath?: string;
   }) => request<Thread>('/threads', { method: 'POST', body: JSON.stringify(data) }),
   createIdleThread: (data: {
     projectId: string;

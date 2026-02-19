@@ -381,6 +381,7 @@ export interface CreateThreadRequest {
   prompt: string;
   allowedTools?: string[];
   disallowedTools?: string[];
+  worktreePath?: string;
 }
 
 export interface SendMessageRequest {

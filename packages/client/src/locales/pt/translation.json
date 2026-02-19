@@ -128,6 +128,7 @@
     "openInEditor": "Abrir no {{editor}}",
     "agentResolvePrompt": "O rebase sobre {{target}} falhou devido a conflitos. Por favor execute `git rebase {{target}}`, resolva todos os conflitos, e então execute `git rebase --continue`. Certifique-se de que todos os conflitos estejam completamente resolvidos antes de continuar.",
     "agentResolveSent": "Pediu ao agente para resolver os conflitos de rebase",
+    "agentResolveThreadTitle": "Resolver conflitos de rebase sobre {{target}}",
     "mergeTooltip": "Mesclar {{branch}} em {{target}} localmente na sua máquina",
     "mergeAndCleanupTooltip": "Mesclar em {{target}}, enviar para origin e remover o worktree",
     "readyToMerge": "Pronto para mesclar em {{target}}",

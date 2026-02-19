@@ -17,6 +17,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { useDraftStore } from '@/stores/draft-store';
+import { getNavigate } from '@/stores/thread-store-internals';
 import {
   Dialog,
   DialogContent,
@@ -545,15 +546,43 @@ export function ReviewPane() {
     useGitStatusStore.getState().fetchForThread(effectiveThreadId);
   };
 
-  const handleAskAgentResolve = () => {
+  const handleAskAgentResolve = async () => {
     if (!effectiveThreadId) return;
+
+    const activeThread = useThreadStore.getState().activeThread;
+    if (!activeThread) return;
+
     const target = baseBranch || 'main';
     const prompt = t('review.agentResolvePrompt', { target });
-    useAppStore.getState().appendOptimisticMessage(effectiveThreadId, prompt);
+    const title = t('review.agentResolveThreadTitle', { target });
     const { allowedTools, disallowedTools } = deriveToolLists(
       useSettingsStore.getState().toolPermissions
     );
-    api.sendMessage(effectiveThreadId, prompt, { allowedTools, disallowedTools });
+
+    const result = await api.createThread({
+      projectId: activeThread.projectId,
+      title,
+      mode: 'local',
+      prompt,
+      allowedTools,
+      disallowedTools,
+      worktreePath: activeThread.worktreePath ?? undefined,
+    });
+
+    if (result.isErr()) {
+      toast.error(result.error.message);
+      return;
+    }
+
+    const newThread = result.value;
+    await useThreadStore.getState().loadThreadsForProject(activeThread.projectId);
+
+    const navigate = getNavigate();
+    if (navigate) {
+      navigate(`/projects/${activeThread.projectId}/threads/${newThread.id}`);
+    }
+
+    useUIStore.getState().setReviewPaneOpen(false);
     toast.success(t('review.agentResolveSent'));
     setHasRebaseConflict(false);
   };

@@ -62,6 +62,7 @@ export const createThreadSchema = z.object({
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
   fileReferences: z.array(fileReferenceSchema).max(20).optional(),
+  worktreePath: z.string().optional(),
 });
 
 export const createIdleThreadSchema = z.object({

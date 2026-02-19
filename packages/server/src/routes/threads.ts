@@ -152,7 +152,7 @@ threadRoutes.post('/', async (c) => {
   const raw = await c.req.json();
   const parsed = validate(createThreadSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
-  const { projectId, title, mode, provider, model, permissionMode, baseBranch, prompt, images, allowedTools, disallowedTools, fileReferences } = parsed.value;
+  const { projectId, title, mode, provider, model, permissionMode, baseBranch, prompt, images, allowedTools, disallowedTools, fileReferences, worktreePath: requestWorktreePath } = parsed.value;
 
   const projectResult = requireProject(projectId);
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
@@ -174,6 +174,13 @@ threadRoutes.post('/', async (c) => {
     }
     worktreePath = wtResult.value;
     threadBranch = branchName;
+  } else if (requestWorktreePath) {
+    // Local mode reusing an existing worktree directory (e.g. conflict resolution)
+    worktreePath = requestWorktreePath;
+    const branchResult = await getCurrentBranch(requestWorktreePath);
+    if (branchResult.isOk()) {
+      threadBranch = branchResult.value;
+    }
   } else {
     // Local mode: detect the current branch of the project
     const branchResult = await getCurrentBranch(project.path);
@@ -439,8 +446,8 @@ threadRoutes.patch('/:id', async (c) => {
 
   const fromStage = thread.stage;
 
-  // Cleanup worktree + branch when archiving (skip for external threads)
-  if (parsed.value.archived && thread.worktreePath && thread.provider !== 'external') {
+  // Cleanup worktree + branch when archiving (skip for external threads and local threads reusing a worktree)
+  if (parsed.value.archived && thread.worktreePath && thread.mode === 'worktree' && thread.provider !== 'external') {
     const project = pm.getProject(thread.projectId);
     if (project) {
       await removeWorktree(project.path, thread.worktreePath).catch((e) => {
@@ -553,8 +560,8 @@ threadRoutes.delete('/:id', async (c) => {
       stopAgent(id).catch((err) => log.error('Failed to stop agent', { namespace: 'agent', threadId: id, error: err }));
     }
 
-    // Only remove worktree/branch for non-external threads (we don't control external worktrees)
-    if (thread.worktreePath && thread.provider !== 'external') {
+    // Only remove worktree/branch for worktree-mode threads (skip local threads reusing a worktree and external threads)
+    if (thread.worktreePath && thread.mode === 'worktree' && thread.provider !== 'external') {
       const project = pm.getProject(thread.projectId);
       if (project) {
         await removeWorktree(project.path, thread.worktreePath).catch((e) => {
