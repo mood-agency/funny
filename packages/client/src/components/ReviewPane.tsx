@@ -323,6 +323,7 @@ export function ReviewPane() {
     setCheckedFiles(new Set());
     setFileSearch('');
     setHasRebaseConflict(false);
+    setSelectedAction('commit');
 
     // Restore commit title/body from draft store
     const draft = effectiveThreadId ? useDraftStore.getState().drafts[effectiveThreadId] : undefined;
@@ -1095,13 +1096,15 @@ export function ReviewPane() {
                   </Tooltip>
                 </div>
               </div>
-              <div className={cn('grid gap-1', isWorktree ? 'grid-cols-5' : 'grid-cols-4')}>
+              <div className={cn('grid gap-1', isWorktree ? 'grid-cols-5' : 'grid-cols-3')}>
                 {([
                   { value: 'commit' as const, icon: GitCommit, label: t('review.commit', 'Commit') },
                   { value: 'amend' as const, icon: PenLine, label: t('review.amend', 'Amend') },
                   { value: 'commit-push' as const, icon: Upload, label: t('review.commitAndPush', 'Commit & Push') },
-                  { value: 'commit-pr' as const, icon: GitPullRequest, label: t('review.commitAndCreatePR', 'Commit & Create PR') },
-                  ...(isWorktree ? [{ value: 'commit-merge' as const, icon: GitMerge, label: t('review.commitAndMerge', 'Commit & Merge') }] : []),
+                  ...(isWorktree ? [
+                    { value: 'commit-pr' as const, icon: GitPullRequest, label: t('review.commitAndCreatePR', 'Commit & Create PR') },
+                    { value: 'commit-merge' as const, icon: GitMerge, label: t('review.commitAndMerge', 'Commit & Merge') },
+                  ] : []),
                 ]).map(({ value, icon: ActionIcon, label }) => (
                   <button
                     key={value}
