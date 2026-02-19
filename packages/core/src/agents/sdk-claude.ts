@@ -7,7 +7,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { query, AbortError } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, HookCallback, Query } from '@anthropic-ai/claude-agent-sdk';
 import type { CLIMessage, ClaudeProcessOptions } from './types.js';
 
@@ -114,7 +114,7 @@ export class SDKClaudeProcess extends EventEmitter {
         }
       }
     } catch (err: any) {
-      if (err instanceof AbortError || this.abortController.signal.aborted) {
+      if (this.abortController.signal.aborted || err?.name === 'AbortError') {
         // Normal cancellation — not an error
       } else {
         this.emit('error', err instanceof Error ? err : new Error(String(err)));
