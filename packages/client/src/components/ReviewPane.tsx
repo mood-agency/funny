@@ -218,14 +218,17 @@ export function ReviewPane() {
 
   const isWorktree = useThreadStore(s => s.activeThread?.mode === 'worktree');
   const baseBranch = useThreadStore(s => s.activeThread?.baseBranch);
+  const threadBranch = useThreadStore(s => s.activeThread?.branch);
+  const hasWorktreePath = useThreadStore(s => !!s.activeThread?.worktreePath);
   const isAgentRunning = useThreadStore(s => s.activeThread?.status === 'running');
   const gitStatus = useGitStatusStore(s => effectiveThreadId ? s.statusByThread[effectiveThreadId] : undefined);
   const [mergeInProgress, setMergeInProgress] = useState(false);
   const [pushInProgress, setPushInProgress] = useState(false);
   const [hasRebaseConflict, setHasRebaseConflict] = useState(false);
 
-  // Show standalone merge button when worktree has no dirty files but has unmerged commits
-  const showMergeOnly = isWorktree && summaries.length === 0 && !loading && gitStatus && !gitStatus.isMergedIntoBase && !hasRebaseConflict;
+  // Show standalone merge button when worktree has no dirty files but has unmerged commits.
+  // Also require the worktree to actually exist (has a path) and the branch to differ from baseBranch.
+  const showMergeOnly = isWorktree && hasWorktreePath && summaries.length === 0 && !loading && gitStatus && !gitStatus.isMergedIntoBase && !hasRebaseConflict && (!baseBranch || threadBranch !== baseBranch);
 
   // Show standalone push button when no dirty files but there are unpushed commits
   const showPushOnly = summaries.length === 0 && !loading && gitStatus && gitStatus.unpushedCommitCount > 0 && !hasRebaseConflict;
@@ -1096,12 +1099,12 @@ export function ReviewPane() {
                   </Tooltip>
                 </div>
               </div>
-              <div className={cn('grid gap-1', isWorktree ? 'grid-cols-5' : 'grid-cols-3')}>
+              <div className={cn('grid gap-1', (isWorktree && hasWorktreePath) ? 'grid-cols-5' : 'grid-cols-3')}>
                 {([
                   { value: 'commit' as const, icon: GitCommit, label: t('review.commit', 'Commit') },
                   { value: 'amend' as const, icon: PenLine, label: t('review.amend', 'Amend') },
                   { value: 'commit-push' as const, icon: Upload, label: t('review.commitAndPush', 'Commit & Push') },
-                  ...(isWorktree ? [
+                  ...((isWorktree && hasWorktreePath) ? [
                     { value: 'commit-pr' as const, icon: GitPullRequest, label: t('review.commitAndCreatePR', 'Commit & Create PR') },
                     { value: 'commit-merge' as const, icon: GitMerge, label: t('review.commitAndMerge', 'Commit & Merge') },
                   ] : []),

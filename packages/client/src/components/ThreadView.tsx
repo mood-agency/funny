@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -90,12 +90,12 @@ const remarkPlugins = [remarkGfm];
 export const MessageContent = memo(function MessageContent({ content }: { content: string }) {
   return (
     <div className="prose prose-sm max-w-none">
-    <ReactMarkdown
-      remarkPlugins={remarkPlugins}
-      components={markdownComponents}
-    >
-      {content}
-    </ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        components={markdownComponents}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 });
@@ -378,7 +378,7 @@ function buildGroupedRenderItems(messages: any[]): RenderItem[] {
   for (let i = grouped.length - 1; i >= 0; i--) {
     const g = grouped[i];
     if ((g.type === 'toolcall' && g.tc.name === 'TodoWrite') ||
-        (g.type === 'toolcall-group' && g.name === 'TodoWrite')) {
+      (g.type === 'toolcall-group' && g.name === 'TodoWrite')) {
       lastTodoIdx = i;
       break;
     }
@@ -387,7 +387,7 @@ function buildGroupedRenderItems(messages: any[]): RenderItem[] {
   for (let i = 0; i < grouped.length; i++) {
     const g = grouped[i];
     const isTodoItem = (g.type === 'toolcall' && g.tc.name === 'TodoWrite') ||
-                       (g.type === 'toolcall-group' && g.name === 'TodoWrite');
+      (g.type === 'toolcall-group' && g.name === 'TodoWrite');
     if (isTodoItem && i !== lastTodoIdx) continue; // skip earlier TodoWrites
     if (isTodoItem && g.type === 'toolcall-group') {
       // Replace group with just the last call
@@ -696,13 +696,15 @@ export function ThreadView() {
     if (sending) return;
     setSending(true);
 
-    useAppStore.getState().appendOptimisticMessage(
-      activeThread.id,
-      prompt,
-      images,
-      opts.model as any,
-      opts.mode as any
-    );
+    startTransition(() => {
+      useAppStore.getState().appendOptimisticMessage(
+        activeThread.id,
+        prompt,
+        images,
+        opts.model as any,
+        opts.mode as any
+      );
+    });
 
     const { allowedTools, disallowedTools } = deriveToolLists(useSettingsStore.getState().toolPermissions);
     const result = await api.sendMessage(activeThread.id, prompt, { provider: opts.provider || undefined, model: opts.model || undefined, permissionMode: opts.mode || undefined, allowedTools, disallowedTools, fileReferences: opts.fileReferences }, images);
@@ -775,45 +777,45 @@ export function ThreadView() {
 
       {/* Messages */}
       <div className="flex-1 relative min-h-0">
-      {/* Sticky user message */}
-      <AnimatePresence mode="wait">
-        {stickyUserMsg && (
-          <StickyUserMessage
-            key={stickyUserMsgId}
-            content={stickyUserMsg.content}
-            images={stickyUserMsg.images}
-            onScrollTo={() => {
-              const el = scrollViewportRef.current?.querySelector(
-                `[data-user-msg="${stickyUserMsgId}"]`
-              );
-              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }}
-          />
-        )}
-      </AnimatePresence>
+        {/* Sticky user message */}
+        <AnimatePresence mode="wait">
+          {stickyUserMsg && (
+            <StickyUserMessage
+              key={stickyUserMsgId}
+              content={stickyUserMsg.content}
+              images={stickyUserMsg.images}
+              onScrollTo={() => {
+                const el = scrollViewportRef.current?.querySelector(
+                  `[data-user-msg="${stickyUserMsgId}"]`
+                );
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }}
+            />
+          )}
+        </AnimatePresence>
 
-      <ScrollArea className="h-full px-4 [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:!flex-col [&_[data-radix-scroll-area-viewport]>div]:min-h-full" viewportRef={scrollViewportRef}>
-        <div className="mx-auto max-w-3xl min-w-[320px] space-y-4 overflow-hidden py-4 mt-auto">
-          {loadingMore && (
-            <div className="flex items-center justify-center py-3">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-xs text-muted-foreground">
-                {t('thread.loadingOlder', 'Loading older messages\u2026')}
-              </span>
-            </div>
-          )}
-          {!hasMore && !loadingMore && activeThread.messages.length > 0 && (
-            <div className="text-center py-2">
-              <span className="text-xs text-muted-foreground">
-                {t('thread.beginningOfConversation', 'Beginning of conversation')}
-              </span>
-            </div>
-          )}
-          {activeThread.initInfo && (
-            <InitInfoCard initInfo={activeThread.initInfo} />
-          )}
+        <ScrollArea className="h-full px-4 [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:!flex-col [&_[data-radix-scroll-area-viewport]>div]:min-h-full" viewportRef={scrollViewportRef}>
+          <div className="mx-auto max-w-3xl min-w-[320px] space-y-4 overflow-hidden py-4 mt-auto">
+            {loadingMore && (
+              <div className="flex items-center justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {t('thread.loadingOlder', 'Loading older messages\u2026')}
+                </span>
+              </div>
+            )}
+            {!hasMore && !loadingMore && activeThread.messages.length > 0 && (
+              <div className="text-center py-2">
+                <span className="text-xs text-muted-foreground">
+                  {t('thread.beginningOfConversation', 'Beginning of conversation')}
+                </span>
+              </div>
+            )}
+            {activeThread.initInfo && (
+              <InitInfoCard initInfo={activeThread.initInfo} />
+            )}
 
-          {buildGroupedRenderItems(activeThread.messages ?? []).map((item) => {
+            {buildGroupedRenderItems(activeThread.messages ?? []).map((item) => {
               const renderToolItem = (ti: ToolItem) => {
                 if (ti.type === 'toolcall') {
                   const tc = ti.tc;
@@ -968,112 +970,112 @@ export function ThreadView() {
               return null;
             })}
 
-          {isRunning && !isExternal && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-              className="flex items-center gap-2.5 text-muted-foreground text-sm py-1"
-            >
-              <D4CAnimation />
-              <span className="text-xs">{t('thread.agentWorking')}</span>
-            </motion.div>
-          )}
+            {isRunning && !isExternal && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+                className="flex items-center gap-2.5 text-muted-foreground text-sm py-1"
+              >
+                <D4CAnimation />
+                <span className="text-xs">{t('thread.agentWorking')}</span>
+              </motion.div>
+            )}
 
-          {isRunning && isExternal && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-              className="flex items-center gap-2.5 text-muted-foreground text-sm py-1"
-            >
-              <div className="flex items-center gap-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_infinite]" />
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.2s_infinite]" />
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.4s_infinite]" />
-              </div>
-              <span className="text-xs">{t('thread.runningExternally', 'Running externally\u2026')}</span>
-            </motion.div>
-          )}
+            {isRunning && isExternal && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+                className="flex items-center gap-2.5 text-muted-foreground text-sm py-1"
+              >
+                <div className="flex items-center gap-1">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_infinite]" />
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.2s_infinite]" />
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-[thinking_1.4s_ease-in-out_0.4s_infinite]" />
+                </div>
+                <span className="text-xs">{t('thread.runningExternally', 'Running externally\u2026')}</span>
+              </motion.div>
+            )}
 
-          {activeThread.status === 'waiting' && activeThread.waitingReason === 'question' && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-              className="flex items-center gap-2 text-status-warning/80 text-xs"
-            >
-              <ShieldQuestion className="h-3.5 w-3.5 animate-pulse" />
-              {t('thread.waitingForResponse')}
-            </motion.div>
-          )}
+            {activeThread.status === 'waiting' && activeThread.waitingReason === 'question' && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="flex items-center gap-2 text-status-warning/80 text-xs"
+              >
+                <ShieldQuestion className="h-3.5 w-3.5 animate-pulse" />
+                {t('thread.waitingForResponse')}
+              </motion.div>
+            )}
 
-          {activeThread.status === 'waiting' && activeThread.waitingReason === 'permission' && activeThread.pendingPermission && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-            >
-              <PermissionApprovalCard
-                toolName={activeThread.pendingPermission.toolName}
-                onApprove={() => handlePermissionApproval(activeThread.pendingPermission!.toolName, true)}
-                onDeny={() => handlePermissionApproval(activeThread.pendingPermission!.toolName, false)}
-              />
-            </motion.div>
-          )}
+            {activeThread.status === 'waiting' && activeThread.waitingReason === 'permission' && activeThread.pendingPermission && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+              >
+                <PermissionApprovalCard
+                  toolName={activeThread.pendingPermission.toolName}
+                  onApprove={() => handlePermissionApproval(activeThread.pendingPermission!.toolName, true)}
+                  onDeny={() => handlePermissionApproval(activeThread.pendingPermission!.toolName, false)}
+                />
+              </motion.div>
+            )}
 
-          {activeThread.status === 'waiting' && !activeThread.waitingReason && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
-            >
-              <WaitingActions
-                onSend={(text) => handleSend(text, { model: activeThread.model, mode: activeThread.permissionMode })}
-              />
-            </motion.div>
-          )}
+            {activeThread.status === 'waiting' && !activeThread.waitingReason && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+              >
+                <WaitingActions
+                  onSend={(text) => handleSend(text, { model: activeThread.model, mode: activeThread.permissionMode })}
+                />
+              </motion.div>
+            )}
 
-          {activeThread.resultInfo && !isRunning && activeThread.status !== 'stopped' && activeThread.status !== 'interrupted' && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            >
-              <AgentResultCard
-                status={activeThread.resultInfo.status}
-                cost={activeThread.resultInfo.cost}
-                duration={activeThread.resultInfo.duration}
-              />
-            </motion.div>
-          )}
+            {activeThread.resultInfo && !isRunning && activeThread.status !== 'stopped' && activeThread.status !== 'interrupted' && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+              >
+                <AgentResultCard
+                  status={activeThread.resultInfo.status}
+                  cost={activeThread.resultInfo.cost}
+                  duration={activeThread.resultInfo.duration}
+                />
+              </motion.div>
+            )}
 
-          {activeThread.status === 'interrupted' && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            >
-              <AgentInterruptedCard
-                onContinue={() => handleSend('Continue', { model: activeThread.model, mode: activeThread.permissionMode })}
-              />
-            </motion.div>
-          )}
+            {activeThread.status === 'interrupted' && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+              >
+                <AgentInterruptedCard
+                  onContinue={() => handleSend('Continue', { model: activeThread.model, mode: activeThread.permissionMode })}
+                />
+              </motion.div>
+            )}
 
-          {activeThread.status === 'stopped' && (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            >
-              <AgentStoppedCard
-                onContinue={() => handleSend('Continue', { model: activeThread.model, mode: activeThread.permissionMode })}
-              />
-            </motion.div>
-          )}
+            {activeThread.status === 'stopped' && (
+              <motion.div
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: 'easeOut' }}
+              >
+                <AgentStoppedCard
+                  onContinue={() => handleSend('Continue', { model: activeThread.model, mode: activeThread.permissionMode })}
+                />
+              </motion.div>
+            )}
 
-        </div>
-      </ScrollArea>
+          </div>
+        </ScrollArea>
       </div>
 
       {/* Scroll to bottom button */}

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowUp, Square, Loader2, Image as ImageIcon, X, Zap, GitBranch, Check, Monitor, Inbox, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -670,9 +670,11 @@ export function PromptInput({
     const submittedPrompt = prompt;
     const submittedImages = images.length > 0 ? images : undefined;
     const submittedFiles = selectedFiles.length > 0 ? selectedFiles.map(p => ({ path: p })) : undefined;
-    setPrompt('');
-    setImages([]);
-    setSelectedFiles([]);
+    startTransition(() => {
+      setPrompt('');
+      setImages([]);
+      setSelectedFiles([]);
+    });
     if (selectedThreadId) clearPromptDraft(selectedThreadId);
 
     const result = await onSubmit(
