@@ -41,6 +41,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import {
   RefreshCw,
   FileCode,
   FilePlus,
@@ -52,6 +57,7 @@ import {
   GitCommit,
   GitMerge,
   Upload,
+  Download,
   GitPullRequest,
   Sparkles,
   Loader2,
@@ -64,6 +70,11 @@ import {
   ClipboardCopy,
   ExternalLink,
   AlertTriangle,
+  History,
+  Archive,
+  ArchiveRestore,
+  PenLine,
+  RotateCcw,
 } from 'lucide-react';
 import type { FileDiffSummary } from '@funny/shared';
 
@@ -204,8 +215,18 @@ export function ReviewPane() {
     });
   }, [effectiveThreadId, setCommitDraft]);
   const [generatingMsg, setGeneratingMsg] = useState(false);
-  const [selectedAction, setSelectedAction] = useState<'commit' | 'commit-push' | 'commit-pr' | 'commit-merge'>('commit');
+  const [selectedAction, setSelectedAction] = useState<'commit' | 'commit-push' | 'commit-pr' | 'commit-merge' | 'amend'>('commit');
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+
+  // New git operations state
+  const [logEntries, setLogEntries] = useState<Array<{ hash: string; shortHash: string; author: string; relativeDate: string; message: string }>>([]);
+  const [logOpen, setLogOpen] = useState(false);
+  const [logLoading, setLogLoading] = useState(false);
+  const [pullInProgress, setPullInProgress] = useState(false);
+  const [stashInProgress, setStashInProgress] = useState(false);
+  const [stashEntries, setStashEntries] = useState<Array<{ index: string; message: string; relativeDate: string }>>([]);
+  const [stashPopInProgress, setStashPopInProgress] = useState(false);
+  const [resetInProgress, setResetInProgress] = useState(false);
 
   const isWorktree = useThreadStore(s => s.activeThread?.mode === 'worktree');
   const baseBranch = useThreadStore(s => s.activeThread?.baseBranch);
@@ -403,7 +424,8 @@ export function ReviewPane() {
       }
     }
 
-    const result = await api.commit(effectiveThreadId, commitMsg);
+    const isAmend = selectedAction === 'amend';
+    const result = await api.commit(effectiveThreadId, commitMsg, isAmend);
     if (result.isErr()) {
       toast.error(t('review.commitFailed', { message: result.error.message }));
       return false;
@@ -421,8 +443,8 @@ export function ReviewPane() {
       return;
     }
 
-    if (selectedAction === 'commit') {
-      toast.success(t('review.commitSuccess'));
+    if (selectedAction === 'commit' || selectedAction === 'amend') {
+      toast.success(selectedAction === 'amend' ? t('review.amendSuccess', 'Commit amended') : t('review.commitSuccess'));
     } else if (selectedAction === 'commit-push') {
       const pushResult = await api.push(effectiveThreadId);
       if (pushResult.isErr()) {
@@ -563,14 +585,97 @@ export function ReviewPane() {
     toast.success(t('review.pathCopied'));
   };
 
+  // ── New git operation handlers ──
+
+  const handleLoadLog = async () => {
+    if (!effectiveThreadId || logLoading) return;
+    setLogLoading(true);
+    const result = await api.getGitLog(effectiveThreadId, 20);
+    if (result.isOk()) {
+      setLogEntries(result.value.entries);
+    } else {
+      toast.error(t('review.logFailed', { message: result.error.message, defaultValue: `Failed to load log: ${result.error.message}` }));
+    }
+    setLogLoading(false);
+  };
+
+  const handlePull = async () => {
+    if (!effectiveThreadId || pullInProgress) return;
+    setPullInProgress(true);
+    const result = await api.pull(effectiveThreadId);
+    if (result.isErr()) {
+      toast.error(t('review.pullFailed', { message: result.error.message, defaultValue: `Pull failed: ${result.error.message}` }));
+    } else {
+      toast.success(t('review.pullSuccess', 'Pulled successfully'));
+    }
+    setPullInProgress(false);
+    await refresh();
+  };
+
+  const handleStash = async () => {
+    if (!effectiveThreadId || stashInProgress) return;
+    setStashInProgress(true);
+    const result = await api.stash(effectiveThreadId);
+    if (result.isErr()) {
+      toast.error(t('review.stashFailed', { message: result.error.message, defaultValue: `Stash failed: ${result.error.message}` }));
+    } else {
+      toast.success(t('review.stashSuccess', 'Changes stashed'));
+    }
+    setStashInProgress(false);
+    await refresh();
+    refreshStashList();
+  };
+
+  const handleStashPop = async () => {
+    if (!effectiveThreadId || stashPopInProgress) return;
+    setStashPopInProgress(true);
+    const result = await api.stashPop(effectiveThreadId);
+    if (result.isErr()) {
+      toast.error(t('review.stashPopFailed', { message: result.error.message, defaultValue: `Stash pop failed: ${result.error.message}` }));
+    } else {
+      toast.success(t('review.stashPopSuccess', 'Stash applied'));
+    }
+    setStashPopInProgress(false);
+    await refresh();
+    refreshStashList();
+  };
+
+  const refreshStashList = async () => {
+    if (!effectiveThreadId) return;
+    const result = await api.stashList(effectiveThreadId);
+    if (result.isOk()) {
+      setStashEntries(result.value.entries);
+    }
+  };
+
+  const handleResetSoft = async () => {
+    if (!effectiveThreadId || resetInProgress) return;
+    const confirmed = window.confirm(t('review.resetSoftConfirm', 'Undo the last commit? Changes will be kept.'));
+    if (!confirmed) return;
+    setResetInProgress(true);
+    const result = await api.resetSoft(effectiveThreadId);
+    if (result.isErr()) {
+      toast.error(t('review.resetSoftFailed', { message: result.error.message, defaultValue: `Reset failed: ${result.error.message}` }));
+    } else {
+      toast.success(t('review.resetSoftSuccess', 'Last commit undone'));
+    }
+    setResetInProgress(false);
+    await refresh();
+  };
+
+  // Load stash list on mount / context change
+  useEffect(() => {
+    refreshStashList();
+  }, [gitContextKey]);
+
   const canCommit = checkedFiles.size > 0 && commitTitle.trim().length > 0 && !actionInProgress;
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
-        <div className="flex items-center gap-2">
-          <h3 className="text-xs font-semibold text-sidebar-foreground uppercase tracking-wider">{t('review.title')}</h3>
+        <div className="flex items-center gap-1">
+          <h3 className="text-xs font-semibold text-sidebar-foreground uppercase tracking-wider mr-1">{t('review.title')}</h3>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -584,6 +689,75 @@ export function ReviewPane() {
             </TooltipTrigger>
             <TooltipContent side="top">{t('review.refresh')}</TooltipContent>
           </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handlePull}
+                disabled={pullInProgress}
+                className="text-muted-foreground"
+              >
+                <Download className={cn('h-3.5 w-3.5', pullInProgress && 'animate-pulse')} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('review.pull', 'Pull')}</TooltipContent>
+          </Tooltip>
+          <Popover open={logOpen} onOpenChange={(open) => { setLogOpen(open); if (open) handleLoadLog(); }}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                  >
+                    <History className="h-3.5 w-3.5" />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('review.log', 'Commit log')}</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="start" className="w-[400px] p-0 max-h-[360px] overflow-auto">
+              {logLoading ? (
+                <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {t('review.loadingLog', 'Loading commits...')}
+                </div>
+              ) : logEntries.length === 0 ? (
+                <p className="text-xs text-muted-foreground p-3">{t('review.noCommits', 'No commits yet')}</p>
+              ) : (
+                <div className="divide-y divide-border">
+                  {logEntries.map((entry) => (
+                    <div key={entry.hash} className="px-3 py-2 text-xs hover:bg-accent/50">
+                      <div className="flex items-center gap-2">
+                        <code className="text-[10px] text-primary font-mono">{entry.shortHash}</code>
+                        <span className="text-muted-foreground">{entry.relativeDate}</span>
+                      </div>
+                      <p className="mt-0.5 text-foreground truncate">{entry.message}</p>
+                      <p className="text-[10px] text-muted-foreground">{entry.author}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+          {summaries.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleStash}
+                  disabled={stashInProgress}
+                  className="text-muted-foreground"
+                >
+                  <Archive className={cn('h-3.5 w-3.5', stashInProgress && 'animate-pulse')} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{t('review.stash', 'Stash changes')}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -886,9 +1060,10 @@ export function ReviewPane() {
                   </Tooltip>
                 </div>
               </div>
-              <div className={cn('grid gap-1', isWorktree ? 'grid-cols-4' : 'grid-cols-3')}>
+              <div className={cn('grid gap-1', isWorktree ? 'grid-cols-5' : 'grid-cols-4')}>
                 {([
                   { value: 'commit' as const, icon: GitCommit, label: t('review.commit', 'Commit') },
+                  { value: 'amend' as const, icon: PenLine, label: t('review.amend', 'Amend') },
                   { value: 'commit-push' as const, icon: Upload, label: t('review.commitAndPush', 'Commit & Push') },
                   { value: 'commit-pr' as const, icon: GitPullRequest, label: t('review.commitAndCreatePR', 'Commit & Create PR') },
                   ...(isWorktree ? [{ value: 'commit-merge' as const, icon: GitMerge, label: t('review.commitAndMerge', 'Commit & Merge') }] : []),
@@ -930,14 +1105,49 @@ export function ReviewPane() {
                 <Upload className="h-3.5 w-3.5" />
                 <span>{t('review.readyToPush', { count: gitStatus!.unpushedCommitCount, defaultValue: `${gitStatus!.unpushedCommitCount} commit(s) ready to push` })}</span>
               </div>
+              <div className="flex gap-1.5">
+                <Button
+                  className="flex-1"
+                  size="sm"
+                  onClick={handlePushOnly}
+                  disabled={pushInProgress}
+                >
+                  {pushInProgress ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
+                  {t('review.pushToOrigin', 'Push to origin')}
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleResetSoft}
+                      disabled={resetInProgress}
+                    >
+                      {resetInProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{t('review.undoLastCommit', 'Undo last commit')}</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+          )}
+
+          {/* Stash pop — shown when no dirty files but there are stashed changes */}
+          {summaries.length === 0 && !loading && stashEntries.length > 0 && (
+            <div className="border-t border-sidebar-border p-3 flex-shrink-0 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ArchiveRestore className="h-3.5 w-3.5" />
+                <span>{t('review.stashedChanges', { count: stashEntries.length, defaultValue: `${stashEntries.length} stash(es) saved` })}</span>
+              </div>
               <Button
                 className="w-full"
                 size="sm"
-                onClick={handlePushOnly}
-                disabled={pushInProgress}
+                variant="outline"
+                onClick={handleStashPop}
+                disabled={stashPopInProgress}
               >
-                {pushInProgress ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
-                {t('review.pushToOrigin', 'Push to origin')}
+                {stashPopInProgress ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />}
+                {t('review.popStash', 'Pop stash')}
               </Button>
             </div>
           )}

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { existsSync } from 'fs';
 import * as tm from '../services/thread-manager.js';
-import { getDiff, getDiffSummary, getSingleFileDiff, stageFiles, unstageFiles, revertFiles, addToGitignore, commit, push, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState, type GitIdentityOptions, removeWorktree, removeBranch, sanitizePath } from '@funny/core/git';
+import { getDiff, getDiffSummary, getSingleFileDiff, stageFiles, unstageFiles, revertFiles, addToGitignore, commit, push, pull, createPR, mergeBranch, git, getStatusSummary, deriveGitSyncState, getLog, stash, stashPop, stashList, resetSoft, type GitIdentityOptions, removeWorktree, removeBranch, sanitizePath } from '@funny/core/git';
 import { validate, mergeSchema, stageFilesSchema, commitSchema, createPRSchema } from '../validation/schemas.js';
 import { requireThread, requireThreadCwd, requireProject } from '../utils/route-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
@@ -245,7 +245,7 @@ gitRoutes.post('/:threadId/commit', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
   const identity = resolveIdentity(userId);
-  const result = await commit(cwd, parsed.value.message, identity);
+  const result = await commit(cwd, parsed.value.message, identity, parsed.value.amend);
   if (result.isErr()) return resultToResponse(c, result);
   invalidateGitStatusCache(c.req.param('threadId'));
   return c.json({ ok: true, output: result.value });
@@ -431,6 +431,80 @@ gitRoutes.post('/:threadId/merge', async (c) => {
 
   invalidateGitStatusCache(threadId);
   return c.json({ ok: true, output: mergeResult.value });
+});
+
+// GET /api/git/:threadId/log — recent commit log
+gitRoutes.get('/:threadId/log', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const limitRaw = c.req.query('limit');
+  const limit = limitRaw ? Math.min(parseInt(limitRaw, 10) || 20, 100) : 20;
+
+  const result = await getLog(cwdResult.value, limit);
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ entries: result.value });
+});
+
+// POST /api/git/:threadId/pull — pull from remote (ff-only)
+gitRoutes.post('/:threadId/pull', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const identity = resolveIdentity(userId);
+  const result = await pull(cwdResult.value, identity);
+  if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
+  return c.json({ ok: true, output: result.value });
+});
+
+// POST /api/git/:threadId/stash — stash current changes
+gitRoutes.post('/:threadId/stash', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const result = await stash(cwdResult.value);
+  if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
+  return c.json({ ok: true, output: result.value });
+});
+
+// POST /api/git/:threadId/stash/pop — pop most recent stash
+gitRoutes.post('/:threadId/stash/pop', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const result = await stashPop(cwdResult.value);
+  if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
+  return c.json({ ok: true, output: result.value });
+});
+
+// GET /api/git/:threadId/stash/list — list stash entries
+gitRoutes.get('/:threadId/stash/list', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const result = await stashList(cwdResult.value);
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ entries: result.value });
+});
+
+// POST /api/git/:threadId/reset-soft — undo last commit keeping changes
+gitRoutes.post('/:threadId/reset-soft', async (c) => {
+  const userId = c.get('userId') as string;
+  const cwdResult = requireThreadCwd(c.req.param('threadId'), userId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const result = await resetSoft(cwdResult.value);
+  if (result.isErr()) return resultToResponse(c, result);
+  invalidateGitStatusCache(c.req.param('threadId'));
+  return c.json({ ok: true, output: result.value });
 });
 
 // POST /api/git/:threadId/gitignore

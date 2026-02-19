@@ -283,10 +283,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ paths }),
     }),
-  commit: (threadId: string, message: string) =>
+  commit: (threadId: string, message: string, amend?: boolean) =>
     request<{ ok: boolean; output?: string }>(`/git/${threadId}/commit`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, amend }),
     }),
   push: (threadId: string) =>
     request<{ ok: boolean; output?: string }>(`/git/${threadId}/push`, { method: 'POST' }),
@@ -314,6 +314,22 @@ export const api = {
     request<{ statuses: GitStatusInfo[] }>(`/git/status?projectId=${projectId}`),
   getGitStatus: (threadId: string) =>
     request<GitStatusInfo>(`/git/${threadId}/status`),
+  getGitLog: (threadId: string, limit = 20) =>
+    request<{ entries: Array<{ hash: string; shortHash: string; author: string; relativeDate: string; message: string }> }>(
+      `/git/${threadId}/log?limit=${limit}`
+    ),
+  pull: (threadId: string) =>
+    request<{ ok: boolean; output?: string }>(`/git/${threadId}/pull`, { method: 'POST' }),
+  stash: (threadId: string) =>
+    request<{ ok: boolean; output?: string }>(`/git/${threadId}/stash`, { method: 'POST' }),
+  stashPop: (threadId: string) =>
+    request<{ ok: boolean; output?: string }>(`/git/${threadId}/stash/pop`, { method: 'POST' }),
+  stashList: (threadId: string) =>
+    request<{ entries: Array<{ index: string; message: string; relativeDate: string }> }>(
+      `/git/${threadId}/stash/list`
+    ),
+  resetSoft: (threadId: string) =>
+    request<{ ok: boolean; output?: string }>(`/git/${threadId}/reset-soft`, { method: 'POST' }),
 
   // Startup Commands
   listCommands: (projectId: string) =>

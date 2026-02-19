@@ -272,9 +272,11 @@ export function addToGitignore(cwd: string, pattern: string): Result<void, Domai
 /**
  * Create a commit with a message.
  * When identity.author is provided, adds --author flag for per-user attribution.
+ * When amend is true, amends the last commit instead of creating a new one.
  */
-export function commit(cwd: string, message: string, identity?: GitIdentityOptions): ResultAsync<string, DomainError> {
+export function commit(cwd: string, message: string, identity?: GitIdentityOptions, amend?: boolean): ResultAsync<string, DomainError> {
   const args = ['commit', '-m', message];
+  if (amend) args.push('--amend');
   if (identity?.author) {
     args.push('--author', `${identity.author.name} <${identity.author.email}>`);
   }
@@ -734,4 +736,87 @@ export function deriveGitSyncState(summary: GitStatusSummary): GitSyncState {
   if (summary.isMergedIntoBase) return 'merged';
   if (summary.hasRemoteBranch) return 'pushed';
   return 'clean';
+}
+
+// ─── Commit Log ─────────────────────────────────────────
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  author: string;
+  relativeDate: string;
+  message: string;
+}
+
+/**
+ * Get recent commit log entries.
+ */
+export function getLog(cwd: string, limit = 20): ResultAsync<GitLogEntry[], DomainError> {
+  const SEP = '@@SEP@@';
+  const format = `%H${SEP}%h${SEP}%an${SEP}%ar${SEP}%s`;
+  return git(['log', `--format=${format}`, `-n`, String(limit)], cwd).map((output) => {
+    if (!output.trim()) return [];
+    return output.trim().split('\n').map((line) => {
+      const [hash, shortHash, author, relativeDate, message] = line.split(SEP);
+      return { hash, shortHash, author, relativeDate, message };
+    });
+  });
+}
+
+// ─── Pull ────────────────────────────────────────────────
+
+/**
+ * Pull from remote (fast-forward only).
+ */
+export function pull(cwd: string, identity?: GitIdentityOptions): ResultAsync<string, DomainError> {
+  const env = identity?.githubToken ? { GH_TOKEN: identity.githubToken } : undefined;
+  return git(['pull', '--ff-only'], cwd, env);
+}
+
+// ─── Stash ───────────────────────────────────────────────
+
+export interface StashEntry {
+  index: string;
+  message: string;
+  relativeDate: string;
+}
+
+/**
+ * Stash current changes.
+ */
+export function stash(cwd: string): ResultAsync<string, DomainError> {
+  return git(['stash', 'push', '-m', 'funny: stashed changes'], cwd);
+}
+
+/**
+ * Pop the most recent stash.
+ */
+export function stashPop(cwd: string): ResultAsync<string, DomainError> {
+  return git(['stash', 'pop'], cwd);
+}
+
+/**
+ * List stash entries.
+ */
+export function stashList(cwd: string): ResultAsync<StashEntry[], DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await execute('git', ['stash', 'list', '--format=%gd|%gs|%ar'], { cwd, reject: false });
+      if (result.exitCode !== 0 || !result.stdout.trim()) return [];
+      return result.stdout.trim().split('\n').map((line) => {
+        const [index, message, relativeDate] = line.split('|');
+        return { index: index || '', message: message || '', relativeDate: relativeDate || '' };
+      });
+    })(),
+    (error) => internal(String(error))
+  );
+}
+
+// ─── Reset Soft ──────────────────────────────────────────
+
+/**
+ * Undo the last commit, keeping changes staged.
+ */
+export function resetSoft(cwd: string): ResultAsync<string, DomainError> {
+  return git(['reset', '--soft', 'HEAD~1'], cwd);
 }
