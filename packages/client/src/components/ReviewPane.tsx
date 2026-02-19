@@ -230,6 +230,7 @@ export function ReviewPane() {
 
   const isWorktree = useThreadStore(s => s.activeThread?.mode === 'worktree');
   const baseBranch = useThreadStore(s => s.activeThread?.baseBranch);
+  const isAgentRunning = useThreadStore(s => s.activeThread?.status === 'running');
   const gitStatus = useGitStatusStore(s => effectiveThreadId ? s.statusByThread[effectiveThreadId] : undefined);
   const [mergeInProgress, setMergeInProgress] = useState(false);
   const [pushInProgress, setPushInProgress] = useState(false);
@@ -668,7 +669,7 @@ export function ReviewPane() {
     refreshStashList();
   }, [gitContextKey]);
 
-  const canCommit = checkedFiles.size > 0 && commitTitle.trim().length > 0 && !actionInProgress;
+  const canCommit = checkedFiles.size > 0 && commitTitle.trim().length > 0 && !actionInProgress && !isAgentRunning;
 
   return (
     <div className="flex flex-col h-full">
@@ -749,7 +750,7 @@ export function ReviewPane() {
                   variant="ghost"
                   size="icon-xs"
                   onClick={handleStash}
-                  disabled={stashInProgress}
+                  disabled={stashInProgress || !!isAgentRunning}
                   className="text-muted-foreground"
                 >
                   <Archive className={cn('h-3.5 w-3.5', stashInProgress && 'animate-pulse')} />
@@ -1072,7 +1073,7 @@ export function ReviewPane() {
                     key={value}
                     type="button"
                     onClick={() => setSelectedAction(value)}
-                    disabled={!!actionInProgress}
+                    disabled={!!actionInProgress || !!isAgentRunning}
                     className={cn(
                       'flex flex-col items-center gap-1 rounded-md border p-2 text-center transition-all',
                       'hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed',
@@ -1110,7 +1111,7 @@ export function ReviewPane() {
                   className="flex-1"
                   size="sm"
                   onClick={handlePushOnly}
-                  disabled={pushInProgress}
+                  disabled={pushInProgress || !!isAgentRunning}
                 >
                   {pushInProgress ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
                   {t('review.pushToOrigin', 'Push to origin')}
@@ -1121,7 +1122,7 @@ export function ReviewPane() {
                       size="sm"
                       variant="outline"
                       onClick={handleResetSoft}
-                      disabled={resetInProgress}
+                      disabled={resetInProgress || !!isAgentRunning}
                     >
                       {resetInProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
                     </Button>
@@ -1144,7 +1145,7 @@ export function ReviewPane() {
                 size="sm"
                 variant="outline"
                 onClick={handleStashPop}
-                disabled={stashPopInProgress}
+                disabled={stashPopInProgress || !!isAgentRunning}
               >
                 {stashPopInProgress ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />}
                 {t('review.popStash', 'Pop stash')}
@@ -1163,7 +1164,7 @@ export function ReviewPane() {
                 className="w-full"
                 size="sm"
                 onClick={handleMergeOnly}
-                disabled={mergeInProgress}
+                disabled={mergeInProgress || !!isAgentRunning}
               >
                 {mergeInProgress ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <GitMerge className="h-3.5 w-3.5 mr-1.5" />}
                 {t('review.mergeIntoBranch', { target: baseBranch || 'base', defaultValue: `Merge into ${baseBranch || 'base'}` })}
