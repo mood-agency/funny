@@ -2,9 +2,11 @@ import { Hono } from 'hono';
 import type { HonoEnv } from '../types/hono-env.js';
 import * as tm from '../services/thread-manager.js';
 import * as pm from '../services/project-manager.js';
+import * as mq from '../services/message-queue.js';
 import { createWorktree, removeWorktree, removeBranch, getCurrentBranch } from '@funny/core/git';
 import { log } from '../lib/abbacchio.js';
 import { startAgent, stopAgent, isAgentRunning, cleanupThreadState } from '../services/agent-runner.js';
+import { wsBroker } from '../services/ws-broker.js';
 import { nanoid } from 'nanoid';
 import { createThreadSchema, createIdleThreadSchema, sendMessageSchema, updateThreadSchema, approveToolSchema, validate } from '../validation/schemas.js';
 import { requireThread, requireThreadWithMessages, requireProject } from '../utils/route-helpers.js';
@@ -12,6 +14,7 @@ import { resultToResponse } from '../utils/result-response.js';
 import { notFound } from '@funny/shared/errors';
 import { augmentPromptWithFiles } from '../utils/file-mentions.js';
 import { threadEventBus } from '../services/thread-event-bus.js';
+import type { WSEvent } from '@funny/shared';
 
 export const threadRoutes = new Hono<HonoEnv>();
 
@@ -297,7 +300,52 @@ threadRoutes.post('/:id/message', async (c) => {
   // Augment prompt with file contents if file references were provided
   const augmentedContent = await augmentPromptWithFiles(content, fileReferences, cwd);
 
-  // Start agent and handle errors (especially Claude CLI not installed)
+  // Check if the agent is running and the project uses queue mode
+  const agentRunning = isAgentRunning(id);
+  const project = pm.getProject(thread.projectId);
+  const followUpMode = project?.followUpMode || 'interrupt';
+
+  if (agentRunning && followUpMode === 'queue') {
+    // Queue the message instead of interrupting
+    const queued = mq.enqueue(id, {
+      content: augmentedContent,
+      provider: effectiveProvider,
+      model: effectiveModel,
+      permissionMode: effectivePermission,
+      images: images ? JSON.stringify(images) : undefined,
+      allowedTools: allowedTools ? JSON.stringify(allowedTools) : undefined,
+      disallowedTools: disallowedTools ? JSON.stringify(disallowedTools) : undefined,
+      fileReferences: fileReferences ? JSON.stringify(fileReferences) : undefined,
+    });
+
+    // Save user message in DB immediately so it shows in the chat
+    tm.insertMessage({
+      threadId: id,
+      role: 'user',
+      content,
+      images: images ? JSON.stringify(images) : null,
+      model: effectiveModel,
+      permissionMode: effectivePermission,
+    });
+
+    // Emit queue update via WebSocket
+    const qCount = mq.queueCount(id);
+    const nextMsg = mq.peek(id);
+    const queueEvent = {
+      type: 'thread:queue_update' as const,
+      threadId: id,
+      data: { threadId: id, queuedCount: qCount, nextMessage: nextMsg?.content?.slice(0, 100) },
+    } as WSEvent;
+    if (thread.userId) {
+      wsBroker.emitToUser(thread.userId, queueEvent);
+    } else {
+      wsBroker.emit(queueEvent);
+    }
+
+    return c.json({ ok: true, queued: true, queuedCount: qCount, queuedMessageId: queued.id });
+  }
+
+  // Default interrupt behavior — start agent (kills existing if running)
   try {
     await startAgent(id, augmentedContent, cwd, effectiveModel, effectivePermission, images, disallowedTools, allowedTools, effectiveProvider);
   } catch (err: any) {
@@ -461,7 +509,8 @@ threadRoutes.patch('/:id', async (c) => {
     }
     updates.worktreePath = null;
     updates.branch = null;
-    // Release in-memory agent state for the archived thread
+    // Release in-memory agent state and clear queue for the archived thread
+    mq.clearQueue(id);
     cleanupThreadState(id);
   }
 
@@ -502,6 +551,46 @@ threadRoutes.patch('/:id', async (c) => {
 
   const updated = tm.getThread(id);
   return c.json(updated);
+});
+
+// ── Message Queue ────────────────────────────────────────────────
+
+// GET /api/threads/:id/queue
+threadRoutes.get('/:id/queue', (c) => {
+  const id = c.req.param('id');
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+  return c.json(mq.listQueue(id));
+});
+
+// DELETE /api/threads/:id/queue/:messageId
+threadRoutes.delete('/:id/queue/:messageId', (c) => {
+  const id = c.req.param('id');
+  const messageId = c.req.param('messageId');
+  const userId = c.get('userId') as string;
+  const threadResult = requireThread(id, userId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+  const thread = threadResult.value;
+
+  const cancelled = mq.cancel(messageId);
+  if (!cancelled) return c.json({ error: 'Queued message not found' }, 404);
+
+  // Emit updated queue count
+  const qCount = mq.queueCount(id);
+  const nextMsg = mq.peek(id);
+  const queueEvent = {
+    type: 'thread:queue_update' as const,
+    threadId: id,
+    data: { threadId: id, queuedCount: qCount, nextMessage: nextMsg?.content?.slice(0, 100) },
+  } as WSEvent;
+  if (thread.userId) {
+    wsBroker.emitToUser(thread.userId, queueEvent);
+  } else {
+    wsBroker.emit(queueEvent);
+  }
+
+  return c.json({ ok: true, queuedCount: qCount });
 });
 
 // ── Thread Comments ──────────────────────────────────────────────
@@ -575,6 +664,7 @@ threadRoutes.delete('/:id', async (c) => {
       }
     }
 
+    mq.clearQueue(id);
     cleanupThreadState(id);
     tm.deleteThread(id);
   }

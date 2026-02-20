@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, mem
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { toast } from 'sonner';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useAppStore } from '@/stores/app-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -696,6 +697,11 @@ export function ThreadView() {
     if (sending) return;
     setSending(true);
 
+    // Toast for interrupt mode when agent is running
+    if (isRunning && !isQueueMode) {
+      toast.info(t('thread.interruptingAgent'));
+    }
+
     startTransition(() => {
       useAppStore.getState().appendOptimisticMessage(
         activeThread.id,
@@ -710,6 +716,8 @@ export function ThreadView() {
     const result = await api.sendMessage(activeThread.id, prompt, { provider: opts.provider || undefined, model: opts.model || undefined, permissionMode: opts.mode || undefined, allowedTools, disallowedTools, fileReferences: opts.fileReferences }, images);
     if (result.isErr()) {
       console.error('Send failed:', result.error);
+    } else if (isRunning && isQueueMode) {
+      toast.success(t('thread.messageQueued'));
     }
     setSending(false);
   };
@@ -736,6 +744,8 @@ export function ThreadView() {
   const isRunning = activeThread.status === 'running';
   const isExternal = activeThread.provider === 'external';
   const isIdle = activeThread.status === 'idle';
+  const currentProject = useProjectStore.getState().projects.find(p => p.id === activeThread.projectId);
+  const isQueueMode = currentProject?.followUpMode === 'queue';
 
   // Idle thread (backlog or not): show prompt input to start (pre-loaded with initialPrompt if available)
   if (isIdle) {
@@ -1100,6 +1110,8 @@ export function ThreadView() {
         onStop={handleStop}
         loading={sending}
         running={isRunning && !isExternal}
+        isQueueMode={isQueueMode}
+        queuedCount={(activeThread as any).queuedCount ?? 0}
         placeholder={t('thread.nextPrompt')}
       />
 

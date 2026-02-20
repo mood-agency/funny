@@ -365,6 +365,35 @@ const migrations: Migration[] = [
       }
     },
   },
+
+  {
+    name: '017_follow_up_mode',
+    up() {
+      addColumn('projects', 'follow_up_mode', "TEXT NOT NULL", "'interrupt'");
+
+      db.run(sql`
+        CREATE TABLE IF NOT EXISTS message_queue (
+          id TEXT PRIMARY KEY,
+          thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+          content TEXT NOT NULL,
+          provider TEXT,
+          model TEXT,
+          permission_mode TEXT,
+          images TEXT,
+          allowed_tools TEXT,
+          disallowed_tools TEXT,
+          file_references TEXT,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+      `);
+
+      db.run(sql`
+        CREATE INDEX IF NOT EXISTS idx_message_queue_thread
+        ON message_queue (thread_id, sort_order)
+      `);
+    },
+  },
 ];
 
 // ── Public API ──────────────────────────────────────────────────

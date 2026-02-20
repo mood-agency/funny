@@ -23,6 +23,7 @@ import type {
   UpdateProfileRequest,
   GitHubRepo,
   PaginatedMessages,
+  QueuedMessage,
 } from '@funny/shared';
 
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
@@ -153,7 +154,7 @@ export const api = {
     request<Project>('/projects', { method: 'POST', body: JSON.stringify({ name, path }) }),
   renameProject: (id: string, name: string) =>
     request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
-  updateProject: (id: string, data: { name?: string; color?: string | null }) =>
+  updateProject: (id: string, data: { name?: string; color?: string | null; followUpMode?: string }) =>
     request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProject: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
   reorderProjects: (projectIds: string[]) =>
@@ -218,6 +219,12 @@ export const api = {
     }),
   deleteThread: (threadId: string) =>
     request<{ ok: boolean }>(`/threads/${threadId}`, { method: 'DELETE' }),
+
+  // Queue management
+  listQueue: (threadId: string) =>
+    request<QueuedMessage[]>(`/threads/${threadId}/queue`),
+  cancelQueuedMessage: (threadId: string, messageId: string) =>
+    request<{ ok: boolean; queuedCount: number }>(`/threads/${threadId}/queue/${messageId}`, { method: 'DELETE' }),
   archiveThread: (threadId: string, archived: boolean) =>
     request<Thread>(`/threads/${threadId}`, {
       method: 'PATCH',

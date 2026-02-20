@@ -89,11 +89,14 @@ export interface CloneRepoRequest {
 
 // ─── Projects ────────────────────────────────────────────
 
+export type FollowUpMode = 'interrupt' | 'queue';
+
 export interface Project {
   id: string;
   name: string;
   path: string;
   color?: string;
+  followUpMode?: FollowUpMode;
   userId: string;
   sortOrder: number;
   createdAt: string;
@@ -283,6 +286,12 @@ export interface WSPtyExitData {
   exitCode: number;
 }
 
+export interface WSQueueUpdateData {
+  threadId: string;
+  queuedCount: number;
+  nextMessage?: string;
+}
+
 export type WSEvent =
   | { type: 'agent:init'; threadId: string; data: WSInitData }
   | { type: 'agent:message'; threadId: string; data: WSMessageData }
@@ -297,7 +306,8 @@ export type WSEvent =
   | { type: 'automation:run_completed'; threadId: string; data: WSAutomationRunCompletedData }
   | { type: 'git:status'; threadId: string; data: WSGitStatusData }
   | { type: 'pty:data'; threadId: string; data: WSPtyDataData }
-  | { type: 'pty:exit'; threadId: string; data: WSPtyExitData };
+  | { type: 'pty:exit'; threadId: string; data: WSPtyExitData }
+  | { type: 'thread:queue_update'; threadId: string; data: WSQueueUpdateData };
 
 export type WSEventType = WSEvent['type'];
 
@@ -393,6 +403,19 @@ export interface SendMessageRequest {
   images?: ImageAttachment[];
   allowedTools?: string[];
   disallowedTools?: string[];
+}
+
+// ─── Message Queue ──────────────────────────────────────
+
+export interface QueuedMessage {
+  id: string;
+  threadId: string;
+  content: string;
+  provider?: string;
+  model?: string;
+  permissionMode?: string;
+  sortOrder: number;
+  createdAt: string;
 }
 
 export interface StageRequest {

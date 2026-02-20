@@ -306,6 +306,26 @@ export function handleWSResult(
   notifyThreadResult(threadId, resultStatus, updatedProject, get, data.errorReason);
 }
 
+// ── Queue update ─────────────────────────────────────────────────
+
+export function handleWSQueueUpdate(
+  get: Get, set: Set,
+  threadId: string,
+  data: { threadId: string; queuedCount: number; nextMessage?: string },
+): void {
+  const { activeThread } = get();
+
+  if (activeThread?.id === threadId) {
+    set({
+      activeThread: {
+        ...activeThread,
+        queuedCount: data.queuedCount,
+        queuedNextMessage: data.nextMessage,
+      },
+    } as any);
+  }
+}
+
 // ── Toast helper ────────────────────────────────────────────────
 
 const ERROR_REASON_MESSAGES: Record<string, string> = {

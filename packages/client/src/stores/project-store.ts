@@ -14,7 +14,7 @@ interface ProjectState {
   toggleProject: (projectId: string) => void;
   selectProject: (projectId: string | null) => void;
   renameProject: (projectId: string, name: string) => Promise<void>;
-  updateProject: (projectId: string, data: { name?: string; color?: string | null }) => Promise<void>;
+  updateProject: (projectId: string, data: { name?: string; color?: string | null; followUpMode?: string }) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
   reorderProjects: (projectIds: string[]) => Promise<void>;
 }

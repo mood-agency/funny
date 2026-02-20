@@ -73,6 +73,7 @@ export interface ThreadState {
   handleWSToolOutput: (threadId: string, data: { toolCallId: string; output: string }) => void;
   handleWSStatus: (threadId: string, data: { status: string }) => void;
   handleWSResult: (threadId: string, data: any) => void;
+  handleWSQueueUpdate: (threadId: string, data: { threadId: string; queuedCount: number; nextMessage?: string }) => void;
 }
 
 // ── Buffer replay ────────────────────────────────────────────────
@@ -540,5 +541,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
   handleWSResult: (threadId, data) => {
     wsHandlers.handleWSResult(get, set, threadId, data);
+  },
+
+  handleWSQueueUpdate: (threadId, data) => {
+    wsHandlers.handleWSQueueUpdate(get, set, threadId, data);
   },
 }));

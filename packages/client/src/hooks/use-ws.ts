@@ -157,6 +157,10 @@ function handleMessage(e: MessageEvent) {
       termStore.markExited(data.ptyId);
       break;
     }
+    case 'thread:queue_update': {
+      useAppStore.getState().handleWSQueueUpdate(threadId, data);
+      break;
+    }
   }
 }
 

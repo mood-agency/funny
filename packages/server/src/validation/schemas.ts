@@ -41,9 +41,12 @@ export const renameProjectSchema = z.object({
   name: z.string().min(1, 'name is required'),
 });
 
+export const followUpModeSchema = z.enum(['interrupt', 'queue']);
+
 export const updateProjectSchema = z.object({
   name: z.string().min(1, 'name is required').optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'color must be a valid hex color (#RRGGBB)').nullable().optional(),
+  followUpMode: followUpModeSchema.optional(),
 });
 
 export const reorderProjectsSchema = z.object({

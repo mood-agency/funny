@@ -316,6 +316,7 @@ interface PromptInputProps {
   loading?: boolean;
   running?: boolean;
   queuedCount?: number;
+  isQueueMode?: boolean;
   placeholder?: string;
   isNewThread?: boolean;
   showBacklog?: boolean;
@@ -328,6 +329,8 @@ export function PromptInput({
   onStop,
   loading = false,
   running = false,
+  queuedCount = 0,
+  isQueueMode = false,
   placeholder,
   isNewThread = false,
   showBacklog = false,
@@ -1026,7 +1029,7 @@ export function PromptInput({
             aria-label={t('prompt.messageLabel', 'Message')}
             className="w-full px-3 py-2 text-sm bg-transparent placeholder:text-muted-foreground focus:outline-none resize-none"
             style={{ minHeight: '4.5rem' }}
-            placeholder={running ? t('thread.agentWorkingQueue') : defaultPlaceholder}
+            placeholder={running ? (isQueueMode ? t('thread.typeToQueue') : t('thread.agentWorkingQueue')) : defaultPlaceholder}
             value={prompt}
             onChange={(e) => {
               setPrompt(e.target.value);
@@ -1186,12 +1189,17 @@ export function PromptInput({
                   variant="ghost"
                   size="icon-sm"
                   aria-label={t('prompt.addImage')}
-                  disabled={loading || running}
+                  disabled={loading || (running && !isQueueMode)}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <ImageIcon className="h-4 w-4" />
                 </Button>
-                {running ? (
+                {queuedCount > 0 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded bg-muted text-muted-foreground">
+                    {queuedCount} {t('prompt.queued')}
+                  </span>
+                )}
+                {running && !isQueueMode ? (
                   <Button
                     onClick={onStop}
                     variant="destructive"
@@ -1200,6 +1208,29 @@ export function PromptInput({
                   >
                     <Square className="h-3.5 w-3.5" />
                   </Button>
+                ) : running && isQueueMode ? (
+                  <>
+                    <Button
+                      onClick={handleSubmit}
+                      disabled={loading}
+                      size="icon-sm"
+                      aria-label={t('prompt.queueMessage')}
+                    >
+                      {loading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      onClick={onStop}
+                      variant="destructive"
+                      size="icon-sm"
+                      aria-label={t('prompt.stopAgent')}
+                    >
+                      <Square className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
                 ) : (
                   <Button
                     onClick={handleSubmit}

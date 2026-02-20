@@ -174,6 +174,7 @@ function GeneralSettings() {
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const projects = useAppStore((s) => s.projects);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const updateProject = useProjectStore((s) => s.updateProject);
   const { t } = useTranslation();
 
   return (
@@ -186,6 +187,19 @@ function GeneralSettings() {
           </h3>
           <div className="rounded-lg border border-border/50 overflow-hidden mb-6">
             <ProjectColorPicker projectId={selectedProject.id} currentColor={selectedProject.color} />
+            <SettingRow
+              title={t('settings.followUpMode')}
+              description={t('settings.followUpModeDesc')}
+            >
+              <SegmentedControl<string>
+                value={selectedProject.followUpMode || 'interrupt'}
+                onChange={(v) => updateProject(selectedProject.id, { followUpMode: v })}
+                options={[
+                  { value: 'interrupt', label: t('settings.followUpInterrupt') },
+                  { value: 'queue', label: t('settings.followUpQueue') },
+                ]}
+              />
+            </SettingRow>
           </div>
         </>
       )}

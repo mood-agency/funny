@@ -5,6 +5,7 @@ export const projects = sqliteTable('projects', {
   name: text('name').notNull(),
   path: text('path').notNull(),
   color: text('color'),
+  followUpMode: text('follow_up_mode').notNull().default('interrupt'), // 'interrupt' | 'queue'
   userId: text('user_id').notNull().default('__local__'),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
@@ -140,6 +141,23 @@ export const threadComments = sqliteTable('thread_comments', {
   userId: text('user_id').notNull(),
   source: text('source').notNull().default('user'), // 'user' | 'system' | 'agent'
   content: text('content').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
+export const messageQueue = sqliteTable('message_queue', {
+  id: text('id').primaryKey(),
+  threadId: text('thread_id')
+    .notNull()
+    .references(() => threads.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  provider: text('provider'),
+  model: text('model'),
+  permissionMode: text('permission_mode'),
+  images: text('images'),
+  allowedTools: text('allowed_tools'),
+  disallowedTools: text('disallowed_tools'),
+  fileReferences: text('file_references'),
+  sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
 });
 

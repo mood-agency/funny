@@ -92,7 +92,11 @@
     "approvePermission": "Permitir",
     "denyPermission": "Negar",
     "startTask": "Iniciar Tarefa",
-    "orTypeNewPrompt": "Ou digite um novo prompt abaixo..."
+    "orTypeNewPrompt": "Ou digite um novo prompt abaixo...",
+    "typeToQueue": "Digite um acompanhamento para enfileirar...",
+    "interruptingAgent": "Interrompendo agente com novo prompt...",
+    "messageQueued": "Mensagem enfileirada — será enviada quando o agente terminar",
+    "queuedMessages": "{{count}} mensagem(ns) enfileirada(s)"
   },
   "review": {
     "title": "Revisão",
@@ -246,7 +250,11 @@
     "allow": "Permitir",
     "ask": "Perguntar",
     "deny": "Negar",
-    "resetDefaults": "Restaurar padrões"
+    "resetDefaults": "Restaurar padrões",
+    "followUpMode": "Comportamento de acompanhamento",
+    "followUpModeDesc": "Como lidar com mensagens enviadas enquanto um agente está em execução",
+    "followUpInterrupt": "Interromper",
+    "followUpQueue": "Enfileirar"
   },
   "skills": {
     "showingFor": "Mostrando skills para:",
@@ -507,7 +515,9 @@
     "loadingFiles": "Carregando arquivos...",
     "noFilesMatch": "Nenhum arquivo encontrado",
     "moreFilesHint": "Digite para filtrar...",
-    "emptyPrompt": "Digite um prompt antes de enviar"
+    "emptyPrompt": "Digite um prompt antes de enviar",
+    "queued": "enfileirado",
+    "queueMessage": "Enfileirar mensagem"
   },
   "gitStatus": {
     "dirty": "Alterações não commitadas",

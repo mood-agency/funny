@@ -92,7 +92,11 @@
     "approvePermission": "Allow",
     "denyPermission": "Deny",
     "startTask": "Start Task",
-    "orTypeNewPrompt": "Or type a new prompt below..."
+    "orTypeNewPrompt": "Or type a new prompt below...",
+    "typeToQueue": "Type a follow-up to queue...",
+    "interruptingAgent": "Interrupting agent with new prompt...",
+    "messageQueued": "Message queued — will send when agent finishes",
+    "queuedMessages": "{{count}} message(s) queued"
   },
   "review": {
     "title": "Review",
@@ -246,7 +250,11 @@
     "allow": "Allow",
     "ask": "Ask",
     "deny": "Deny",
-    "resetDefaults": "Reset to defaults"
+    "resetDefaults": "Reset to defaults",
+    "followUpMode": "Follow-up behavior",
+    "followUpModeDesc": "How to handle messages sent while an agent is running",
+    "followUpInterrupt": "Interrupt",
+    "followUpQueue": "Queue"
   },
   "skills": {
     "showingFor": "Showing skills for:",
@@ -513,7 +521,9 @@
     "loadingFiles": "Loading files...",
     "noFilesMatch": "No files match",
     "moreFilesHint": "Type to narrow results...",
-    "emptyPrompt": "Please enter a prompt before sending"
+    "emptyPrompt": "Please enter a prompt before sending",
+    "queued": "queued",
+    "queueMessage": "Queue message"
   },
   "gitStatus": {
     "dirty": "Uncommitted changes",
