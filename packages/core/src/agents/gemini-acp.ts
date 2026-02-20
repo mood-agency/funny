@@ -11,11 +11,11 @@
  * crash if the SDK is not installed.
  */
 
-import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import { spawn, type ChildProcess } from 'child_process';
 import { Readable, Writable } from 'stream';
-import type { CLIMessage, ClaudeProcessOptions } from './types.js';
+import type { CLIMessage } from './types.js';
+import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 
 // Lazy-loaded SDK types (avoid crash if not installed)
 type ACPSDK = typeof import('@agentclientprotocol/sdk');
@@ -26,39 +26,29 @@ type ACPSessionUpdate = import('@agentclientprotocol/sdk').SessionUpdate;
 type ACPRequestPermissionRequest = import('@agentclientprotocol/sdk').RequestPermissionRequest;
 type ACPRequestPermissionResponse = import('@agentclientprotocol/sdk').RequestPermissionResponse;
 
-export class GeminiACPProcess extends EventEmitter {
-  private abortController = new AbortController();
-  private _exited = false;
+/** Known Gemini CLI built-in tools (ACP doesn't expose a listTools API). */
+const GEMINI_BUILTIN_TOOLS = [
+  'read_file', 'write_file', 'replace', 'list_directory',
+  'glob', 'grep_search', 'run_shell_command', 'web_fetch',
+  'google_web_search', 'codebase_investigator', 'save_memory',
+  'ask_user', 'activate_skill', 'cli_help',
+];
+
+export class GeminiACPProcess extends BaseAgentProcess {
   private childProcess: ChildProcess | null = null;
 
-  constructor(private options: ClaudeProcessOptions) {
-    super();
-  }
-
-  // ── IAgentProcess API ─────────────────────────────────────────
-
-  start(): void {
-    this.runGemini().catch((err) => {
-      if (!this._exited) {
-        this.emit('error', err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-  }
+  // ── Overrides ──────────────────────────────────────────────────
 
   async kill(): Promise<void> {
-    this.abortController.abort();
+    await super.kill();
     if (this.childProcess && !this.childProcess.killed) {
       this.childProcess.kill('SIGTERM');
     }
   }
 
-  get exited(): boolean {
-    return this._exited;
-  }
+  // ── Provider-specific run loop ─────────────────────────────────
 
-  // ── Internal ──────────────────────────────────────────────────
-
-  private async runGemini(): Promise<void> {
+  protected async runProcess(): Promise<void> {
     // Dynamic import — fails gracefully if SDK not installed
     let SDK: ACPSDK;
     try {
@@ -66,7 +56,7 @@ export class GeminiACPProcess extends EventEmitter {
     } catch {
       throw new Error(
         'ACP SDK not installed. Run: bun add @agentclientprotocol/sdk\n' +
-        'Also ensure gemini-cli is installed: npm install -g @anthropic-ai/gemini-cli or see https://github.com/google-gemini/gemini-cli',
+        'Also ensure gemini-cli is installed: npm install -g @google/gemini-cli or see https://github.com/google/gemini-cli',
       );
     }
 
@@ -74,6 +64,7 @@ export class GeminiACPProcess extends EventEmitter {
 
     // Resolve Gemini binary
     const geminiBin = this.resolveGeminiBinary();
+    console.log(`[gemini-acp] resolved binary: ${geminiBin}, platform: ${process.platform}, shell: ${process.platform === 'win32'}`);
 
     // Build CLI args
     const args = ['--experimental-acp'];
@@ -82,19 +73,30 @@ export class GeminiACPProcess extends EventEmitter {
     }
 
     // Spawn gemini subprocess with stdio pipes
+    // On Windows, shell: true is required to resolve .cmd/.bat wrappers
+    // for npm-installed binaries like `gemini`
     const child = spawn(geminiBin, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: this.options.cwd,
       env: { ...process.env },
       signal: this.abortController.signal,
+      shell: process.platform === 'win32',
     });
 
     this.childProcess = child;
 
     // Handle process errors
-    child.on('error', (err) => {
-      if (!this._exited && !this.abortController.signal.aborted) {
-        this.emit('error', err);
+    child.on('error', (err: any) => {
+      if (!this._exited && !this.isAborted) {
+        if (err.code === 'ENOENT') {
+          this.emit('error', new Error(
+            '\'gemini\' binary not found in PATH or failed to spawn.\n' +
+            'Please install it via: npm install -g @google/gemini-cli\n' +
+            'Or see https://github.com/google/gemini-cli for details.'
+          ));
+        } else {
+          this.emit('error', err);
+        }
       }
     });
 
@@ -102,6 +104,18 @@ export class GeminiACPProcess extends EventEmitter {
     child.stderr?.on('data', (data: Buffer) => {
       console.error('[gemini-acp:stderr]', data.toString());
     });
+
+    try {
+      // Wait for process to spawn successfully before proceeding
+      await new Promise<void>((resolve, reject) => {
+        child.on('spawn', resolve);
+        child.on('error', reject);
+      });
+    } catch {
+      // Error emitted by child.on('error') above, so we just return
+      this._exited = true;
+      return;
+    }
 
     // Convert Node streams to Web streams for ACP SDK
     const outputStream = Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>;
@@ -124,7 +138,7 @@ export class GeminiACPProcess extends EventEmitter {
     const acpClient: ACPClient = {
       // Handle streaming session updates from the agent
       sessionUpdate: async (params: ACPSessionNotification): Promise<void> => {
-        if (this.abortController.signal.aborted) return;
+        if (this.isAborted) return;
 
         const update = params.update;
         this.translateUpdate(update, assistantMsgId, toolCallsSeen);
@@ -162,16 +176,13 @@ export class GeminiACPProcess extends EventEmitter {
       stream,
     );
 
-    // Emit init message (mirrors Claude's system:init)
-    const initMsg: CLIMessage = {
-      type: 'system',
-      subtype: 'init',
-      session_id: sessionId,
-      tools: [],
-      model: this.options.model ?? 'gemini-3-flash',
-      cwd: this.options.cwd,
-    };
-    this.emit('message', initMsg);
+    // Emit init message
+    this.emitInit(
+      sessionId,
+      GEMINI_BUILTIN_TOOLS,
+      this.options.model ?? 'gemini-3-flash-preview',
+      this.options.cwd,
+    );
 
     try {
       // Step 1: Initialize the ACP connection
@@ -205,51 +216,42 @@ export class GeminiACPProcess extends EventEmitter {
       numTurns = 1;
 
       // Map stop reason
-      const subtype = promptResponse.stopReason === 'end_turn'
-        ? 'success' as const
+      const subtype: ResultSubtype = promptResponse.stopReason === 'end_turn'
+        ? 'success'
         : promptResponse.stopReason === 'cancelled'
-          ? 'error_during_execution' as const
+          ? 'error_during_execution'
           : promptResponse.stopReason === 'max_tokens'
-            ? 'error_max_turns' as const
-            : 'success' as const;
+            ? 'error_max_turns'
+            : 'success';
 
-      // Emit result message
-      const resultMsg: CLIMessage = {
-        type: 'result',
+      // Emit result
+      this.emitResult({
+        sessionId,
         subtype,
-        is_error: subtype !== 'success',
-        duration_ms: Date.now() - startTime,
-        num_turns: numTurns,
+        startTime,
+        numTurns,
+        totalCost,
         result: lastAssistantText || undefined,
-        total_cost_usd: totalCost,
-        session_id: sessionId,
-      };
-      this.emit('message', resultMsg);
+      });
 
     } catch (err: any) {
-      if (this.abortController.signal.aborted) {
-        // Normal cancellation — not an error
-      } else {
-        const resultMsg: CLIMessage = {
-          type: 'result',
+      if (!this.isAborted) {
+        this.emitResult({
+          sessionId,
           subtype: 'error_during_execution',
-          is_error: true,
-          duration_ms: Date.now() - startTime,
-          num_turns: numTurns,
+          startTime,
+          numTurns,
+          totalCost,
           result: err.message,
-          total_cost_usd: totalCost,
-          session_id: sessionId,
           errors: [err.message],
-        };
-        this.emit('message', resultMsg);
+        });
       }
     } finally {
-      this._exited = true;
       // Clean up child process
       if (this.childProcess && !this.childProcess.killed) {
         this.childProcess.kill('SIGTERM');
       }
-      this.emit('exit', this.abortController.signal.aborted ? null : 0);
+      this.finalize();
     }
   }
 
@@ -261,24 +263,9 @@ export class GeminiACPProcess extends EventEmitter {
     toolCallsSeen: Map<string, boolean>,
   ): void {
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk': {
-        // Text content from the agent
-        const content = update.content;
-        if (content.type === 'text' && content.text) {
-          const msg: CLIMessage = {
-            type: 'assistant',
-            message: {
-              id: assistantMsgId,
-              content: [{ type: 'text', text: content.text }],
-            },
-          };
-          this.emit('message', msg);
-        }
-        break;
-      }
-
+      case 'agent_message_chunk':
       case 'agent_thought_chunk': {
-        // Thought/reasoning content — emit as assistant text
+        // Text content from the agent (message or thought/reasoning)
         const content = update.content;
         if (content.type === 'text' && content.text) {
           const msg: CLIMessage = {
@@ -384,7 +371,7 @@ export class GeminiACPProcess extends EventEmitter {
     const acpEnvPath = process.env.ACP_GEMINI_BIN;
     if (acpEnvPath) return acpEnvPath;
 
-    // 3. Default to 'gemini' in PATH
+    // 3. Default to 'gemini' in PATH (shell: true in spawn handles .cmd on Windows)
     return 'gemini';
   }
 }

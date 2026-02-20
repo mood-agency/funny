@@ -488,6 +488,15 @@ export function PromptInput({
     }
   }, [isNewThread, activeThreadPermissionMode, defaultPermissionMode]);
 
+  // Sync provider with active thread's provider when thread changes
+  useEffect(() => {
+    if (!isNewThread && activeThread?.provider) {
+      setProvider(activeThread.provider);
+    } else if (isNewThread) {
+      setProvider(defaultProvider);
+    }
+  }, [isNewThread, activeThread?.provider, defaultProvider]);
+
   // Sync model with active thread's model when thread changes
   useEffect(() => {
     if (!isNewThread && activeThread?.model) {

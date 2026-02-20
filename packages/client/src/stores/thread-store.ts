@@ -35,6 +35,7 @@ export interface AgentResultInfo {
   status: 'completed' | 'failed';
   cost: number;
   duration: number;
+  error?: string;
 }
 
 export interface ThreadWithMessages extends Thread {
@@ -158,7 +159,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
     const buffered = getBufferedInitInfo(threadId);
     const resultInfo = (thread.status === 'completed' || thread.status === 'failed')
-      ? { status: thread.status as 'completed' | 'failed', cost: thread.cost, duration: 0 }
+      ? { status: thread.status as 'completed' | 'failed', cost: thread.cost, duration: 0, error: (thread as any).error }
       : undefined;
 
     // Derive waitingReason and pendingPermission from the last tool call when reloading a waiting thread
@@ -465,7 +466,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const thread = result.value;
     const resultInfo = activeThread.resultInfo
       ?? ((thread.status === 'completed' || thread.status === 'failed')
-        ? { status: thread.status as 'completed' | 'failed', cost: thread.cost, duration: 0 }
+        ? { status: thread.status as 'completed' | 'failed', cost: thread.cost, duration: 0, error: (thread as any).error }
         : undefined);
     // Clear waitingReason/pendingPermission if server status is no longer waiting
     // (handles case where agent:result WS event was lost during disconnect)

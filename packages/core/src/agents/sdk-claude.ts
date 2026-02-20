@@ -1,49 +1,31 @@
 /**
  * SDKClaudeProcess — adapter that wraps @anthropic-ai/claude-agent-sdk query()
- * behind the IClaudeProcess EventEmitter interface.
+ * behind the IAgentProcess EventEmitter interface.
  *
  * Drop-in replacement for the former ClaudeProcess (CLI subprocess).
  * AgentRunner and AgentMessageHandler work unchanged.
  */
 
-import { EventEmitter } from 'events';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, HookCallback, Query } from '@anthropic-ai/claude-agent-sdk';
-import type { CLIMessage, ClaudeProcessOptions } from './types.js';
+import type { CLIMessage } from './types.js';
+import { BaseAgentProcess } from './base-process.js';
 
-export class SDKClaudeProcess extends EventEmitter {
-  private abortController = new AbortController();
-  private _exited = false;
+export class SDKClaudeProcess extends BaseAgentProcess {
   private activeQuery: Query | null = null;
 
-  constructor(private options: ClaudeProcessOptions) {
-    super();
-  }
-
-  // ── IClaudeProcess API ──────────────────────────────────────────
-
-  start(): void {
-    this.runQuery().catch((err) => {
-      if (!this._exited) {
-        this.emit('error', err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-  }
+  // ── Overrides ──────────────────────────────────────────────────
 
   async kill(): Promise<void> {
-    this.abortController.abort();
+    await super.kill();
     // close() forcefully ends the query, stopping all in-flight API calls
     // and preventing further messages from being yielded
     this.activeQuery?.close();
   }
 
-  get exited(): boolean {
-    return this._exited;
-  }
+  // ── Provider-specific run loop ─────────────────────────────────
 
-  // ── Internal ────────────────────────────────────────────────────
-
-  private async runQuery(): Promise<void> {
+  protected async runProcess(): Promise<void> {
     const promptInput = this.buildPromptInput();
 
     const sdkOptions: Record<string, any> = {
@@ -106,7 +88,7 @@ export class SDKClaudeProcess extends EventEmitter {
 
     try {
       for await (const sdkMsg of gen) {
-        if (this.abortController.signal.aborted) break;
+        if (this.isAborted) break;
 
         const cliMsg = this.translateMessage(sdkMsg);
         if (cliMsg) {
@@ -114,15 +96,14 @@ export class SDKClaudeProcess extends EventEmitter {
         }
       }
     } catch (err: any) {
-      if (this.abortController.signal.aborted || err?.name === 'AbortError') {
+      if (this.isAborted || err?.name === 'AbortError') {
         // Normal cancellation — not an error
       } else {
         this.emit('error', err instanceof Error ? err : new Error(String(err)));
       }
     } finally {
       this.activeQuery = null;
-      this._exited = true;
-      this.emit('exit', this.abortController.signal.aborted ? null : 0);
+      this.finalize();
     }
   }
 

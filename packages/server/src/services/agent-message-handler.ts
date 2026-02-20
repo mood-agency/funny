@@ -321,13 +321,18 @@ export class AgentMessageHandler {
 
     const threadWithStage = this.threadManager.getThread(threadId);
 
+    // Build the error text from the result or errors array
+    const errorText = finalStatus === 'failed'
+      ? (msg.result ? decodeUnicodeEscapes(msg.result) : (msg.errors?.[0] ?? undefined))
+      : undefined;
+
     this.emitWS(threadId, 'agent:result', {
       result: msg.result ? decodeUnicodeEscapes(msg.result) : msg.result,
       cost: msg.total_cost_usd,
       duration: msg.duration_ms,
       status: finalStatus,
       stage: threadWithStage?.stage,
-      ...(finalStatus === 'failed' ? { errorReason: msg.subtype } : {}),
+      ...(finalStatus === 'failed' ? { errorReason: msg.subtype, error: errorText } : {}),
       ...(waitingReason ? { waitingReason } : {}),
       ...(permReq ? { permissionRequest: { toolName: permReq.toolName } } : {}),
     });

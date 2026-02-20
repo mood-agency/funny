@@ -10,33 +10,42 @@ function formatDuration(ms: number, t: (key: string, opts?: any) => string): str
   return t('duration.minutesSeconds', { minutes, seconds: remainingSeconds });
 }
 
-export function AgentResultCard({ status, cost, duration }: { status: 'completed' | 'failed'; cost: number; duration: number }) {
+export function AgentResultCard({ status, cost, duration, error }: { status: 'completed' | 'failed'; cost: number; duration: number; error?: string }) {
   const { t } = useTranslation();
   const isSuccess = status === 'completed';
 
   return (
     <div className={cn(
-      'rounded-lg border px-3 py-2 text-xs flex items-center gap-3',
+      'rounded-lg border px-3 py-2 text-xs flex flex-col gap-2',
       isSuccess
         ? 'border-status-success/20 bg-status-success/5'
         : 'border-status-error/20 bg-status-error/5'
     )}>
-      {isSuccess ? (
-        <CheckCircle2 className="h-4 w-4 text-status-success/80 flex-shrink-0" />
-      ) : (
-        <XCircle className="h-4 w-4 text-status-error/80 flex-shrink-0" />
-      )}
-      <span className={cn('font-medium', isSuccess ? 'text-status-success/80' : 'text-status-error/80')}>
-        {isSuccess ? t('thread.taskCompleted') : t('thread.taskFailed')}
-      </span>
-      <div className="flex items-center gap-3 ml-auto text-muted-foreground">
-        {duration > 0 && (
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {formatDuration(duration, t)}
-          </span>
+      <div className="flex items-center gap-3">
+        {isSuccess ? (
+          <CheckCircle2 className="h-4 w-4 text-status-success/80 flex-shrink-0" />
+        ) : (
+          <XCircle className="h-4 w-4 text-status-error/80 flex-shrink-0" />
         )}
+        <span className={cn('font-medium', isSuccess ? 'text-status-success/80' : 'text-status-error/80')}>
+          {isSuccess ? t('thread.taskCompleted') : t('thread.taskFailed')}
+        </span>
+        <div className="flex items-center gap-3 ml-auto text-muted-foreground">
+          {duration > 0 && (
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {formatDuration(duration, t)}
+            </span>
+          )}
+        </div>
       </div>
+      {!isSuccess && error && (
+        <div className="mt-1 pl-7">
+          <pre className="whitespace-pre-wrap font-mono text-[10px] text-status-error flex-1 w-full bg-status-error/10 p-2 rounded border border-status-error/20 overflow-x-auto">
+            {error}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

@@ -20,10 +20,11 @@ const CODEX_MODEL_IDS: Record<CodexModel, string> = {
 };
 
 const GEMINI_MODEL_IDS: Record<GeminiModel, string> = {
+  'gemini-2.0-flash': 'gemini-2.0-flash',
   'gemini-2.5-flash': 'gemini-2.5-flash',
   'gemini-2.5-pro': 'gemini-2.5-pro',
-  'gemini-3-flash': 'gemini-3-flash',
-  'gemini-3.1-pro': 'gemini-3.1-pro',
+  'gemini-3-flash-preview': 'gemini-3-flash-preview',
+  'gemini-3-pro-preview': 'gemini-3-pro-preview',
 };
 
 // ── Permission mode mapping (Claude SDK specific) ─────────────
@@ -72,7 +73,7 @@ export function resolveModelId(provider: AgentProvider, model: AgentModel): stri
 export function getDefaultModel(provider: AgentProvider): AgentModel {
   if (provider === 'claude') return 'sonnet';
   if (provider === 'codex') return 'o4-mini';
-  if (provider === 'gemini') return 'gemini-3-flash';
+  if (provider === 'gemini') return 'gemini-3-flash-preview';
   throw new Error(`Unknown provider: ${provider}`);
 }
 

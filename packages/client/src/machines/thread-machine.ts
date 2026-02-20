@@ -32,13 +32,14 @@ export interface ThreadContext {
     status: 'completed' | 'failed';
     cost: number;
     duration: number;
+    error?: string;
   };
 }
 
 export type ThreadEvent =
   | { type: 'START' }
   | { type: 'COMPLETE'; cost?: number; duration?: number }
-  | { type: 'FAIL'; cost?: number; duration?: number }
+  | { type: 'FAIL'; cost?: number; duration?: number; error?: string }
   | { type: 'WAIT'; cost?: number; duration?: number }
   | { type: 'STOP' }
   | { type: 'INTERRUPT' }
@@ -62,6 +63,7 @@ export const threadMachine = setup({
           status: event.type === 'COMPLETE' ? 'completed' : 'failed',
           cost: event.cost ?? context.cost,
           duration: event.duration ?? 0,
+          error: event.type === 'FAIL' ? event.error : undefined,
         };
       }
     },
@@ -208,12 +210,12 @@ export function wsEventToMachineEvent(
       } else if (status === 'completed') {
         return { type: 'COMPLETE', cost: data.cost, duration: data.duration };
       } else if (status === 'failed') {
-        return { type: 'FAIL', cost: data.cost, duration: data.duration };
+        return { type: 'FAIL', cost: data.cost, duration: data.duration, error: data.error };
       }
       return null;
 
     case 'agent:error':
-      return { type: 'FAIL' };
+      return { type: 'FAIL', error: data.error };
 
     default:
       return null;

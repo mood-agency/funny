@@ -57,9 +57,10 @@
       "o4mini": "o4-mini",
       "codexMini": "Codex Mini",
       "gemini3flash": "Gemini 3 Flash",
-      "gemini31pro": "Gemini 3.1 Pro",
+      "gemini3pro": "Gemini 3 Pro",
       "gemini25flash": "Gemini 2.5 Flash",
-      "gemini25pro": "Gemini 2.5 Pro"
+      "gemini25pro": "Gemini 2.5 Pro",
+      "gemini20flash": "Gemini 2.0 Flash"
     },
     "send": "Enviar",
     "stop": "Parar",
@@ -491,7 +492,8 @@
   "initInfo": {
     "model": "Modelo:",
     "cwd": "Diretório:",
-    "tools": "Ferramentas:"
+    "tools": "Ferramentas:",
+    "providerManaged": "Gerenciado pelo provedor"
   },
   "prompt": {
     "plan": "Modo Plano",

@@ -42,10 +42,11 @@ export const PROVIDER_MODELS: Record<string, ModelConfig[]> = {
     { value: 'codex-mini', i18nKey: 'codexMini', fallback: 'Codex Mini' },
   ],
   gemini: [
-    { value: 'gemini-3-flash', i18nKey: 'gemini3flash', fallback: 'Gemini 3 Flash' },
-    { value: 'gemini-3.1-pro', i18nKey: 'gemini31pro', fallback: 'Gemini 3.1 Pro' },
+    { value: 'gemini-3-flash-preview', i18nKey: 'gemini3flash', fallback: 'Gemini 3 Flash' },
+    { value: 'gemini-3-pro-preview', i18nKey: 'gemini3pro', fallback: 'Gemini 3 Pro' },
     { value: 'gemini-2.5-flash', i18nKey: 'gemini25flash', fallback: 'Gemini 2.5 Flash' },
     { value: 'gemini-2.5-pro', i18nKey: 'gemini25pro', fallback: 'Gemini 2.5 Pro' },
+    { value: 'gemini-2.0-flash', i18nKey: 'gemini20flash', fallback: 'Gemini 2.0 Flash' },
   ],
 };
 

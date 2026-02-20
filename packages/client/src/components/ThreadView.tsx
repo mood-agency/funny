@@ -298,7 +298,7 @@ function InitInfoCard({ initInfo }: { initInfo: { tools: string[]; cwd: string; 
         <span className="font-medium shrink-0">{t('initInfo.tools')}</span>
         <div className="font-mono flex flex-wrap gap-1 items-start">
           {builtIn.length === 0 && mcpGroups.size === 0 && (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground/60" />
+            <span className="text-muted-foreground/60 italic">{t('initInfo.providerManaged')}</span>
           )}
           {builtIn.map((tool) => (
             <span key={tool} className="bg-secondary px-1.5 py-0.5 rounded text-xs">
@@ -872,10 +872,10 @@ export function ThreadView() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, ease: 'easeOut' }}
                     className={cn(
-                      'relative group text-sm max-w-[80%]',
+                      'relative group text-sm',
                       msg.role === 'user'
-                        ? 'ml-auto rounded-lg px-3 py-2 bg-foreground text-background'
-                        : 'text-foreground'
+                        ? 'max-w-[80%] ml-auto rounded-lg px-3 py-2 bg-foreground text-background'
+                        : 'w-full text-foreground'
                     )}
                     {...(msg.role === 'user' ? { 'data-user-msg': msg.id } : {})}
                   >
@@ -926,7 +926,7 @@ export function ThreadView() {
                               <div className="flex gap-1 mt-1.5">
                                 {msg.model && (
                                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-background/10 text-background/60 border-background/20">
-                                    {t(`thread.model.${msg.model}`)}
+                                    {resolveModelLabel(msg.model, t)}
                                   </Badge>
                                 )}
                                 {msg.permissionMode && (
@@ -1046,6 +1046,7 @@ export function ThreadView() {
                   status={activeThread.resultInfo.status}
                   cost={activeThread.resultInfo.cost}
                   duration={activeThread.resultInfo.duration}
+                  error={activeThread.resultInfo.error}
                 />
               </motion.div>
             )}

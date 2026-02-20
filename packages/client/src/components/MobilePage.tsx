@@ -490,7 +490,7 @@ function ChatView({
                           <div className="flex gap-1 mt-1.5">
                             {msg.model && (
                               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-medium bg-primary-foreground/10 text-primary-foreground/70 border-primary-foreground/20">
-                                {t(`thread.model.${msg.model}`)}
+                                {resolveModelLabel(msg.model, t)}
                               </Badge>
                             )}
                             {msg.permissionMode && (

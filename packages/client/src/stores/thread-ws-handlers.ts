@@ -281,6 +281,7 @@ export function handleWSResult(
           status: resultStatus as 'completed' | 'failed',
           cost: data.cost ?? activeThread.cost,
           duration: data.duration ?? 0,
+          error: data.error,
         },
         ...(data.stage ? { stage: data.stage } : {}),
       };

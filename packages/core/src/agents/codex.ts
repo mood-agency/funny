@@ -9,45 +9,21 @@
  * is not installed.
  */
 
-import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
-import type { CLIMessage, ClaudeProcessOptions } from './types.js';
+import type { CLIMessage } from './types.js';
+import { BaseAgentProcess } from './base-process.js';
 
 // Lazy-loaded SDK types (avoid crash if not installed)
 type CodexSDK = typeof import('@openai/codex-sdk');
 type CodexInstance = import('@openai/codex-sdk').Codex;
 type CodexThread = Awaited<ReturnType<CodexInstance['startThread']>>;
 
-export class CodexProcess extends EventEmitter {
-  private abortController = new AbortController();
-  private _exited = false;
+export class CodexProcess extends BaseAgentProcess {
   private threadId: string | null = null;
 
-  constructor(private options: ClaudeProcessOptions) {
-    super();
-  }
+  // ── Provider-specific run loop ─────────────────────────────────
 
-  // ── IAgentProcess API ─────────────────────────────────────────
-
-  start(): void {
-    this.runCodex().catch((err) => {
-      if (!this._exited) {
-        this.emit('error', err instanceof Error ? err : new Error(String(err)));
-      }
-    });
-  }
-
-  async kill(): Promise<void> {
-    this.abortController.abort();
-  }
-
-  get exited(): boolean {
-    return this._exited;
-  }
-
-  // ── Internal ──────────────────────────────────────────────────
-
-  private async runCodex(): Promise<void> {
+  protected async runProcess(): Promise<void> {
     // Dynamic import — fails gracefully if SDK not installed
     let SDK: CodexSDK;
     try {
@@ -82,16 +58,8 @@ export class CodexProcess extends EventEmitter {
     const sessionId = this.options.sessionId ?? randomUUID();
     this.threadId = sessionId;
 
-    // Emit init message (mirrors Claude's system:init)
-    const initMsg: CLIMessage = {
-      type: 'system',
-      subtype: 'init',
-      session_id: sessionId,
-      tools: [],
-      model: this.options.model ?? 'o4-mini',
-      cwd: this.options.cwd,
-    };
-    this.emit('message', initMsg);
+    // Emit init message
+    this.emitInit(sessionId, [], this.options.model ?? 'o4-mini', this.options.cwd);
 
     const startTime = Date.now();
     let totalCost = 0;
@@ -103,7 +71,7 @@ export class CodexProcess extends EventEmitter {
       const { events } = await thread.runStreamed(this.options.prompt);
 
       for await (const event of events) {
-        if (this.abortController.signal.aborted) break;
+        if (this.isAborted) break;
 
         switch (event.type) {
           case 'item.completed': {
@@ -139,40 +107,30 @@ export class CodexProcess extends EventEmitter {
         }
       }
 
-      // Emit result message
-      const resultMsg: CLIMessage = {
-        type: 'result',
+      // Emit success result
+      this.emitResult({
+        sessionId,
         subtype: 'success',
-        is_error: false,
-        duration_ms: Date.now() - startTime,
-        num_turns: numTurns,
+        startTime,
+        numTurns,
+        totalCost,
         result: lastResult || undefined,
-        total_cost_usd: totalCost,
-        session_id: sessionId,
-      };
-      this.emit('message', resultMsg);
+      });
 
     } catch (err: any) {
-      if (this.abortController.signal.aborted) {
-        // Normal cancellation — not an error
-      } else {
-        // Emit a failed result
-        const resultMsg: CLIMessage = {
-          type: 'result',
+      if (!this.isAborted) {
+        this.emitResult({
+          sessionId,
           subtype: 'error_during_execution',
-          is_error: true,
-          duration_ms: Date.now() - startTime,
-          num_turns: numTurns,
+          startTime,
+          numTurns,
+          totalCost,
           result: err.message,
-          total_cost_usd: totalCost,
-          session_id: sessionId,
           errors: [err.message],
-        };
-        this.emit('message', resultMsg);
+        });
       }
     } finally {
-      this._exited = true;
-      this.emit('exit', this.abortController.signal.aborted ? null : 0);
+      this.finalize();
     }
   }
 

@@ -55,11 +55,19 @@ export const gitSyncStateConfig: Record<GitSyncState, { icon: typeof Clock; clas
   clean:    { icon: CheckCircle2,         className: 'text-muted-foreground', labelKey: 'gitStatus.clean' },
 };
 
-/** Map full model IDs (from Claude SDK) back to friendly keys used in translations. */
+/** Map full model IDs (from Claude SDK / Gemini CLI) back to friendly keys used in translations. */
 const MODEL_ID_TO_KEY: Record<string, string> = {
   'claude-opus-4-6': 'opus',
   'claude-sonnet-4-5-20250929': 'sonnet',
   'claude-haiku-4-5-20251001': 'haiku',
+  'gemini-2.0-flash': 'gemini20flash',
+  'gemini-2.5-flash': 'gemini25flash',
+  'gemini-2.5-pro': 'gemini25pro',
+  'gemini-3-flash-preview': 'gemini3flash',
+  'gemini-3-pro-preview': 'gemini3pro',
+  // Legacy model IDs (threads created before rename)
+  'gemini-3-flash': 'gemini3flash',
+  'gemini-3.1-pro': 'gemini3pro',
 };
 
 export function resolveModelLabel(modelId: string, t: (key: string, opts?: any) => string): string {
