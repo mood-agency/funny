@@ -123,7 +123,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
   selectThread: async (threadId) => {
     const gen = nextSelectGeneration();
-    set({ selectedThreadId: threadId, activeThread: null });
+    // Keep stale activeThread visible during load to avoid layout shift.
+    // Only clear it if switching to null (deselect) or to a different thread.
+    const prevActive = get().activeThread;
+    const keepStale = threadId && prevActive && prevActive.id !== threadId;
+    set({
+      selectedThreadId: threadId,
+      activeThread: keepStale ? prevActive : (threadId ? prevActive : null),
+    });
     useUIStore.setState({ newThreadProjectId: null, allThreadsProjectId: null });
 
     if (!threadId) return;

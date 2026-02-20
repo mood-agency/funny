@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -127,7 +127,7 @@ export function ProjectItem({
         </CollapsibleTrigger>
         <div className="flex items-center mr-2 gap-0.5">
           <div className={cn(
-            'flex items-center gap-0.5 transition-opacity',
+            'flex items-center gap-0.5',
             hovered || openDropdown
               ? 'opacity-100'
               : 'opacity-0 pointer-events-none'

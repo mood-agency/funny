@@ -229,7 +229,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       {/* Active threads section (own scroll) */}
-      <div className="flex flex-col max-h-[40%] min-h-[5rem] shrink-0">
+      <div className="flex flex-col max-h-[40%] min-h-[5rem] shrink-0 contain-paint">
         <div className="px-2">
           <AutomationInboxButton />
         </div>
@@ -238,7 +238,7 @@ export function AppSidebar() {
         </div>
         <div ref={threadsScrollRef} className="relative overflow-y-auto min-h-0 px-2 pb-2">
           <div className={cn(
-            "sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 transition-opacity duration-150",
+            "sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10",
             threadsScrolled ? "opacity-100" : "opacity-0"
           )} />
           <ThreadList
@@ -305,7 +305,7 @@ export function AppSidebar() {
       {/* Projects list (fills remaining space, own scroll) */}
       <SidebarContent ref={projectsScrollRef} className="px-2 pb-2 relative">
         <div className={cn(
-          "sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 transition-opacity duration-150 shrink-0",
+          "sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 shrink-0",
           projectsScrolled ? "opacity-100" : "opacity-0"
         )} />
         {projects.length === 0 && (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import {
@@ -41,9 +41,10 @@ interface ThreadItemProps {
   gitStatus?: GitStatusInfo;
 }
 
-export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle, timeValue, onArchive, onPin, onDelete, gitStatus }: ThreadItemProps) {
+export const ThreadItem = memo(function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle, timeValue, onArchive, onPin, onDelete, gitStatus }: ThreadItemProps) {
   const { t } = useTranslation();
   const [openDropdown, setOpenDropdown] = useState(false);
+  const handleDropdownChange = useCallback((open: boolean) => setOpenDropdown(open), []);
 
   // Thread status config
   const threadStatusCfg = statusConfig[thread.status as ThreadStatus] ?? statusConfig.pending;
@@ -72,7 +73,7 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
   return (
     <div
       className={cn(
-        'group/thread w-full flex items-stretch rounded-md transition-colors min-w-0',
+        'group/thread w-full flex items-stretch rounded-md min-w-0',
         isSelected
           ? 'bg-accent text-accent-foreground'
           : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -136,16 +137,16 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
       </button>
       <div className="flex-shrink-0 pr-1.5 pl-2 py-1 grid place-items-start justify-items-center min-w-[2.5rem]">
         <span className={cn(
-          'col-start-1 row-start-1 text-xs text-muted-foreground leading-4 h-4 group-hover/thread:invisible',
-          openDropdown && 'invisible'
+          'col-start-1 row-start-1 text-xs text-muted-foreground leading-4 h-4 group-hover/thread:opacity-0',
+          openDropdown && 'opacity-0'
         )}>
           {displayTime}
         </span>
         <div className={cn(
-          'col-start-1 row-start-1 flex items-center h-4 invisible group-hover/thread:visible',
-          openDropdown && '!visible'
+          'col-start-1 row-start-1 flex items-center h-4 opacity-0 group-hover/thread:opacity-100',
+          openDropdown && '!opacity-100'
         )}>
-          <DropdownMenu onOpenChange={setOpenDropdown}>
+          <DropdownMenu onOpenChange={handleDropdownChange}>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
@@ -243,4 +244,4 @@ export function ThreadItem({ thread, projectPath, isSelected, onSelect, subtitle
       </div>
     </div>
   );
-}
+});

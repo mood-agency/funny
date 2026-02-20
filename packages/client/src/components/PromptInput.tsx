@@ -936,7 +936,7 @@ export function PromptInput({
         {/* Textarea + bottom toolbar */}
         <div
           className={cn(
-            "relative rounded-md border bg-background transition-[border-color,box-shadow] duration-150",
+            "relative rounded-md border bg-background",
             isDragging
               ? "border-primary border-2 ring-2 ring-primary/20"
               : "border-input focus-within:ring-1 focus-within:ring-ring"
@@ -1072,9 +1072,9 @@ export function PromptInput({
             onChange={handleFileSelect}
             disabled={loading || running}
           />
-          {/* Bottom toolbar — single row, wraps naturally */}
+          {/* Bottom toolbar — single row, horizontal scroll to avoid layout shifts from wrapping */}
           <div className="px-2 py-1.5">
-            <div className="flex items-center gap-1 flex-wrap">
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
               {!isNewThread && effectiveCwd && selectedProjectId && (
                 activeThread?.mode === 'worktree' ? (
                   <WorktreePicker

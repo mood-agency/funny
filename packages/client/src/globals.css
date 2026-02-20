@@ -242,4 +242,14 @@
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+  /* Layout containment to prevent cross-component layout recalculations */
+  .contain-layout {
+    contain: layout;
+  }
+  .contain-paint {
+    contain: paint;
+  }
+  .contain-strict {
+    contain: layout style paint;
+  }
 }
