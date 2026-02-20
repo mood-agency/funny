@@ -462,6 +462,17 @@
     "stop": "Stop",
     "continue": "Continue"
   },
+  "editor": {
+    "failedToLoad": "Failed to load file",
+    "saved": "File saved",
+    "failedToSave": "Failed to save file",
+    "unsavedChanges": "You have unsaved changes. Close without saving?",
+    "modified": "Modified",
+    "hideMinimap": "Hide minimap",
+    "showMinimap": "Show minimap",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit fullscreen"
+  },
   "dialog": {
     "archiveThread": "Archive thread",
     "archiveThreadDesc": "Are you sure you want to archive \"{{title}}\"? You can restore it later from Settings.",

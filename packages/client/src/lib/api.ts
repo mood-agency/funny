@@ -525,4 +525,13 @@ export const api = {
   // Setup
   setupStatus: () =>
     request<{ claudeCli: { available: boolean; path: string | null; error: string | null; version: string | null } }>('/setup/status'),
+
+  // Files (internal editor)
+  readFile: (path: string) =>
+    request<{ content: string }>(`/files/read?path=${encodeURIComponent(path)}`),
+  writeFile: (path: string, content: string) =>
+    request<{ ok: boolean }>('/files/write', {
+      method: 'POST',
+      body: JSON.stringify({ path, content }),
+    }),
 };

@@ -462,6 +462,17 @@
     "stop": "Parar",
     "continue": "Continuar"
   },
+  "editor": {
+    "failedToLoad": "Falha ao carregar o arquivo",
+    "saved": "Arquivo salvo",
+    "failedToSave": "Falha ao salvar o arquivo",
+    "unsavedChanges": "Você tem alterações não salvas. Fechar sem salvar?",
+    "modified": "Modificado",
+    "hideMinimap": "Ocultar minimapa",
+    "showMinimap": "Mostrar minimapa",
+    "fullscreen": "Tela cheia",
+    "exitFullscreen": "Sair da tela cheia"
+  },
   "dialog": {
     "archiveThread": "Arquivar thread",
     "archiveThreadDesc": "Tem certeza de que deseja arquivar \"{{title}}\"? Você pode restaurá-la depois nas Configurações.",

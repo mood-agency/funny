@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { ToolPermission, AgentProvider, AgentModel } from '@funny/shared';
 
 export type Theme = 'light' | 'dark' | 'system';
-export type Editor = 'cursor' | 'vscode' | 'windsurf' | 'zed' | 'sublime' | 'vim';
+export type Editor = 'cursor' | 'vscode' | 'windsurf' | 'zed' | 'sublime' | 'vim' | 'internal';
 export type ThreadMode = 'local' | 'worktree';
 export type ClaudeModel = 'haiku' | 'sonnet' | 'opus';
 export type PermissionMode = 'plan' | 'autoEdit' | 'confirmEdit';
@@ -15,6 +15,7 @@ const editorLabels: Record<Editor, string> = {
   zed: 'Zed',
   sublime: 'Sublime Text',
   vim: 'Vim',
+  internal: 'Internal Editor',
 };
 
 export const ALL_STANDARD_TOOLS = [

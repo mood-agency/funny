@@ -7,8 +7,10 @@ import { useProjectStore } from '@/stores/project-store';
 import { useUIStore } from '@/stores/ui-store';
 import { setAppNavigate } from '@/stores/thread-store';
 import { useTerminalStore } from '@/stores/terminal-store';
+import { useInternalEditorStore } from '@/stores/internal-editor-store';
 import { AppSidebar } from '@/components/Sidebar';
 import { ThreadView } from '@/components/ThreadView';
+import { MonacoEditorDialog } from '@/components/MonacoEditorDialog';
 import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { Toaster } from 'sonner';
 import { TOAST_DURATION } from '@/lib/utils';
@@ -161,6 +163,15 @@ export function App() {
       <Toaster position="bottom-right" theme="dark" duration={TOAST_DURATION} />
       <Suspense><CircuitBreakerDialog /></Suspense>
       {commandPaletteOpen && <Suspense><CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} /></Suspense>}
+
+      {/* Internal Monaco Editor Dialog (global) */}
+      <MonacoEditorDialog
+        open={useInternalEditorStore((s) => s.isOpen)}
+        onOpenChange={(open) => {
+          if (!open) useInternalEditorStore.getState().closeEditor();
+        }}
+        filePath={useInternalEditorStore((s) => s.filePath) || ''}
+      />
     </SidebarProvider>
   );
 }
