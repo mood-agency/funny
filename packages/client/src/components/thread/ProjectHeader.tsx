@@ -310,7 +310,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
                       </BreadcrumbPage>
                     </div>
                   </TooltipTrigger>
-                  <TooltipContent>{activeThread.title}</TooltipContent>
+                  <TooltipContent className="max-w-[400px] overflow-visible whitespace-normal break-words">{activeThread.title}</TooltipContent>
                 </Tooltip>
               </BreadcrumbItem>
             )}

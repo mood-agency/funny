@@ -9,7 +9,9 @@ import { useProjectStore } from '@/stores/project-store';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Columns3 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Loader2, Columns3, Grid2x2, ArrowUp, Square } from 'lucide-react';
 import { statusConfig, timeAgo, resolveModelLabel } from '@/lib/thread-utils';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { ToolCallCard } from './ToolCallCard';
@@ -17,6 +19,59 @@ import { ToolCallGroup } from './ToolCallGroup';
 import type { Thread } from '@funny/shared';
 
 const ACTIVE_STATUSES = new Set(['running', 'waiting', 'pending']);
+const FINISHED_STATUSES = new Set(['completed', 'failed', 'stopped', 'interrupted']);
+
+const MAX_GRID_COLS = 5;
+const MAX_GRID_ROWS = 5;
+
+function GridPicker({ cols, rows, onChange }: { cols: number; rows: number; onChange: (cols: number, rows: number) => void }) {
+  const [hoverCol, setHoverCol] = useState(0);
+  const [hoverRow, setHoverRow] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  const displayCol = open && hoverCol > 0 ? hoverCol : cols;
+  const displayRow = open && hoverRow > 0 ? hoverRow : rows;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" className="text-[10px] h-6 px-2 gap-1.5 min-w-0">
+          <Grid2x2 className="h-3.5 w-3.5" />
+          {cols}×{rows}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-3" align="end" sideOffset={4}>
+        <div
+          className="grid gap-1"
+          style={{ gridTemplateColumns: `repeat(${MAX_GRID_COLS}, 1fr)` }}
+          onMouseLeave={() => { setHoverCol(0); setHoverRow(0); }}
+        >
+          {Array.from({ length: MAX_GRID_ROWS }, (_, r) =>
+            Array.from({ length: MAX_GRID_COLS }, (_, c) => {
+              const isHighlighted = (c + 1) <= displayCol && (r + 1) <= displayRow;
+              return (
+                <button
+                  key={`${c}-${r}`}
+                  className={cn(
+                    'w-5 h-5 rounded-sm border transition-colors',
+                    isHighlighted
+                      ? 'bg-primary border-primary'
+                      : 'bg-muted/40 border-border hover:border-muted-foreground/40'
+                  )}
+                  onMouseEnter={() => { setHoverCol(c + 1); setHoverRow(r + 1); }}
+                  onClick={() => { onChange(c + 1, r + 1); setOpen(false); }}
+                />
+              );
+            })
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground text-center mt-2">
+          {displayCol}×{displayRow}
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const remarkPlugins = [remarkGfm];
 
@@ -24,10 +79,10 @@ const markdownComponents = {
   code: ({ className, children, ...props }: any) => {
     const isBlock = className?.startsWith('language-');
     return isBlock
-      ? <code className={cn('block bg-muted p-1.5 rounded text-[10px] font-mono overflow-x-auto', className)} {...props}>{children}</code>
-      : <code className="bg-muted px-1 py-0.5 rounded text-[10px] font-mono" {...props}>{children}</code>;
+      ? <code className={cn('block bg-muted p-2 rounded text-xs font-mono overflow-x-auto', className)} {...props}>{children}</code>
+      : <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono" {...props}>{children}</code>;
   },
-  pre: ({ children }: any) => <pre className="bg-muted rounded p-1.5 font-mono overflow-x-auto my-1">{children}</pre>,
+  pre: ({ children }: any) => <pre className="bg-muted rounded p-2 font-mono overflow-x-auto my-2">{children}</pre>,
 };
 
 type ToolItem =
@@ -121,6 +176,70 @@ function D4CAnimation() {
   return <span className="inline-block text-xs leading-none w-4 text-center">{D4C_FRAMES[frame]}</span>;
 }
 
+/** Compact prompt input for a thread column */
+function CompactPromptInput({ threadId, running }: { threadId: string; running: boolean }) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState('');
+  const [sending, setSending] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleSend = useCallback(async () => {
+    const trimmed = value.trim();
+    if (!trimmed || sending) return;
+    setSending(true);
+    await api.sendMessage(threadId, trimmed);
+    setValue('');
+    setSending(false);
+    textareaRef.current?.focus();
+  }, [value, sending, threadId]);
+
+  const handleStop = useCallback(async () => {
+    await api.stopThread(threadId);
+  }, [threadId]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
+
+  return (
+    <div className="flex-shrink-0 border-t border-border px-2 py-1.5 flex items-end gap-1.5">
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={running ? t('thread.followUp', 'Follow up...') : t('thread.nextPrompt', 'Send a message...')}
+        rows={1}
+        className="flex-1 resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none min-h-[28px] max-h-[80px] py-1"
+        style={{ fieldSizing: 'content' } as React.CSSProperties}
+      />
+      {running ? (
+        <Button
+          variant="destructive"
+          size="icon-xs"
+          className="shrink-0"
+          onClick={handleStop}
+        >
+          <Square className="h-3 w-3" />
+        </Button>
+      ) : (
+        <Button
+          variant="default"
+          size="icon-xs"
+          className="shrink-0"
+          onClick={handleSend}
+          disabled={!value.trim() || sending}
+        >
+          {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowUp className="h-3 w-3" />}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /** A single column that loads and streams a thread in real-time */
 const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string }) {
   const { t } = useTranslation();
@@ -157,8 +276,10 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
     return () => { cancelled = true; };
   }, [threadId]);
 
-  // Poll for updates every 3 seconds to get streaming content
+  // Poll for updates every 3 seconds to get streaming content (only for active threads)
+  const isActive = liveStatus ? ACTIVE_STATUSES.has(liveStatus) : true;
   useEffect(() => {
+    if (!isActive) return;
     const interval = setInterval(async () => {
       const result = await api.getThread(threadId, 50);
       if (result.isOk()) {
@@ -166,7 +287,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [threadId]);
+  }, [threadId, isActive]);
 
   // Auto-scroll to bottom
   useLayoutEffect(() => {
@@ -204,7 +325,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center border-r border-border last:border-r-0">
+      <div className="flex items-center justify-center border border-border rounded-sm min-h-0">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
@@ -212,7 +333,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
 
   if (!thread) {
     return (
-      <div className="flex-1 flex items-center justify-center border-r border-border last:border-r-0 text-muted-foreground text-xs">
+      <div className="flex items-center justify-center border border-border rounded-sm text-muted-foreground text-xs min-h-0">
         {t('thread.notFound', 'Thread not found')}
       </div>
     );
@@ -221,29 +342,26 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
   const isRunning = status === 'running';
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 border-r border-border last:border-r-0 overflow-hidden">
+    <div className="flex flex-col min-w-0 border border-border rounded-sm overflow-hidden">
       {/* Column header */}
       <div className="flex-shrink-0 border-b border-border px-3 py-2 bg-sidebar/50">
         <div className="flex items-center gap-2 min-w-0">
           <StatusIcon className={cn('h-3.5 w-3.5 shrink-0', statusClass)} />
-          <span className="text-xs font-medium truncate flex-1" title={thread.title}>
+          <span className="text-sm font-medium truncate flex-1" title={thread.title}>
             {thread.title}
           </span>
         </div>
         <div className="flex items-center gap-1.5 mt-1">
           {projectName && (
-            <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 font-normal">
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
               {projectName}
             </Badge>
           )}
           {thread.branch && (
-            <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 font-mono font-normal truncate max-w-[120px]">
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-mono font-normal truncate max-w-[120px]">
               {thread.branch}
             </Badge>
           )}
-          <Badge variant="outline" className={cn('text-[9px] px-1 py-0 h-3.5 font-normal', statusClass)}>
-            {status}
-          </Badge>
         </div>
       </div>
 
@@ -254,7 +372,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
             const renderToolItem = (ti: ToolItem) => {
               if (ti.type === 'toolcall') {
                 return (
-                  <div key={ti.tc.id} className="text-[10px]">
+                  <div key={ti.tc.id}>
                     <ToolCallCard
                       name={ti.tc.name}
                       input={ti.tc.input}
@@ -265,7 +383,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
               }
               if (ti.type === 'toolcall-group') {
                 return (
-                  <div key={ti.calls[0].id} className="text-[10px]">
+                  <div key={ti.calls[0].id}>
                     <ToolCallGroup name={ti.name} calls={ti.calls} />
                   </div>
                 );
@@ -279,18 +397,18 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
                 <div
                   key={msg.id}
                   className={cn(
-                    'text-[11px] leading-relaxed',
+                    'text-sm leading-relaxed',
                     msg.role === 'user'
                       ? 'max-w-[90%] ml-auto rounded-md px-2 py-1.5 bg-foreground text-background'
                       : 'w-full text-foreground'
                   )}
                 >
                   {msg.role === 'user' ? (
-                    <pre className="whitespace-pre-wrap font-mono text-[10px] break-words overflow-x-auto max-h-24 overflow-y-auto">
+                    <pre className="whitespace-pre-wrap font-mono text-xs break-words overflow-x-auto max-h-80 overflow-y-auto">
                       {msg.content.trim()}
                     </pre>
                   ) : (
-                    <div className="prose prose-sm max-w-none text-[11px] [&_p]:text-[11px] [&_li]:text-[11px] [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs break-words overflow-x-auto">
+                    <div className="prose prose-sm max-w-none break-words overflow-x-auto">
                       <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
                         {msg.content.trim()}
                       </ReactMarkdown>
@@ -316,13 +434,16 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
           })}
 
           {isRunning && (
-            <div className="flex items-center gap-1.5 text-muted-foreground text-[10px] py-0.5">
+            <div className="flex items-center gap-1.5 text-muted-foreground text-xs py-0.5">
               <D4CAnimation />
               <span>{t('thread.agentWorking')}</span>
             </div>
           )}
         </div>
       </ScrollArea>
+
+      {/* Prompt input */}
+      <CompactPromptInput threadId={threadId} running={isRunning} />
     </div>
   );
 });
@@ -333,28 +454,47 @@ export function LiveColumnsView() {
   const threadsByProject = useThreadStore(s => s.threadsByProject);
   const projects = useProjectStore(s => s.projects);
   const loadThreadsForProject = useThreadStore(s => s.loadThreadsForProject);
+  const [gridCols, setGridCols] = useState(2);
+  const [gridRows, setGridRows] = useState(2);
+  const maxSlots = gridCols * gridRows;
 
-  // Ensure threads are loaded for all projects
+  // Ensure threads are loaded for all projects and refresh periodically
   useEffect(() => {
-    for (const project of projects) {
-      loadThreadsForProject(project.id);
-    }
+    const load = () => {
+      for (const project of projects) {
+        loadThreadsForProject(project.id);
+      }
+    };
+    load();
+    const interval = setInterval(load, 5000);
+    return () => clearInterval(interval);
   }, [projects, loadThreadsForProject]);
 
-  // Collect all active threads sorted by most recent activity
+  // Collect active threads + recent finished threads (matching sidebar activity)
   const activeThreads = useMemo(() => {
-    const all: Thread[] = [];
+    const running: Thread[] = [];
+    const finished: Thread[] = [];
     for (const threads of Object.values(threadsByProject)) {
       for (const thread of threads) {
-        if (ACTIVE_STATUSES.has(thread.status) && !thread.archived) {
-          all.push(thread);
+        if (thread.archived) continue;
+        if (ACTIVE_STATUSES.has(thread.status)) {
+          running.push(thread);
+        } else if (FINISHED_STATUSES.has(thread.status)) {
+          finished.push(thread);
         }
       }
     }
-    // Sort by createdAt descending (most recent first)
-    all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return all;
-  }, [threadsByProject]);
+    // Sort finished by completion date
+    finished.sort((a, b) => {
+      const dateA = new Date(a.completedAt ?? a.createdAt).getTime();
+      const dateB = new Date(b.completedAt ?? b.createdAt).getTime();
+      return dateB - dateA;
+    });
+    // Active threads first (sorted by creation), then fill remaining slots with recent finished
+    running.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const remainingSlots = Math.max(0, maxSlots - running.length);
+    return [...running, ...finished.slice(0, remainingSlots)];
+  }, [threadsByProject, maxSlots]);
 
   if (activeThreads.length === 0) {
     return (
@@ -375,13 +515,34 @@ export function LiveColumnsView() {
         <Columns3 className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">{t('live.title', 'Live')}</span>
         <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-          {activeThreads.length} {t('live.active', 'active')}
+          {activeThreads.filter(t => ACTIVE_STATUSES.has(t.status)).length} {t('live.active', 'active')}
+          {activeThreads.some(t => FINISHED_STATUSES.has(t.status)) && (
+            <span className="ml-1 text-muted-foreground">
+              + {activeThreads.filter(t => FINISHED_STATUSES.has(t.status)).length} {t('live.recent', 'recent')}
+            </span>
+          )}
         </Badge>
+
+        {/* Grid size picker */}
+        <div className="ml-auto">
+          <GridPicker
+            cols={gridCols}
+            rows={gridRows}
+            onChange={(c, r) => { setGridCols(c); setGridRows(r); }}
+          />
+        </div>
       </div>
 
-      {/* Columns */}
-      <div className="flex-1 flex min-h-0 overflow-x-auto">
-        {activeThreads.map(thread => (
+      {/* Grid */}
+      <div
+        className="flex-1 min-h-0 overflow-auto p-2 gap-2"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${gridCols}, minmax(400px, 1fr))`,
+          gridTemplateRows: `repeat(${gridRows}, 1fr)`,
+        }}
+      >
+        {activeThreads.slice(0, maxSlots).map(thread => (
           <ThreadColumn key={thread.id} threadId={thread.id} />
         ))}
       </div>
