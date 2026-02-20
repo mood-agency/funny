@@ -15,7 +15,9 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Monitor, GitBranch, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { getAllModelOptions } from '@/lib/providers';
+import { PROVIDERS, getModelOptions } from '@/lib/providers';
+import type { AgentProvider } from '@funny/shared';
+import { getDefaultModel } from '@funny/shared/models';
 import { McpServerSettings } from './McpServerSettings';
 import { SkillsSettings } from './SkillsSettings';
 import { WorktreeSettings } from './WorktreeSettings';
@@ -170,7 +172,7 @@ function ProjectColorPicker({ projectId, currentColor }: { projectId: string; cu
 
 /* ── General settings content ── */
 function GeneralSettings() {
-  const { defaultThreadMode, defaultModel, defaultPermissionMode, toolPermissions, setDefaultThreadMode, setDefaultModel, setDefaultPermissionMode, setToolPermission, resetToolPermissions } = useSettingsStore();
+  const { defaultThreadMode, defaultProvider, defaultModel, defaultPermissionMode, toolPermissions, setDefaultThreadMode, setDefaultProvider, setDefaultModel, setDefaultPermissionMode, setToolPermission, resetToolPermissions } = useSettingsStore();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const projects = useAppStore((s) => s.projects);
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
@@ -226,11 +228,22 @@ function GeneralSettings() {
           title={t('settings.defaultModel')}
           description={t('settings.defaultModelDesc')}
         >
-          <SegmentedControl<string>
-            value={defaultModel}
-            onChange={(v) => setDefaultModel(v as any)}
-            options={getAllModelOptions(t)}
-          />
+          <div className="flex items-center gap-2">
+            <SegmentedControl<string>
+              value={defaultProvider}
+              onChange={(v) => {
+                const p = v as AgentProvider;
+                setDefaultProvider(p);
+                setDefaultModel(getDefaultModel(p) as any);
+              }}
+              options={PROVIDERS.map((p) => ({ value: p.value, label: p.label }))}
+            />
+            <SegmentedControl<string>
+              value={defaultModel}
+              onChange={(v) => setDefaultModel(v as any)}
+              options={getModelOptions(defaultProvider, t)}
+            />
+          </div>
         </SettingRow>
         <SettingRow
           title={t('settings.defaultPermissionMode')}
