@@ -462,6 +462,17 @@
     "stop": "Detener",
     "continue": "Continuar"
   },
+  "editor": {
+    "failedToLoad": "No se pudo cargar el archivo",
+    "saved": "Archivo guardado",
+    "failedToSave": "No se pudo guardar el archivo",
+    "unsavedChanges": "Tienes cambios sin guardar. ¿Cerrar sin guardar?",
+    "modified": "Modificado",
+    "hideMinimap": "Ocultar minimapa",
+    "showMinimap": "Mostrar minimapa",
+    "fullscreen": "Pantalla completa",
+    "exitFullscreen": "Salir de pantalla completa"
+  },
   "dialog": {
     "archiveThread": "Archivar hilo",
     "archiveThreadDesc": "¿Estás seguro de que quieres archivar \"{{title}}\"? Puedes restaurarlo después desde Configuración.",
