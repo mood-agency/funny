@@ -283,10 +283,10 @@ function KanbanColumn({ stage, threads, projectInfoById, onDelete, projectId, pr
     });
   }, [stage]);
 
-  // Reset visible count when threads change (e.g., search/filter)
+  // Reset visible count only when search/filter changes, not when a card is moved
   useEffect(() => {
     setVisibleCount(20);
-  }, [threads.length]);
+  }, [search, projectId]);
 
   const StageIcon = stageConfig[stage].icon;
   const stageClassName = stageConfig[stage].className;
