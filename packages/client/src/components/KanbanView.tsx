@@ -7,7 +7,7 @@ import {
   dropTargetForElements,
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import { GitBranch, Plus, Search, Trash2 } from 'lucide-react';
+import { GitBranch, Pin, Plus, Search, Trash2 } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -106,15 +106,20 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
         }
       }}
     >
-      <button
-        className="absolute top-1.5 right-1.5 p-1 rounded opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(thread);
-        }}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
+        {thread.pinned && (
+          <Pin className="h-3 w-3 text-primary rotate-45" />
+        )}
+        <button
+          className="p-1 rounded opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(thread);
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
 
       {projectInfo && (
         <span
