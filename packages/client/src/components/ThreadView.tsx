@@ -1133,16 +1133,18 @@ export function ThreadView() {
         </div>
       )}
 
-      {/* Input */}
-      <PromptInput
-        onSubmit={handleSend}
-        onStop={handleStop}
-        loading={sending}
-        running={isRunning && !isExternal}
-        isQueueMode={isQueueMode}
-        queuedCount={(activeThread as any).queuedCount ?? 0}
-        placeholder={t('thread.nextPrompt')}
-      />
+      {/* Input — hidden when waiting for a question response */}
+      {!(activeThread.status === 'waiting' && activeThread.waitingReason === 'question') && (
+        <PromptInput
+          onSubmit={handleSend}
+          onStop={handleStop}
+          loading={sending}
+          running={isRunning && !isExternal}
+          isQueueMode={isQueueMode}
+          queuedCount={(activeThread as any).queuedCount ?? 0}
+          placeholder={t('thread.nextPrompt')}
+        />
+      )}
 
       {/* Image lightbox */}
       <ImageLightbox
