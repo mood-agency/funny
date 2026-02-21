@@ -127,6 +127,7 @@ function SearchablePicker({
         <button
           className={triggerClassName ?? 'flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[300px]'}
           title={triggerTitle}
+          tabIndex={-1}
         >
           <GitBranch className="h-3 w-3 shrink-0" />
           <span className="truncate font-mono">{displayValue}</span>
@@ -1098,6 +1099,7 @@ export function PromptInput({
                     <button
                       onClick={() => setThreadMode('local')}
                       aria-pressed={threadMode === 'local'}
+                      tabIndex={-1}
                       className={cn(
                         'px-2 py-1 text-xs flex items-center gap-1 transition-colors',
                         threadMode === 'local' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -1109,6 +1111,7 @@ export function PromptInput({
                     <button
                       onClick={() => setThreadMode('worktree')}
                       aria-pressed={threadMode === 'worktree'}
+                      tabIndex={-1}
                       className={cn(
                         'px-2 py-1 text-xs flex items-center gap-1 transition-colors',
                         threadMode === 'worktree' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
@@ -1134,7 +1137,7 @@ export function PromptInput({
                 </>
               )}
               <Select value={provider} onValueChange={setProvider}>
-                <SelectTrigger className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
+                <SelectTrigger tabIndex={-1} className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1146,7 +1149,7 @@ export function PromptInput({
                 </SelectContent>
               </Select>
               <Select value={model} onValueChange={setModel}>
-                <SelectTrigger className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
+                <SelectTrigger tabIndex={-1} className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1158,7 +1161,7 @@ export function PromptInput({
                 </SelectContent>
               </Select>
               <Select value={mode} onValueChange={setMode}>
-                <SelectTrigger className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
+                <SelectTrigger tabIndex={-1} className="h-7 w-auto min-w-0 text-xs border-0 bg-transparent shadow-none text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1172,6 +1175,7 @@ export function PromptInput({
               {showBacklog && (
                 <button
                   onClick={() => setSendToBacklog((v) => !v)}
+                  tabIndex={-1}
                   className={cn(
                     'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors shrink-0',
                     sendToBacklog
@@ -1190,6 +1194,7 @@ export function PromptInput({
                   onClick={() => fileInputRef.current?.click()}
                   variant="ghost"
                   size="icon-sm"
+                  tabIndex={-1}
                   aria-label={t('prompt.attach')}
                   disabled={loading || (running && !isQueueMode)}
                   className="text-muted-foreground hover:text-foreground"
@@ -1206,6 +1211,7 @@ export function PromptInput({
                     onClick={onStop}
                     variant="destructive"
                     size="icon-sm"
+                    tabIndex={-1}
                     aria-label={t('prompt.stopAgent')}
                   >
                     <Square className="h-3.5 w-3.5" />
@@ -1216,6 +1222,7 @@ export function PromptInput({
                       onClick={handleSubmit}
                       disabled={loading}
                       size="icon-sm"
+                      tabIndex={-1}
                       aria-label={t('prompt.queueMessage')}
                     >
                       {loading ? (
@@ -1228,6 +1235,7 @@ export function PromptInput({
                       onClick={onStop}
                       variant="destructive"
                       size="icon-sm"
+                      tabIndex={-1}
                       aria-label={t('prompt.stopAgent')}
                     >
                       <Square className="h-3.5 w-3.5" />
@@ -1238,6 +1246,7 @@ export function PromptInput({
                     onClick={handleSubmit}
                     disabled={loading}
                     size="icon-sm"
+                    tabIndex={-1}
                     aria-label={t('prompt.send', 'Send message')}
                   >
                     {loading ? (
