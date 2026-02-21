@@ -11,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Columns3, Grid2x2 } from 'lucide-react';
+import { Loader2, Columns3, Grid2x2, Plus } from 'lucide-react';
 import { statusConfig, timeAgo, resolveModelLabel } from '@/lib/thread-utils';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { ToolCallCard } from './ToolCallCard';
@@ -422,6 +422,7 @@ export function LiveColumnsView() {
   const threadsByProject = useThreadStore(s => s.threadsByProject);
   const projects = useProjectStore(s => s.projects);
   const loadThreadsForProject = useThreadStore(s => s.loadThreadsForProject);
+  const startNewThread = useAppStore(s => s.startNewThread);
   const [gridCols, setGridCols] = useState(2);
   const [gridRows, setGridRows] = useState(2);
   const maxSlots = gridCols * gridRows;
@@ -490,6 +491,19 @@ export function LiveColumnsView() {
             </span>
           )}
         </Badge>
+
+        {/* New thread button */}
+        {projects.length > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0"
+            onClick={() => startNewThread(projects[0].id)}
+            title={t('live.newThread', 'Create new thread')}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        )}
 
         {/* Grid size picker */}
         <div className="ml-auto">
