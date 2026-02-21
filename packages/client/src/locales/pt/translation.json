@@ -341,7 +341,8 @@
     "openInEditor": "Abrir no {{editor}}: {{path}}",
     "other": "Outra",
     "otherPlaceholder": "Escreva sua resposta...",
-    "next": "Próximo"
+    "next": "Próximo",
+    "continue": "Continuar"
   },
   "allThreads": {
     "title": "Todas as threads",
