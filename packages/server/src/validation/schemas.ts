@@ -6,7 +6,7 @@ import { validationErr, type DomainError } from '@funny/shared/errors';
 
 export const threadModeSchema = z.enum(['local', 'worktree']);
 export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini']);
-export const claudeModelSchema = z.enum(['sonnet', 'opus', 'haiku']);
+export const claudeModelSchema = z.enum(['sonnet', 'sonnet-4.6', 'opus', 'haiku']);
 export const codexModelSchema = z.enum(['o3', 'o4-mini', 'codex-mini']);
 export const geminiModelSchema = z.enum(['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview']);
 export const agentModelSchema = z.union([claudeModelSchema, codexModelSchema, geminiModelSchema]);
