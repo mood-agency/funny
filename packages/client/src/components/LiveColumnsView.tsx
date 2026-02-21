@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo, memo, startTransition } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -11,14 +12,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Columns3, Grid2x2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, Columns3, Grid2x2, Plus, Search } from 'lucide-react';
 import { statusConfig, timeAgo, resolveModelLabel } from '@/lib/thread-utils';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { ToolCallCard } from './ToolCallCard';
 import { ToolCallGroup } from './ToolCallGroup';
 import { PromptInput } from './PromptInput';
+import { SlideUpPrompt } from './SlideUpPrompt';
 import { useAppStore } from '@/stores/app-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
+import { toast } from 'sonner';
 import type { Thread } from '@funny/shared';
 
 const ACTIVE_STATUSES = new Set(['running', 'waiting', 'pending']);
@@ -187,6 +191,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
   const [loading, setLoading] = useState(true);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const userHasScrolledUp = useRef(false);
+  const smoothScrollPending = useRef(false);
   const projects = useProjectStore(s => s.projects);
 
   // Subscribe to real-time WS updates for this thread via the store
@@ -233,7 +238,14 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
     const viewport = scrollViewportRef.current;
     if (!viewport || !thread) return;
     if (!userHasScrolledUp.current) {
-      viewport.scrollTop = viewport.scrollHeight;
+      if (smoothScrollPending.current) {
+        smoothScrollPending.current = false;
+        requestAnimationFrame(() => {
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+        });
+      } else {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
     }
   }, [thread?.messages?.length, thread?.messages?.at(-1)?.content?.length, thread?.messages?.at(-1)?.toolCalls?.length]);
 
@@ -263,8 +275,9 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
   const handleSend = useCallback(async (prompt: string, opts: { provider?: string; model: string; mode: string; fileReferences?: { path: string }[] }, images?: any[]) => {
     if (sending || !thread) return;
     setSending(true);
-    // Always scroll to bottom when the user sends a message
+    // Always scroll to bottom when the user sends a message (smooth)
     userHasScrolledUp.current = false;
+    smoothScrollPending.current = true;
     startTransition(() => {
       useAppStore.getState().appendOptimisticMessage(
         threadId,
@@ -420,13 +433,85 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
 
 export function LiveColumnsView() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   useMinuteTick();
   const threadsByProject = useThreadStore(s => s.threadsByProject);
   const projects = useProjectStore(s => s.projects);
   const loadThreadsForProject = useThreadStore(s => s.loadThreadsForProject);
+  const defaultThreadMode = useSettingsStore(s => s.defaultThreadMode);
+  const toolPermissions = useSettingsStore(s => s.toolPermissions);
   const [gridCols, setGridCols] = useState(2);
   const [gridRows, setGridRows] = useState(2);
   const maxSlots = gridCols * gridRows;
+
+  // Add-thread state
+  const [slideUpOpen, setSlideUpOpen] = useState(false);
+  const [slideUpProjectId, setSlideUpProjectId] = useState<string | undefined>(undefined);
+  const [creating, setCreating] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectSearch, setProjectSearch] = useState('');
+
+  const handleAddThread = useCallback((pid: string) => {
+    setSlideUpProjectId(pid);
+    setSlideUpOpen(true);
+  }, []);
+
+  const handlePromptSubmit = useCallback(async (
+    prompt: string,
+    opts: { model: string; mode: string; threadMode?: string; baseBranch?: string; sendToBacklog?: boolean },
+    images?: any[]
+  ): Promise<boolean> => {
+    if (!slideUpProjectId || creating) return false;
+    setCreating(true);
+
+    const threadMode = (opts.threadMode as 'local' | 'worktree') || defaultThreadMode;
+
+    if (opts.sendToBacklog) {
+      const result = await api.createIdleThread({
+        projectId: slideUpProjectId,
+        title: prompt.slice(0, 200),
+        mode: threadMode,
+        baseBranch: opts.baseBranch,
+      });
+      if (result.isErr()) {
+        toast.error(result.error.message);
+        setCreating(false);
+        return false;
+      }
+      await loadThreadsForProject(slideUpProjectId);
+      setCreating(false);
+      toast.success(t('toast.threadCreated', { title: prompt.slice(0, 200) }));
+      return true;
+    }
+
+    const { allowedTools, disallowedTools } = deriveToolLists(toolPermissions);
+    const result = await api.createThread({
+      projectId: slideUpProjectId,
+      title: prompt.slice(0, 200),
+      mode: threadMode,
+      model: opts.model,
+      prompt,
+      permissionMode: opts.mode,
+      allowedTools,
+      disallowedTools,
+      baseBranch: opts.baseBranch,
+      images,
+    });
+    if (result.isErr()) {
+      toast.error(result.error.message);
+      setCreating(false);
+      return false;
+    }
+
+    await loadThreadsForProject(slideUpProjectId);
+    setCreating(false);
+    toast.success(t('toast.threadCreated', { title: prompt.slice(0, 200) }));
+    return true;
+  }, [slideUpProjectId, creating, defaultThreadMode, toolPermissions, loadThreadsForProject, t]);
+
+  const filteredProjects = projectSearch
+    ? projects.filter((p) => p.name.toLowerCase().includes(projectSearch.toLowerCase()))
+    : projects;
 
   // Ensure threads are loaded for all projects and refresh periodically
   useEffect(() => {
@@ -468,12 +553,71 @@ export function LiveColumnsView() {
 
   if (activeThreads.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <div className="text-center space-y-2">
-          <Columns3 className="h-10 w-10 mx-auto text-muted-foreground/40" />
-          <p className="text-sm font-medium">{t('live.noActiveThreads', 'No active threads')}</p>
-          <p className="text-xs text-muted-foreground/60">{t('live.noActiveThreadsDesc', 'Start some agents and they will appear here in real-time')}</p>
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+        <div className="flex-shrink-0 border-b border-border px-4 py-2 flex items-center gap-2">
+          <Columns3 className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">{t('live.title', 'Live')}</span>
+          <div className="ml-auto">
+            <Popover open={projectPickerOpen} onOpenChange={(v) => { setProjectPickerOpen(v); if (!v) setProjectSearch(''); }}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" className="h-6 px-2 text-[10px] gap-1.5 min-w-0">
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-0">
+                <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border/50">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <Input
+                    value={projectSearch}
+                    onChange={(e) => setProjectSearch(e.target.value)}
+                    placeholder={t('kanban.searchProject', 'Search project...')}
+                    className="flex-1 h-auto border-0 bg-transparent text-xs shadow-none focus-visible:ring-0 px-0 py-0 placeholder:text-muted-foreground"
+                    autoFocus
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto py-1">
+                  {filteredProjects.length === 0 ? (
+                    <div className="text-xs text-muted-foreground text-center py-3">
+                      {t('commandPalette.noResults', 'No results')}
+                    </div>
+                  ) : (
+                    filteredProjects.map((p) => (
+                      <button
+                        key={p.id}
+                        className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent transition-colors flex items-center gap-2"
+                        onClick={() => {
+                          setProjectPickerOpen(false);
+                          setProjectSearch('');
+                          handleAddThread(p.id);
+                        }}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: p.color || '#3b82f6' }}
+                        />
+                        <span className="truncate">{p.name}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
+        <div className="flex-1 flex items-center justify-center text-muted-foreground">
+          <div className="text-center space-y-2">
+            <Columns3 className="h-10 w-10 mx-auto text-muted-foreground/40" />
+            <p className="text-sm font-medium">{t('live.noActiveThreads', 'No active threads')}</p>
+            <p className="text-xs text-muted-foreground/60">{t('live.noActiveThreadsDesc', 'Start some agents and they will appear here in real-time')}</p>
+          </div>
+        </div>
+        <SlideUpPrompt
+          open={slideUpOpen}
+          onClose={() => setSlideUpOpen(false)}
+          onSubmit={handlePromptSubmit}
+          loading={creating}
+          projectId={slideUpProjectId}
+        />
       </div>
     );
   }
@@ -493,8 +637,52 @@ export function LiveColumnsView() {
           )}
         </Badge>
 
-        {/* Grid size picker */}
-        <div className="ml-auto">
+        {/* Add thread + Grid size picker */}
+        <div className="ml-auto flex items-center gap-1">
+          <Popover open={projectPickerOpen} onOpenChange={(v) => { setProjectPickerOpen(v); if (!v) setProjectSearch(''); }}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" className="h-6 px-2 text-[10px] gap-1.5 min-w-0">
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-56 p-0">
+              <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border/50">
+                <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <Input
+                  value={projectSearch}
+                  onChange={(e) => setProjectSearch(e.target.value)}
+                  placeholder={t('kanban.searchProject', 'Search project...')}
+                  className="flex-1 h-auto border-0 bg-transparent text-xs shadow-none focus-visible:ring-0 px-0 py-0 placeholder:text-muted-foreground"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-48 overflow-y-auto py-1">
+                {filteredProjects.length === 0 ? (
+                  <div className="text-xs text-muted-foreground text-center py-3">
+                    {t('commandPalette.noResults', 'No results')}
+                  </div>
+                ) : (
+                  filteredProjects.map((p) => (
+                    <button
+                      key={p.id}
+                      className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent transition-colors flex items-center gap-2"
+                      onClick={() => {
+                        setProjectPickerOpen(false);
+                        setProjectSearch('');
+                        handleAddThread(p.id);
+                      }}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: p.color || '#3b82f6' }}
+                      />
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
           <GridPicker
             cols={gridCols}
             rows={gridRows}
@@ -516,6 +704,14 @@ export function LiveColumnsView() {
           <ThreadColumn key={thread.id} threadId={thread.id} />
         ))}
       </div>
+
+      <SlideUpPrompt
+        open={slideUpOpen}
+        onClose={() => setSlideUpOpen(false)}
+        onSubmit={handlePromptSubmit}
+        loading={creating}
+        projectId={slideUpProjectId}
+      />
     </div>
   );
 }

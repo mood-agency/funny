@@ -432,6 +432,7 @@ export function ThreadView() {
   const [sending, setSending] = useState(false);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const userHasScrolledUp = useRef(false);
+  const smoothScrollPending = useRef(false);
   const prevOldestIdRef = useRef<string | null>(null);
   const prevScrollHeightRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -609,7 +610,15 @@ export function ThreadView() {
     if (!viewport) return;
 
     if (!userHasScrolledUp.current) {
-      viewport.scrollTop = viewport.scrollHeight;
+      if (smoothScrollPending.current) {
+        // User just sent a message — smooth scroll after paint
+        smoothScrollPending.current = false;
+        requestAnimationFrame(() => {
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+        });
+      } else {
+        viewport.scrollTop = viewport.scrollHeight;
+      }
     }
     // Hide scroll-to-bottom button if content doesn't overflow
     const hasOverflow = viewport.scrollHeight > viewport.clientHeight + 10;
@@ -702,8 +711,9 @@ export function ThreadView() {
       toast.info(t('thread.interruptingAgent'));
     }
 
-    // Always scroll to bottom when the user sends a message
+    // Always scroll to bottom when the user sends a message (smooth)
     userHasScrolledUp.current = false;
+    smoothScrollPending.current = true;
     setShowScrollDown(false);
 
     startTransition(() => {

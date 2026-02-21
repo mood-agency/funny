@@ -146,8 +146,17 @@ activateBtn.addEventListener('click', async () => {
     const response = await sendToActiveTab({ type: 'TOGGLE_ANNOTATOR' });
     isAnnotatorActive = response?.active || false;
     updateActivateButton();
-  } catch (_) {
-    setStatus('Cannot activate on this page', 'error');
+  } catch (err) {
+    const reason = err?.message || '';
+    if (reason === 'restricted-page') {
+      setStatus('Browser internal pages (chrome://, extensions, etc.) cannot be annotated', 'error');
+    } else if (reason === 'no-tab') {
+      setStatus('No active tab found — click on a webpage and try again', 'error');
+    } else if (reason === 'injection-failed') {
+      setStatus('Could not inject annotator — reload the page and try again', 'error');
+    } else {
+      setStatus('Could not connect to the page — try reloading it', 'error');
+    }
   }
 });
 
@@ -291,11 +300,47 @@ function sendMessage(msg) {
 
 function sendToActiveTab(msg) {
   return new Promise((resolve, reject) => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs[0]?.id) return reject(new Error('No active tab'));
-      chrome.tabs.sendMessage(tabs[0].id, msg, (response) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tab = tabs[0];
+      if (!tab?.id) return reject(new Error('no-tab'));
+
+      // Check for restricted pages where content scripts cannot run
+      const url = tab.url || '';
+      if (url.startsWith('chrome://') || url.startsWith('chrome-extension://') ||
+          url.startsWith('about:') || url.startsWith('edge://') ||
+          url.includes('chromewebstore.google.com')) {
+        return reject(new Error('restricted-page'));
+      }
+
+      // Try sending the message directly first
+      try {
+        const response = await new Promise((res, rej) => {
+          chrome.tabs.sendMessage(tab.id, msg, (resp) => {
+            if (chrome.runtime.lastError) rej(new Error(chrome.runtime.lastError.message));
+            else res(resp);
+          });
+        });
+        return resolve(response);
+      } catch (_) {
+        // Content script not loaded — try injecting it
+      }
+
+      // Attempt programmatic injection
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js'],
+        });
+      } catch (injectionError) {
+        return reject(new Error('injection-failed'));
+      }
+
+      // Wait briefly for the content script to initialize, then retry
+      await new Promise((r) => setTimeout(r, 200));
+
+      chrome.tabs.sendMessage(tab.id, msg, (response) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+          reject(new Error('retry-failed'));
         } else {
           resolve(response);
         }

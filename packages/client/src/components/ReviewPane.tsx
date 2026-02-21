@@ -136,6 +136,7 @@ const MemoizedDiffView = memo(function MemoizedDiffView({ diff, splitView = fals
       useDarkTheme={true}
       hideLineNumbers={false}
       showDiffOnly={true}
+      hideSummary={true}
       styles={DIFF_VIEWER_STYLES}
       codeFoldMessageRenderer={() => <></>}
     />

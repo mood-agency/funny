@@ -333,6 +333,7 @@ function ChatView({
   const [sending, setSending] = useState(false);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const userHasScrolledUp = useRef(false);
+  const smoothScrollPending = useRef(false);
 
   // Select the thread on mount
   useEffect(() => {
@@ -370,7 +371,12 @@ function ChatView({
 
     const scrollToBottom = () => {
       if (!userHasScrolledUp.current) {
-        viewport.scrollTop = viewport.scrollHeight;
+        if (smoothScrollPending.current) {
+          smoothScrollPending.current = false;
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+        } else {
+          viewport.scrollTop = viewport.scrollHeight;
+        }
       }
     };
 
@@ -392,8 +398,9 @@ function ChatView({
     if (!activeThread || sending) return;
     setSending(true);
 
-    // Always scroll to bottom when the user sends a message
+    // Always scroll to bottom when the user sends a message (smooth)
     userHasScrolledUp.current = false;
+    smoothScrollPending.current = true;
 
     useAppStore.getState().appendOptimisticMessage(
       activeThread.id,
