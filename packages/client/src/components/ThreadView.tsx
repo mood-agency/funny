@@ -845,7 +845,11 @@ export function ThreadView() {
                         name={tc.name}
                         input={tc.input}
                         output={tc.output}
-                        onRespond={(tc.name === 'AskUserQuestion' || tc.name === 'ExitPlanMode') ? (answer: string) => handleSend(answer, { model: '', mode: '' }) : undefined}
+                        onRespond={(tc.name === 'AskUserQuestion' || tc.name === 'ExitPlanMode') ? (answer: string) => {
+                          // Optimistically set tool call output so it persists on refresh
+                          useAppStore.getState().handleWSToolOutput(activeThread.id, { toolCallId: tc.id, output: answer });
+                          handleSend(answer, { model: '', mode: '' });
+                        } : undefined}
                       />
                     </motion.div>
                   );
@@ -867,7 +871,15 @@ export function ThreadView() {
                         name={ti.name}
                         calls={ti.calls}
                         onRespond={(ti.name === 'AskUserQuestion' || ti.name === 'ExitPlanMode')
-                          ? (answer: string) => handleSend(answer, { model: '', mode: '' })
+                          ? (answer: string) => {
+                            // Optimistically set tool call output for all calls in group
+                            for (const call of ti.calls) {
+                              if (!call.output) {
+                                useAppStore.getState().handleWSToolOutput(activeThread.id, { toolCallId: call.id, output: answer });
+                              }
+                            }
+                            handleSend(answer, { model: '', mode: '' });
+                          }
                           : undefined}
                       />
                     </motion.div>

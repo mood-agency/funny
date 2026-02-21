@@ -297,6 +297,16 @@ threadRoutes.post('/:id/message', async (c) => {
     tm.updateThread(id, stageUpdates);
   }
 
+  // If the thread was waiting for user input (question/plan), persist the answer
+  // in the tool call's output so it survives refresh even if the agent's tool_result
+  // never arrives (e.g. on resume, the processedToolUseIds map is cleared).
+  if (thread.status === 'waiting') {
+    const pendingTC = tm.findLastUnansweredInteractiveToolCall(id);
+    if (pendingTC) {
+      tm.updateToolCallOutput(pendingTC.id, content);
+    }
+  }
+
   // Augment prompt with file contents if file references were provided
   const augmentedContent = await augmentPromptWithFiles(content, fileReferences, cwd);
 

@@ -39,6 +39,7 @@ export {
   updateToolCallOutput,
   findToolCall,
   getToolCall,
+  findLastUnansweredInteractiveToolCall,
 } from './tool-call-repository.js';
 
 // Comment CRUD
