@@ -1076,8 +1076,8 @@ export function PromptInput({
             disabled={loading || running}
           />
           {/* Bottom toolbar — single row, horizontal scroll to avoid layout shifts from wrapping */}
-          <div className="px-2 py-2">
-            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar h-8">
+          <div className="px-2 py-2.5">
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar h-9">
               {!isNewThread && effectiveCwd && selectedProjectId && (
                 activeThread?.mode === 'worktree' ? (
                   <WorktreePicker
