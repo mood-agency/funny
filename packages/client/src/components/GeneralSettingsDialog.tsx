@@ -1,3 +1,4 @@
+import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsStore, editorLabels, type Theme, type Editor } from '@/stores/settings-store';
 import { cn } from '@/lib/utils';
@@ -6,6 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -14,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { Sun, Moon, Monitor } from 'lucide-react';
 
 function getLanguageName(code: string): string {
@@ -85,14 +88,39 @@ export function GeneralSettingsDialog({
   const { theme, defaultEditor, setTheme, setDefaultEditor } = useSettingsStore();
   const { t, i18n } = useTranslation();
 
+  // Local draft state — only committed to the store on Save
+  const [draftEditor, setDraftEditor] = useState<Editor>(defaultEditor);
+  const [draftTheme, setDraftTheme] = useState<Theme>(theme);
+  const [draftLanguage, setDraftLanguage] = useState(i18n.language);
+
+  // Reset draft state whenever the dialog opens
+  useEffect(() => {
+    if (open) {
+      setDraftEditor(defaultEditor);
+      setDraftTheme(theme);
+      setDraftLanguage(i18n.language);
+    }
+  }, [open, defaultEditor, theme, i18n.language]);
+
+  const handleSave = useCallback(() => {
+    setDefaultEditor(draftEditor);
+    setTheme(draftTheme);
+    i18n.changeLanguage(draftLanguage);
+    onOpenChange(false);
+  }, [draftEditor, draftTheme, draftLanguage, setDefaultEditor, setTheme, i18n, onOpenChange]);
+
+  const handleCancel = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md p-0 gap-0">
-        <DialogHeader className="px-6 pt-6 pb-4">
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0">
           <DialogTitle>{t('settings.title')}</DialogTitle>
         </DialogHeader>
 
-        <div className="px-6 pb-6 space-y-5">
+        <div className="px-6 pb-5 space-y-5 overflow-y-auto flex-1 min-h-0">
           {/* General section */}
           <div>
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pb-2">
@@ -103,7 +131,7 @@ export function GeneralSettingsDialog({
                 title={t('settings.defaultEditor')}
                 description={t('settings.defaultEditorDesc')}
               >
-                <Select value={defaultEditor} onValueChange={(v) => setDefaultEditor(v as Editor)}>
+                <Select value={draftEditor} onValueChange={(v) => setDraftEditor(v as Editor)}>
                   <SelectTrigger className="w-[140px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -121,7 +149,7 @@ export function GeneralSettingsDialog({
                 title={t('settings.language')}
                 description={t('settings.languageDesc')}
               >
-                <Select value={i18n.language} onValueChange={(v) => i18n.changeLanguage(v)}>
+                <Select value={draftLanguage} onValueChange={setDraftLanguage}>
                   <SelectTrigger className="w-[140px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -148,8 +176,8 @@ export function GeneralSettingsDialog({
                 description={t('settings.themeDesc')}
               >
                 <SegmentedControl<Theme>
-                  value={theme}
-                  onChange={setTheme}
+                  value={draftTheme}
+                  onChange={setDraftTheme}
                   options={[
                     { value: 'light', label: t('settings.light'), icon: <Sun className="h-3 w-3" /> },
                     { value: 'dark', label: t('settings.dark'), icon: <Moon className="h-3 w-3" /> },
@@ -160,6 +188,15 @@ export function GeneralSettingsDialog({
             </div>
           </div>
         </div>
+
+        <DialogFooter className="px-6 py-4 flex-shrink-0 border-t border-border/50">
+          <Button variant="outline" onClick={handleCancel}>
+            {t('common.cancel')}
+          </Button>
+          <Button onClick={handleSave}>
+            {t('common.save')}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
