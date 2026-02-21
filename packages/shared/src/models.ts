@@ -28,6 +28,42 @@ const GEMINI_MODEL_IDS: Record<GeminiModel, string> = {
   'gemini-3-pro-preview': 'gemini-3-pro-preview',
 };
 
+// ── Model display labels ────────────────────────────────────────
+
+export interface ModelInfo {
+  value: AgentModel;
+  label: string;
+}
+
+const CLAUDE_MODEL_LABELS: Record<ClaudeModel, string> = {
+  haiku: 'Haiku 4.5',
+  sonnet: 'Sonnet 4.5',
+  'sonnet-4.6': 'Sonnet 4.6',
+  opus: 'Opus 4.6',
+};
+
+const CODEX_MODEL_LABELS: Record<CodexModel, string> = {
+  'o3': 'o3',
+  'o4-mini': 'o4-mini',
+  'codex-mini': 'Codex Mini',
+};
+
+const GEMINI_MODEL_LABELS: Record<GeminiModel, string> = {
+  'gemini-3-flash-preview': 'Gemini 3 Flash',
+  'gemini-3-pro-preview': 'Gemini 3 Pro',
+  'gemini-2.5-flash': 'Gemini 2.5 Flash',
+  'gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'gemini-2.0-flash': 'Gemini 2.0 Flash',
+};
+
+// ── Provider labels ─────────────────────────────────────────────
+
+export const PROVIDER_LABELS: Record<string, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  gemini: 'Gemini',
+};
+
 // ── Permission mode mapping (Claude SDK specific) ─────────────
 
 const CLAUDE_PERMISSION_MAP: Record<PermissionMode, string> = {
@@ -90,6 +126,26 @@ export function getProviderModels(provider: AgentProvider): AgentModel[] {
   if (provider === 'gemini') return Object.keys(GEMINI_MODEL_IDS) as GeminiModel[];
   if (provider === 'llm-api') return []; // LLM API accepts any model ID
   throw new Error(`Unknown provider: ${provider}`);
+}
+
+/** Get all available models for a provider with display labels. */
+export function getProviderModelsWithLabels(provider: AgentProvider): ModelInfo[] {
+  if (provider === 'claude') {
+    return (Object.keys(CLAUDE_MODEL_LABELS) as ClaudeModel[]).map(k => ({
+      value: k, label: CLAUDE_MODEL_LABELS[k],
+    }));
+  }
+  if (provider === 'codex') {
+    return (Object.keys(CODEX_MODEL_LABELS) as CodexModel[]).map(k => ({
+      value: k, label: CODEX_MODEL_LABELS[k],
+    }));
+  }
+  if (provider === 'gemini') {
+    return (Object.keys(GEMINI_MODEL_LABELS) as GeminiModel[]).map(k => ({
+      value: k, label: GEMINI_MODEL_LABELS[k],
+    }));
+  }
+  return [];
 }
 
 /**

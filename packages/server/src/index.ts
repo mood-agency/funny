@@ -42,7 +42,7 @@ import { registerAllHandlers } from './services/handlers/handler-registry.js';
 import type { HandlerServiceContext } from './services/handlers/types.js';
 import * as tm from './services/thread-manager.js';
 import * as pm from './services/project-manager.js';
-import { getProviderModels } from '@funny/shared/models';
+import { getProviderModels, getProviderModelsWithLabels, PROVIDER_LABELS, getDefaultModel } from '@funny/shared/models';
 
 // Resolve client dist directory (works both in dev and when installed via npm)
 const clientDistDir = resolve(
@@ -112,7 +112,10 @@ app.get('/api/setup/status', async (c) => {
       cliPath: info.cliPath ?? null,
       cliVersion: info.cliVersion ?? null,
       error: info.error ?? null,
+      label: PROVIDER_LABELS[name] ?? name,
+      defaultModel: info.available ? getDefaultModel(name as any) : null,
       models: info.available ? getProviderModels(name as any) : [],
+      modelsWithLabels: info.available ? getProviderModelsWithLabels(name as any) : [],
     };
   }
 

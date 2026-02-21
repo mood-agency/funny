@@ -1,11 +1,8 @@
 /**
  * Funny UI Annotator - Popup Script
  *
- * Controls:
- * - Activate/deactivate annotator on the current page
- * - Display annotation list
- * - Configure Funny server connection, project, model
- * - Test connection
+ * Providers and models are fetched dynamically from the Funny server
+ * via GET /api/setup/status — nothing is hardcoded.
  */
 
 const $ = (sel) => document.querySelector(sel);
@@ -16,6 +13,7 @@ const activateBtn = $('#activateBtn');
 const annotationList = $('#annotationList');
 const serverUrlInput = $('#serverUrl');
 const projectSelect = $('#projectSelect');
+const providerSelect = $('#providerSelect');
 const modelSelect = $('#modelSelect');
 const modeSelect = $('#modeSelect');
 const testConnectionBtn = $('#testConnectionBtn');
@@ -24,6 +22,9 @@ const statusText = $('#statusText');
 
 let isAnnotatorActive = false;
 
+// Cached provider data from the server
+let providerData = null;
+
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
@@ -31,7 +32,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load config
   const config = await sendMessage({ type: 'GET_CONFIG' });
   serverUrlInput.value = config.serverUrl || 'http://localhost:3001';
-  modelSelect.value = config.model || 'sonnet';
   modeSelect.value = config.mode || 'local';
 
   // Get state from content script
@@ -46,12 +46,84 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Content script not loaded yet
   }
 
-  // Load projects
-  await loadProjects(config.projectId);
+  // Fetch providers/models from server + projects in parallel
+  await Promise.all([
+    loadProvidersAndModels(config.provider, config.model),
+    loadProjects(config.projectId),
+  ]);
 
   // Auto-test connection
   await testConnection(false);
 });
+
+// ---------------------------------------------------------------------------
+// Provider / Model loading from Funny API
+// ---------------------------------------------------------------------------
+async function loadProvidersAndModels(savedProvider, savedModel) {
+  try {
+    const result = await sendMessage({ type: 'FETCH_SETUP_STATUS' });
+    if (!result.success) throw new Error(result.error);
+
+    providerData = result.providers || {};
+
+    // Populate provider select — only show available providers
+    providerSelect.innerHTML = '';
+    const availableProviders = Object.entries(providerData)
+      .filter(([_, info]) => info.available);
+
+    if (availableProviders.length === 0) {
+      providerSelect.innerHTML = '<option value="">No providers available</option>';
+      modelSelect.innerHTML = '<option value="">-</option>';
+      return;
+    }
+
+    availableProviders.forEach(([key, info]) => {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = info.label || key;
+      if (key === savedProvider) opt.selected = true;
+      providerSelect.appendChild(opt);
+    });
+
+    // If saved provider isn't available, select first available
+    if (!providerData[savedProvider]?.available) {
+      providerSelect.value = availableProviders[0][0];
+    }
+
+    // Populate models for the selected provider
+    populateModels(providerSelect.value, savedModel);
+  } catch (err) {
+    // Fallback: show empty selects
+    providerSelect.innerHTML = '<option value="">Failed to load</option>';
+    modelSelect.innerHTML = '<option value="">-</option>';
+  }
+}
+
+function populateModels(provider, selectedModel) {
+  modelSelect.innerHTML = '';
+
+  if (!providerData || !providerData[provider]) {
+    modelSelect.innerHTML = '<option value="">-</option>';
+    return;
+  }
+
+  const info = providerData[provider];
+  // Use modelsWithLabels from the server (value + label pairs)
+  const models = info.modelsWithLabels || info.models?.map(m => ({ value: m, label: m })) || [];
+
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.value;
+    opt.textContent = m.label;
+    if (m.value === selectedModel) opt.selected = true;
+    modelSelect.appendChild(opt);
+  });
+
+  // If saved model isn't valid for this provider, select the provider's default
+  if (!models.some(m => m.value === selectedModel)) {
+    modelSelect.value = info.defaultModel || models[0]?.value || '';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Event handlers
@@ -71,6 +143,10 @@ testConnectionBtn.addEventListener('click', () => testConnection(true));
 // Save config on change
 serverUrlInput.addEventListener('change', () => saveCurrentConfig());
 projectSelect.addEventListener('change', () => saveCurrentConfig());
+providerSelect.addEventListener('change', () => {
+  populateModels(providerSelect.value);
+  saveCurrentConfig();
+});
 modelSelect.addEventListener('change', () => saveCurrentConfig());
 modeSelect.addEventListener('change', () => saveCurrentConfig());
 
@@ -157,9 +233,13 @@ async function testConnection(showFeedback) {
     connectionDot.className = 'connection-dot connected';
     connectionDot.title = 'Connected';
     setStatus('Connected to Funny', 'success');
-    // Reload projects with new URL
+    // Reload providers and projects with new URL
     await saveCurrentConfig();
-    await loadProjects(projectSelect.value);
+    const config = await sendMessage({ type: 'GET_CONFIG' });
+    await Promise.all([
+      loadProvidersAndModels(config.provider, config.model),
+      loadProjects(projectSelect.value),
+    ]);
   } else {
     connectionDot.className = 'connection-dot error';
     connectionDot.title = 'Connection failed';
@@ -173,6 +253,7 @@ async function saveCurrentConfig() {
     config: {
       serverUrl: serverUrlInput.value.trim(),
       projectId: projectSelect.value,
+      provider: providerSelect.value,
       model: modelSelect.value,
       mode: modeSelect.value
     }

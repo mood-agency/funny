@@ -4,14 +4,15 @@
  * Handles:
  * - Authentication with Funny server (bearer token)
  * - Creating threads via POST /api/threads
+ * - Fetching providers/models from GET /api/setup/status
  * - Capturing screenshots via chrome.tabs API
- * - WebSocket connection for real-time updates
  */
 
 // Default config
 const DEFAULT_CONFIG = {
   serverUrl: 'http://localhost:3001',
   projectId: '',
+  provider: 'claude',
   model: 'sonnet',
   permissionMode: 'autoEdit',
   mode: 'local'
@@ -60,10 +61,19 @@ async function fetchProjects(serverUrl, token) {
 }
 
 // ---------------------------------------------------------------------------
+// Fetch providers & models from Funny
+// ---------------------------------------------------------------------------
+async function fetchSetupStatus(serverUrl) {
+  const res = await fetch(`${serverUrl}/api/setup/status`);
+  if (!res.ok) throw new Error(`Setup status failed: ${res.status}`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
 // Create thread in Funny
 // ---------------------------------------------------------------------------
 async function createThread(config, token, data) {
-  const { serverUrl, projectId, model, permissionMode, mode } = config;
+  const { serverUrl, projectId, provider, model, permissionMode, mode } = config;
 
   if (!projectId) {
     throw new Error('No project selected. Open the extension popup and select a project.');
@@ -91,6 +101,7 @@ async function createThread(config, token, data) {
     projectId,
     title: `UI Review: ${data.title || data.url}`.slice(0, 100),
     mode,
+    provider: provider || 'claude',
     model,
     permissionMode,
     prompt,
@@ -149,6 +160,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'FETCH_SETUP_STATUS') {
+    handleFetchSetupStatus()
+      .then(data => sendResponse({ success: true, ...data }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === 'TEST_CONNECTION') {
     handleTestConnection(msg.serverUrl)
       .then(result => sendResponse(result))
@@ -179,6 +197,12 @@ async function handleFetchProjects() {
   const token = await getAuthToken(config.serverUrl);
   const result = await fetchProjects(config.serverUrl, token);
   return result.projects || result;
+}
+
+async function handleFetchSetupStatus() {
+  const config = await getConfig();
+  const data = await fetchSetupStatus(config.serverUrl);
+  return data;
 }
 
 async function handleTestConnection(serverUrl) {

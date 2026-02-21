@@ -285,13 +285,18 @@
         <option value="">Loading projects...</option>
       </select>
     </div>
+    <div class="field">
+      <label>Provider</label>
+      <select id="providerSelect">
+        <!-- Populated dynamically from GET /api/setup/status -->
+        <option value="">Loading...</option>
+      </select>
+    </div>
     <div style="display: flex; gap: 8px;">
       <div class="field" style="flex:1">
         <label>Model</label>
         <select id="modelSelect">
-          <option value="haiku">Haiku</option>
-          <option value="sonnet" selected>Sonnet</option>
-          <option value="opus">Opus</option>
+          <!-- Populated dynamically based on provider -->
         </select>
       </div>
       <div class="field" style="flex:1">
