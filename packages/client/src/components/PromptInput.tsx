@@ -666,6 +666,10 @@ export function PromptInput({
     if (!running) textareaRef.current?.focus();
   }, [running]);
 
+  useEffect(() => {
+    if (!loading) textareaRef.current?.focus();
+  }, [loading]);
+
   // Auto-resize textarea up to 35vh
   useEffect(() => {
     const ta = textareaRef.current;
