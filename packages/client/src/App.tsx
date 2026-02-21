@@ -174,6 +174,7 @@ export function App() {
           if (!open) useInternalEditorStore.getState().closeEditor();
         }}
         filePath={useInternalEditorStore((s) => s.filePath) || ''}
+        initialContent={useInternalEditorStore((s) => s.initialContent)}
       />
     </SidebarProvider>
   );

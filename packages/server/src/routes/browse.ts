@@ -149,13 +149,21 @@ app.post('/open-directory', async (c) => {
   const denied = checkAllowedPath(dirPath, userId);
   if (denied) return denied;
 
+  // Normalize and resolve the path to its absolute form
+  const normalizedPath = normalize(resolve(dirPath));
+
+  // Log for debugging
+  console.log('[open-directory] Original path:', dirPath);
+  console.log('[open-directory] Normalized path:', normalizedPath);
+  console.log('[open-directory] Exists?', existsSync(normalizedPath));
+
   // Validate directory exists before opening
-  if (!existsSync(dirPath)) {
+  if (!existsSync(normalizedPath)) {
     return c.json({ error: 'Directory does not exist' }, 404);
   }
 
   try {
-    const stat = statSync(dirPath);
+    const stat = statSync(normalizedPath);
     if (!stat.isDirectory()) {
       return c.json({ error: 'Path is not a directory' }, 400);
     }
@@ -169,13 +177,13 @@ app.post('/open-directory', async (c) => {
 
   if (os === 'win32') {
     cmd = 'explorer';
-    args = [dirPath.replace(/\//g, '\\')];
+    args = [normalizedPath.replace(/\//g, '\\')];
   } else if (os === 'darwin') {
     cmd = 'open';
-    args = [dirPath];
+    args = [normalizedPath];
   } else {
     cmd = 'xdg-open';
-    args = [dirPath];
+    args = [normalizedPath];
   }
 
   Bun.spawn([cmd, ...args], {
@@ -228,13 +236,16 @@ app.post('/open-terminal', async (c) => {
   const denied = checkAllowedPath(dirPath, userId);
   if (denied) return denied;
 
+  // Normalize and resolve the path to its absolute form
+  const normalizedPath = normalize(resolve(dirPath));
+
   // Validate directory exists before opening
-  if (!existsSync(dirPath)) {
+  if (!existsSync(normalizedPath)) {
     return c.json({ error: 'Directory does not exist' }, 404);
   }
 
   try {
-    const stat = statSync(dirPath);
+    const stat = statSync(normalizedPath);
     if (!stat.isDirectory()) {
       return c.json({ error: 'Path is not a directory' }, 400);
     }

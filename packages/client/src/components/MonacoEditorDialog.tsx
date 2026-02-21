@@ -22,14 +22,14 @@ interface MonacoEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filePath: string;
+  initialContent: string | null;
 }
 
-export function MonacoEditorDialog({ open, onOpenChange, filePath }: MonacoEditorDialogProps) {
+export function MonacoEditorDialog({ open, onOpenChange, filePath, initialContent }: MonacoEditorDialogProps) {
   const { t } = useTranslation();
   const theme = useSettingsStore((s) => s.theme);
   const [content, setContent] = useState<string>('');
   const [originalContent, setOriginalContent] = useState<string>('');
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -60,24 +60,12 @@ export function MonacoEditorDialog({ open, onOpenChange, filePath }: MonacoEdito
     });
   };
 
-  // Load file content when dialog opens
+  // Set initial content when dialog opens
   useEffect(() => {
-    if (!open) return;
-
-    setLoading(true);
-    api.readFile(filePath).then((result) => {
-      if (result.isOk()) {
-        setContent(result.value.content);
-        setOriginalContent(result.value.content);
-      } else {
-        toast.error(t('editor.failedToLoad', 'Failed to load file'), {
-          description: result.error.message,
-        });
-        onOpenChange(false);
-      }
-      setLoading(false);
-    });
-  }, [open, filePath, onOpenChange, t]);
+    if (!open || !initialContent) return;
+    setContent(initialContent);
+    setOriginalContent(initialContent);
+  }, [open, initialContent]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -169,11 +157,7 @@ export function MonacoEditorDialog({ open, onOpenChange, filePath }: MonacoEdito
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : showPreview && isMarkdown ? (
+          {showPreview && isMarkdown ? (
             <ScrollArea className="h-full">
               <div className="prose prose-sm max-w-none px-8 py-6">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownPreviewComponents}>
