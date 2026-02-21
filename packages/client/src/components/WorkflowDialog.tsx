@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Dialog,
@@ -9,18 +9,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useUIStore } from '@/stores/ui-store';
-import { useWorkflowStore } from '@/stores/workflow-store';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { GitBranch, Monitor, Check, ChevronsUpDown, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const PIPELINE_AGENTS = [
   { value: 'tests', label: 'Tests' },
@@ -36,53 +35,52 @@ export function WorkflowDialog() {
   const { t } = useTranslation();
   const projectId = useUIStore((s) => s.workflowDialogProjectId);
   const projectPath = useUIStore((s) => s.workflowDialogProjectPath);
-  const projectName = useUIStore((s) => s.workflowDialogProjectName);
   const closeDialog = useUIStore((s) => s.closeWorkflowDialog);
-  const triggerWorkflow = useWorkflowStore((s) => s.triggerWorkflow);
 
-  const [branch, setBranch] = useState('');
+  const [mode, setMode] = useState<'local' | 'worktree'>('local');
   const [branches, setBranches] = useState<string[]>([]);
-  const [baseBranch, setBaseBranch] = useState('main');
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [defaultBranch, setDefaultBranch] = useState('main');
+  const [currentBranch, setCurrentBranch] = useState('');
   const [selectedAgents, setSelectedAgents] = useState<string[]>(['tests', 'security', 'style']);
   const [loading, setLoading] = useState(false);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
+  const [branchOpen, setBranchOpen] = useState(false);
+  const branchSearchRef = useRef<HTMLInputElement>(null);
 
   const open = !!projectId;
 
-  // Load branches when dialog opens — filter to only this project's branches
+  // Load branches when dialog opens
   useEffect(() => {
     if (!projectId) return;
+    setBranchesLoading(true);
     api.listBranches(projectId).then((result) => {
       result.match(
         (data) => {
-          // Common base branches that belong to every project
-          const baseBranches = ['main', 'master', 'develop'];
-          // Filter: show base branches + branches prefixed with this project's name
-          const filtered = data.branches.filter((b: string) =>
-            baseBranches.includes(b) ||
-            (projectName && b.startsWith(`${projectName}/`)),
-          );
-          // If filtering removed everything, show all (project name might not match prefix)
-          const finalBranches = filtered.length > 0 ? filtered : data.branches;
-          setBranches(finalBranches);
-          // Default to current branch if it's in the filtered list, otherwise first
-          const current = data.currentBranch && finalBranches.includes(data.currentBranch)
-            ? data.currentBranch
-            : finalBranches[0] ?? '';
-          setBranch(current);
-          setBaseBranch(data.defaultBranch ?? 'main');
+          setBranches(data.branches);
+          setDefaultBranch(data.defaultBranch ?? 'main');
+          setCurrentBranch(data.currentBranch ?? data.branches[0] ?? '');
+          setSelectedBranch(data.currentBranch ?? data.branches[0] ?? '');
         },
         () => setBranches([]),
       );
+      setBranchesLoading(false);
     });
-  }, [projectId, projectName]);
+  }, [projectId]);
 
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
-      setBranch('');
-      setBaseBranch('main');
+      setMode('local');
       setBranches([]);
+      setSelectedBranch('');
+      setDefaultBranch('main');
+      setCurrentBranch('');
       setSelectedAgents(['tests', 'security', 'style']);
+      setBranchesLoading(false);
+      setBranchSearch('');
+      setBranchOpen(false);
     }
   }, [open]);
 
@@ -93,15 +91,41 @@ export function WorkflowDialog() {
   };
 
   const handleRun = async () => {
-    if (!projectId || !projectPath || !branch) return;
+    if (!projectId || !projectPath) return;
+    if (mode === 'worktree' && !selectedBranch) return;
+    if (selectedAgents.length === 0) return;
 
     setLoading(true);
 
-    // Try direct pipeline run first (works without Hatchet)
+    let worktreePath = projectPath;
+    let branch = currentBranch;
+
+    if (mode === 'worktree') {
+      const timestamp = Date.now();
+      const safeBranch = selectedBranch.replace(/\//g, '-');
+      const branchName = `pipeline/${safeBranch}-${timestamp}`;
+      const wtResult = await api.createWorktree({
+        projectId,
+        branchName,
+        baseBranch: selectedBranch,
+      });
+
+      if (wtResult.isErr()) {
+        toast.error('Failed to create worktree', {
+          description: wtResult.error.message,
+        });
+        setLoading(false);
+        return;
+      }
+
+      worktreePath = wtResult.value.path;
+      branch = selectedBranch; // Send the source branch, not the pipeline/ worktree branch
+    }
+
     const result = await api.runPipeline({
       branch,
-      worktree_path: projectPath,
-      base_branch: baseBranch,
+      worktree_path: worktreePath,
+      base_branch: defaultBranch,
       config: selectedAgents.length > 0 ? { agents: selectedAgents } : undefined,
       metadata: { projectId },
     });
@@ -109,30 +133,21 @@ export function WorkflowDialog() {
     setLoading(false);
 
     if (result.isOk()) {
-      toast.success(`Pipeline started for branch "${branch}"`, {
-        description: `Request ID: ${result.value.request_id}`,
+      toast.success(`Pipeline started${mode === 'worktree' ? ` on ${selectedBranch}` : ''}`, {
+        description: `Analyzing against ${defaultBranch}`,
       });
       closeDialog();
     } else {
-      // Fallback: try Hatchet workflow
-      setLoading(true);
-      const runId = await triggerWorkflow('feature-to-deploy', {
-        projectPath,
-        branch,
-        baseBranch,
-      }, projectId);
-      setLoading(false);
-
-      if (runId) {
-        toast.success('Workflow triggered via Hatchet');
-        closeDialog();
-      } else {
-        toast.error('Failed to start pipeline', {
-          description: result.error.message,
-        });
-      }
+      const errMsg = typeof result.error.message === 'string'
+        ? result.error.message
+        : JSON.stringify(result.error.message);
+      toast.error('Failed to start pipeline', { description: errMsg });
     }
   };
+
+  const filteredBranches = branches.filter(
+    (b) => !branchSearch || b.toLowerCase().includes(branchSearch.toLowerCase()),
+  );
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) closeDialog(); }}>
@@ -140,52 +155,125 @@ export function WorkflowDialog() {
         <DialogHeader>
           <DialogTitle>Run Quality Pipeline</DialogTitle>
           <DialogDescription>
-            Run quality agents on a branch to check tests, security, style, and more.
+            Run quality agents on your code to check tests, security, style, and more.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {/* Branch selector */}
-          {branches.length > 0 && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Branch to analyze</label>
-              <Select value={branch} onValueChange={setBranch}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select branch..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {branches.map((b) => (
-                    <SelectItem key={b} value={b}>
-                      {b}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Mode selector */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMode('local')}
+              aria-pressed={mode === 'local'}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                mode === 'local'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/50 hover:bg-accent/50',
+              )}
+            >
+              <Monitor className="h-4 w-4" />
+              Local
+            </button>
+            <button
+              onClick={() => setMode('worktree')}
+              aria-pressed={mode === 'worktree'}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                mode === 'worktree'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/50 hover:bg-accent/50',
+              )}
+            >
+              <GitBranch className="h-4 w-4" />
+              Worktree
+            </button>
+          </div>
+
+          {/* Local mode info */}
+          {mode === 'local' && currentBranch && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+              <p className="text-sm text-muted-foreground">
+                Will analyze current working state on{' '}
+                <span className="font-mono text-foreground">{currentBranch}</span>
+                {defaultBranch && defaultBranch !== currentBranch && (
+                  <> against <span className="font-mono text-foreground">{defaultBranch}</span></>
+                )}
+              </p>
             </div>
           )}
 
-          {/* Base branch */}
-          {branches.length > 0 && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Base branch (compare against)</label>
-              <Select value={baseBranch} onValueChange={setBaseBranch}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {/* Show common base branches first, then the rest */}
-                  {['main', 'master', 'develop'].filter((b) => branches.includes(b)).map((b) => (
-                    <SelectItem key={b} value={b}>
-                      {b}
-                    </SelectItem>
-                  ))}
-                  {branches.filter((b) => b !== 'main' && b !== 'master' && b !== 'develop').map((b) => (
-                    <SelectItem key={b} value={b}>
-                      {b}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Branch selector (worktree mode) */}
+          {mode === 'worktree' && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">
+                Branch to analyze
+              </label>
+              <Popover open={branchOpen} onOpenChange={(v) => { setBranchOpen(v); if (!v) setBranchSearch(''); }}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="w-full flex items-center justify-between rounded-md border border-input bg-background px-3 h-9 text-sm transition-[border-color,box-shadow] duration-150 hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{selectedBranch || 'Select branch...'}</span>
+                    </div>
+                    <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-[var(--radix-popover-trigger-width)] p-0 flex flex-col"
+                  style={{ maxHeight: '320px' }}
+                  align="start"
+                  onOpenAutoFocus={(e) => { e.preventDefault(); branchSearchRef.current?.focus(); }}
+                >
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <input
+                      ref={branchSearchRef}
+                      type="text"
+                      value={branchSearch}
+                      onChange={(e) => setBranchSearch(e.target.value)}
+                      placeholder="Search branches..."
+                      autoComplete="off"
+                      className="w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+                    />
+                  </div>
+                  <ScrollArea className="flex-1 min-h-0" style={{ maxHeight: '260px' }}>
+                    <div className="p-1">
+                      {filteredBranches.map((b) => {
+                        const isSelected = b === selectedBranch;
+                        return (
+                          <button
+                            key={b}
+                            onClick={() => { setSelectedBranch(b); setBranchOpen(false); setBranchSearch(''); }}
+                            className={cn(
+                              'w-full flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
+                              isSelected
+                                ? 'bg-accent text-foreground'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                            )}
+                          >
+                            <GitBranch className="h-3.5 w-3.5 shrink-0 text-status-info" />
+                            <span className="font-mono truncate">{b}</span>
+                            {isSelected && <Check className="h-3.5 w-3.5 shrink-0 text-status-info ml-auto" />}
+                          </button>
+                        );
+                      })}
+                      {filteredBranches.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-3">
+                          No branches match
+                        </p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              {defaultBranch && selectedBranch && defaultBranch !== selectedBranch && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Comparing against <span className="font-mono">{defaultBranch}</span>
+                </p>
+              )}
             </div>
           )}
 
@@ -198,11 +286,12 @@ export function WorkflowDialog() {
                   key={agent.value}
                   type="button"
                   onClick={() => toggleAgent(agent.value)}
-                  className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                  className={cn(
+                    'px-2.5 py-1 text-xs rounded-md border transition-colors',
                     selectedAgents.includes(agent.value)
                       ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted'
-                  }`}
+                      : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted',
+                  )}
                 >
                   {agent.label}
                 </button>
@@ -218,7 +307,7 @@ export function WorkflowDialog() {
           <Button
             size="sm"
             onClick={handleRun}
-            disabled={!branch || selectedAgents.length === 0}
+            disabled={branchesLoading || selectedAgents.length === 0 || (mode === 'local' && !currentBranch) || (mode === 'worktree' && !selectedBranch)}
             loading={loading}
           >
             Run Pipeline

@@ -14,6 +14,7 @@
  * compensation (rollback) on failure.
  */
 
+import { join } from 'path';
 import { AgentExecutor, ModelFactory } from '@funny/core/agents';
 import type { AgentRole, AgentContext } from '@funny/core/agents';
 import { execute, createPR } from '@funny/core/git';
@@ -29,7 +30,8 @@ import { logger } from '../infrastructure/logger.js';
 
 interface IntegrationContext {
   entry: ManifestReadyEntry;
-  cwd: string;
+  cwd: string;           // main project path (for fetch, branch ops)
+  worktreePath: string;  // temp worktree for integration work
   integrationBranch: string;
   originMain: string;
   baseSha: string;
@@ -154,16 +156,19 @@ export class Integrator {
   ): Promise<IntegratorResult> {
     const { branch, pipeline_branch, request_id } = entry;
     const integrationBranch = `${this.integrationPrefix}${branch}`;
-    const cwd = projectPath;
-    const originMain = `origin/${this.mainBranch}`;
+    const effectiveMain = entry.base_branch ?? this.mainBranch;
+    const originMain = `origin/${effectiveMain}`;
+    const safeBranch = branch.replace(/\//g, '-');
+    const worktreePath = join(projectPath, '.pipeline', 'integration-worktrees', safeBranch);
 
-    logger.info({ branch, integrationBranch, requestId: request_id }, 'Integration started');
+    logger.info({ branch, integrationBranch, worktreePath, requestId: request_id }, 'Integration started');
     this.emitEvent('integration.started', request_id, { branch, integration_branch: integrationBranch });
 
     // Build saga context
     const ctx: IntegrationContext = {
       entry,
-      cwd,
+      cwd: projectPath,
+      worktreePath,
       integrationBranch,
       originMain,
       baseSha: '',
@@ -178,7 +183,7 @@ export class Integrator {
     saga.addStep({
       name: 'fetch_main',
       action: async (c) => {
-        await execute('git', ['fetch', 'origin', this.mainBranch], { cwd: c.cwd, reject: false });
+        await execute('git', ['fetch', 'origin', effectiveMain], { cwd: c.cwd, reject: false });
         const { stdout: mainSha } = await execute('git', ['rev-parse', c.originMain], { cwd: c.cwd });
         c.baseSha = mainSha.trim();
       },
@@ -188,11 +193,14 @@ export class Integrator {
     saga.addStep({
       name: 'create_integration_branch',
       action: async (c) => {
+        // Clean up any stale worktree / branch from a previous run
+        await execute('git', ['worktree', 'remove', '--force', c.worktreePath], { cwd: c.cwd, reject: false });
         await execute('git', ['branch', '-D', c.integrationBranch], { cwd: c.cwd, reject: false });
-        await execute('git', ['checkout', '-b', c.integrationBranch, c.originMain], { cwd: c.cwd });
+        // Create a temporary worktree with a new integration branch based on origin/main
+        await execute('git', ['worktree', 'add', '-b', c.integrationBranch, c.worktreePath, c.originMain], { cwd: c.cwd });
       },
       compensate: async (c) => {
-        await execute('git', ['checkout', this.mainBranch], { cwd: c.cwd, reject: false });
+        await execute('git', ['worktree', 'remove', '--force', c.worktreePath], { cwd: c.cwd, reject: false });
         await execute('git', ['branch', '-D', c.integrationBranch], { cwd: c.cwd, reject: false });
       },
     });
@@ -200,17 +208,18 @@ export class Integrator {
     saga.addStep({
       name: 'merge_pipeline',
       action: async (c) => {
+        // Worktrees share the same object store — local branches are accessible directly
         const mergeResult = await execute(
           'git',
           ['merge', '--no-ff', pipeline_branch, '-m', `Merge '${pipeline_branch}' into ${c.integrationBranch}`],
-          { cwd: c.cwd, reject: false },
+          { cwd: c.worktreePath, reject: false },
         );
 
         if (mergeResult.exitCode !== 0) {
           const { stdout: conflictOutput } = await execute(
             'git',
             ['diff', '--name-only', '--diff-filter=U'],
-            { cwd: c.cwd, reject: false },
+            { cwd: c.worktreePath, reject: false },
           );
           const conflictedFiles = conflictOutput.trim().split('\n').filter(Boolean);
 
@@ -226,7 +235,7 @@ export class Integrator {
           });
 
           // Resolve conflicts via Claude agent
-          const resolved = await this.resolveConflicts(c.integrationBranch, pipeline_branch, conflictedFiles, c.cwd);
+          const resolved = await this.resolveConflicts(c.integrationBranch, pipeline_branch, conflictedFiles, c.worktreePath, effectiveMain);
           if (!resolved) {
             throw new Error('Claude agent failed to resolve merge conflicts');
           }
@@ -239,7 +248,7 @@ export class Integrator {
         }
       },
       compensate: async (c) => {
-        await execute('git', ['merge', '--abort'], { cwd: c.cwd, reject: false });
+        await execute('git', ['merge', '--abort'], { cwd: c.worktreePath, reject: false });
       },
     });
 
@@ -249,7 +258,7 @@ export class Integrator {
         const doPush = () => execute(
           'git',
           ['push', '-u', 'origin', c.integrationBranch, '--force-with-lease'],
-          { cwd: c.cwd },
+          { cwd: c.worktreePath },
         );
 
         if (this.circuitBreakers) {
@@ -270,7 +279,7 @@ export class Integrator {
         const prBody = buildPRBody(entry, c.conflictsResolved);
 
         const doCreatePR = async () => {
-          const prResult = createPR(c.cwd, prTitle, prBody, this.mainBranch);
+          const prResult = createPR(c.worktreePath, prTitle, prBody, effectiveMain);
           return prResult.match(
             (output) => output,
             (err) => { throw new Error(`Failed to create PR: ${err.message}`); },
@@ -301,9 +310,9 @@ export class Integrator {
     });
 
     saga.addStep({
-      name: 'checkout_main',
+      name: 'cleanup_worktree',
       action: async (c) => {
-        await execute('git', ['checkout', this.mainBranch], { cwd: c.cwd, reject: false });
+        await execute('git', ['worktree', 'remove', '--force', c.worktreePath], { cwd: c.cwd, reject: false });
       },
     });
 
@@ -326,8 +335,9 @@ export class Integrator {
         error: err.message,
       });
 
-      // Ensure we end up on main regardless
-      await execute('git', ['checkout', this.mainBranch], { cwd, reject: false });
+      // Clean up worktree on failure
+      await execute('git', ['worktree', 'remove', '--force', worktreePath], { cwd: projectPath, reject: false });
+      await execute('git', ['branch', '-D', integrationBranch], { cwd: projectPath, reject: false });
 
       return { success: false, error: err.message };
     }
@@ -456,6 +466,7 @@ export class Integrator {
     pipelineBranch: string,
     conflictedFiles: string[],
     cwd: string,
+    baseBranch?: string,
   ): Promise<boolean> {
     const prompt = buildConflictPrompt(integrationBranch, pipelineBranch, conflictedFiles);
 
@@ -481,7 +492,7 @@ export class Integrator {
         changed_files: conflictedFiles,
       },
       previousResults: [],
-      baseBranch: this.mainBranch,
+      baseBranch: baseBranch ?? this.mainBranch,
     };
 
     try {

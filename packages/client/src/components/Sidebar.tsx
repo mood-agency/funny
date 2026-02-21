@@ -398,7 +398,7 @@ export function AppSidebar() {
                 navigate(`/search?project=${project.id}`);
               }}
               onShowIssues={() => setIssuesProjectId(project.id)}
-              onTriggerWorkflow={() => openWorkflowDialog(project.id, project.path, project.name)}
+              onTriggerWorkflow={() => openWorkflowDialog(project.id, project.path)}
             />
           ))}
         </div>

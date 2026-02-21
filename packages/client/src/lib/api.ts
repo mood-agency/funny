@@ -124,7 +124,10 @@ function request<T>(path: string, init?: RequestInit): ResultAsync<T, DomainErro
         }
 
         const body = await res.json().catch(() => ({}));
-        const message = body.error || `HTTP ${res.status}`;
+        const rawError = body.error;
+        const message = typeof rawError === 'string' ? rawError
+          : rawError ? JSON.stringify(rawError)
+          : `HTTP ${res.status}`;
         const type: DomainError['type'] = res.status === 404 ? 'NOT_FOUND'
           : res.status === 403 ? 'FORBIDDEN'
           : res.status === 409 ? 'CONFLICT'

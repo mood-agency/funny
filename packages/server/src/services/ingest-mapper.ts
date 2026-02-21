@@ -85,6 +85,12 @@ const SILENT_EVENT_TYPES = new Set([
   'workflow.step.completed',
   'workflow.completed',
   'workflow.failed',
+  // Director system events (no request_id — not tied to a specific pipeline run)
+  'director.activated',
+  'director.cycle.completed',
+  'director.integration.dispatched',
+  'director.integration.pr_created',
+  'director.pr.rebase_needed',
 ]);
 
 function getCLIState(requestId: string): CLIMessageState {

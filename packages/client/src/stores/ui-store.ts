@@ -16,7 +16,6 @@ interface UIState {
   kanbanContext: { projectId?: string; search?: string; threadId?: string } | null;
   workflowDialogProjectId: string | null;
   workflowDialogProjectPath: string | null;
-  workflowDialogProjectName: string | null;
 
   setReviewPaneOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -30,7 +29,7 @@ interface UIState {
   setAnalyticsOpen: (open: boolean) => void;
   setLiveColumnsOpen: (open: boolean) => void;
   setKanbanContext: (context: { projectId?: string; search?: string; threadId?: string } | null) => void;
-  openWorkflowDialog: (projectId: string, projectPath: string, projectName: string) => void;
+  openWorkflowDialog: (projectId: string, projectPath: string) => void;
   closeWorkflowDialog: () => void;
 }
 
@@ -48,7 +47,6 @@ export const useUIStore = create<UIState>((set) => ({
   kanbanContext: null,
   workflowDialogProjectId: null,
   workflowDialogProjectPath: null,
-  workflowDialogProjectName: null,
 
   setReviewPaneOpen: (open) => set({ reviewPaneOpen: open }),
   setSettingsOpen: (open) => set(open ? { settingsOpen: true, automationInboxOpen: false, addProjectOpen: false } : { settingsOpen: false, activeSettingsPage: null }),
@@ -110,8 +108,8 @@ export const useUIStore = create<UIState>((set) => ({
 
   setKanbanContext: (context) => set({ kanbanContext: context }),
 
-  openWorkflowDialog: (projectId, projectPath, projectName) =>
-    set({ workflowDialogProjectId: projectId, workflowDialogProjectPath: projectPath, workflowDialogProjectName: projectName }),
+  openWorkflowDialog: (projectId, projectPath) =>
+    set({ workflowDialogProjectId: projectId, workflowDialogProjectPath: projectPath }),
   closeWorkflowDialog: () =>
-    set({ workflowDialogProjectId: null, workflowDialogProjectPath: null, workflowDialogProjectName: null }),
+    set({ workflowDialogProjectId: null, workflowDialogProjectPath: null }),
 }));
