@@ -6,10 +6,11 @@ import { FileCode2, CheckCircle2, XCircle, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 
-export function ExitPlanModeCard({ plan, onRespond }: { plan?: string; onRespond?: (answer: string) => void }) {
+export function ExitPlanModeCard({ plan, onRespond, output }: { plan?: string; onRespond?: (answer: string) => void; output?: string }) {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const alreadyAnswered = !!output;
+  const [submitted, setSubmitted] = useState(alreadyAnswered);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export function ExitPlanModeCard({ plan, onRespond }: { plan?: string; onRespond
       <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
         <FileCode2 className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
         <span className="font-medium text-foreground">{t('tools.plan')}</span>
-        <span className="text-muted-foreground">{t('thread.planWaitingForResponse')}</span>
+        {!submitted && <span className="text-muted-foreground">{t('thread.planWaitingForResponse')}</span>}
         {submitted && (
           <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded bg-status-success/10 text-status-success/80 font-medium ml-auto">
             {t('tools.answered')}
@@ -68,6 +69,14 @@ export function ExitPlanModeCard({ plan, onRespond }: { plan?: string; onRespond
               {plan}
             </ReactMarkdown>
           </div>
+        </div>
+      )}
+
+      {alreadyAnswered && (
+        <div className="border-t border-border/40 px-3 py-2">
+          <p className="text-xs text-primary font-medium">
+            → {output}
+          </p>
         </div>
       )}
 
