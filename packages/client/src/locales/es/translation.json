@@ -341,7 +341,8 @@
     "openInEditor": "Abrir en {{editor}}: {{path}}",
     "other": "Otra",
     "otherPlaceholder": "Escribe tu respuesta...",
-    "next": "Siguiente"
+    "next": "Siguiente",
+    "continue": "Continuar"
   },
   "allThreads": {
     "title": "Todos los hilos",

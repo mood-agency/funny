@@ -34,6 +34,15 @@ export function AskQuestionCard({ parsed, onRespond, output, hideLabel }: { pars
       next.set(qIndex, current);
       return next;
     });
+
+    // Auto-advance to next question if:
+    // - Not multi-select (single selection)
+    // - Not selecting "Other" (which requires text input)
+    // - Not on the last question
+    if (!multiSelect && optIndex !== OTHER_INDEX && qIndex < questions.length - 1) {
+      // Use setTimeout to ensure state update completes before advancing
+      setTimeout(() => setActiveTab(qIndex + 1), 150);
+    }
   };
 
   // Focus the textarea when "Other" is selected
@@ -109,7 +118,6 @@ export function AskQuestionCard({ parsed, onRespond, output, hideLabel }: { pars
   })();
 
   const isLastTab = activeTab === questions.length - 1;
-  const showNext = questions.length > 1 && !isLastTab && !submitted;
 
   return (
     <div className="text-sm max-w-full overflow-hidden">
@@ -269,19 +277,19 @@ export function AskQuestionCard({ parsed, onRespond, output, hideLabel }: { pars
           {/* Action buttons */}
           {onRespond && !submitted && (
             <div className="flex items-center pt-1">
-              {/* Next button — bottom-left */}
-              {showNext && (
+              {/* Continue button for "Other" option — shown when user needs to advance manually */}
+              {isOtherSelected && !isLastTab && (
                 <button
                   onClick={() => setActiveTab((prev) => prev + 1)}
                   disabled={!currentTabAnswered}
                   className={cn(
                     'flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
                     currentTabAnswered
-                      ? 'bg-primary/15 text-primary hover:bg-primary/25 animate-pulse'
+                      ? 'bg-primary/15 text-primary hover:bg-primary/25'
                       : 'bg-muted text-muted-foreground cursor-not-allowed'
                   )}
                 >
-                  {t('tools.next')}
+                  {t('tools.continue')}
                   <ChevronRight className="h-3 w-3" />
                 </button>
               )}
