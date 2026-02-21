@@ -46,6 +46,7 @@ export const DIFF_VIEWER_STYLES = {
   },
   contentText: {
     whiteSpace: 'pre',
+    fontFamily: "'Geist Mono', ui-monospace, monospace",
     // wordBreak: 'break-all',
     // overflow: 'hidden',
   },
