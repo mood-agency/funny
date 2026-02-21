@@ -69,12 +69,17 @@ app.use(
   cors({
     origin: corsOrigin
       ? corsOrigin.split(',').map((o) => o.trim())
-      : [
-          `http://localhost:${clientPort}`,
-          `http://127.0.0.1:${clientPort}`,
-          'tauri://localhost',
-          'https://tauri.localhost',
-        ],
+      : (origin: string) => {
+          const allowed = [
+            `http://localhost:${clientPort}`,
+            `http://127.0.0.1:${clientPort}`,
+            'tauri://localhost',
+            'https://tauri.localhost',
+          ];
+          if (allowed.includes(origin)) return origin;
+          if (origin.startsWith('chrome-extension://')) return origin;
+          return undefined;
+        },
     credentials: true,
   })
 );
