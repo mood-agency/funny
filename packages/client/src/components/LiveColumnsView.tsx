@@ -263,6 +263,8 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
   const handleSend = useCallback(async (prompt: string, opts: { provider?: string; model: string; mode: string; fileReferences?: { path: string }[] }, images?: any[]) => {
     if (sending || !thread) return;
     setSending(true);
+    // Always scroll to bottom when the user sends a message
+    userHasScrolledUp.current = false;
     startTransition(() => {
       useAppStore.getState().appendOptimisticMessage(
         threadId,

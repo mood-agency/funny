@@ -702,6 +702,10 @@ export function ThreadView() {
       toast.info(t('thread.interruptingAgent'));
     }
 
+    // Always scroll to bottom when the user sends a message
+    userHasScrolledUp.current = false;
+    setShowScrollDown(false);
+
     startTransition(() => {
       useAppStore.getState().appendOptimisticMessage(
         activeThread.id,

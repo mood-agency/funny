@@ -392,6 +392,9 @@ function ChatView({
     if (!activeThread || sending) return;
     setSending(true);
 
+    // Always scroll to bottom when the user sends a message
+    userHasScrolledUp.current = false;
+
     useAppStore.getState().appendOptimisticMessage(
       activeThread.id,
       prompt,
