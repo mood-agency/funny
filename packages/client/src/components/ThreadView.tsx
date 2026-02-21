@@ -818,6 +818,9 @@ export function ThreadView() {
               <div className="text-center py-2">
                 <span className="text-xs text-muted-foreground">
                   {t('thread.beginningOfConversation', 'Beginning of conversation')}
+                  {activeThread.createdAt && (
+                    <> &middot; {timeAgo(activeThread.createdAt, t)}</>
+                  )}
                 </span>
               </div>
             )}

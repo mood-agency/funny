@@ -137,6 +137,7 @@ const MemoizedDiffView = memo(function MemoizedDiffView({ diff, splitView = fals
       hideLineNumbers={false}
       showDiffOnly={true}
       styles={DIFF_VIEWER_STYLES}
+      codeFoldMessageRenderer={() => null}
     />
   );
 });
@@ -480,6 +481,8 @@ export function ReviewPane() {
       }
       const target = useThreadStore.getState().activeThread?.baseBranch || 'base';
       toast.success(t('review.commitAndMergeSuccess', { target }));
+      // Refresh thread data so mode/branch/worktreePath reflect the cleanup
+      await useThreadStore.getState().refreshActiveThread();
     }
 
     setCommitTitleRaw('');

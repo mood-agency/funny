@@ -88,29 +88,26 @@ export function AnalyticsView() {
         </Button>
         <div className="flex-1 min-w-0">
           <h2 className="text-sm font-medium">{t('analytics.title')}</h2>
-          <p className="text-xs text-muted-foreground">
-            {projectId === '__all__'
-              ? t('analytics.allProjects')
-              : selectedProject?.name ?? ''}
-          </p>
         </div>
+      </div>
 
-        <div className="flex items-center gap-3">
-          {/* Project selector */}
-          <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger className="w-[180px] h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{t('analytics.allProjects')}</SelectItem>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      {/* Filters */}
+      <div className="px-4 py-2 border-b border-border/50 flex items-center gap-2">
+        <Select value={projectId} onValueChange={setProjectId}>
+          <SelectTrigger className="w-[180px] h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t('analytics.allProjects')}</SelectItem>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-          <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
-        </div>
+        <div className="w-px h-4 bg-border" />
+
+        <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
       </div>
 
       {/* Content */}
