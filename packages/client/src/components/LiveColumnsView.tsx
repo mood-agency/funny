@@ -440,8 +440,14 @@ export function LiveColumnsView() {
   const loadThreadsForProject = useThreadStore(s => s.loadThreadsForProject);
   const defaultThreadMode = useSettingsStore(s => s.defaultThreadMode);
   const toolPermissions = useSettingsStore(s => s.toolPermissions);
-  const [gridCols, setGridCols] = useState(2);
-  const [gridRows, setGridRows] = useState(2);
+  const [gridCols, setGridCols] = useState(() => {
+    const saved = localStorage.getItem('funny:grid-cols');
+    return saved ? Math.min(Math.max(Number(saved), 1), MAX_GRID_COLS) : 2;
+  });
+  const [gridRows, setGridRows] = useState(() => {
+    const saved = localStorage.getItem('funny:grid-rows');
+    return saved ? Math.min(Math.max(Number(saved), 1), MAX_GRID_ROWS) : 2;
+  });
   const maxSlots = gridCols * gridRows;
 
   // Add-thread state
@@ -686,7 +692,7 @@ export function LiveColumnsView() {
           <GridPicker
             cols={gridCols}
             rows={gridRows}
-            onChange={(c, r) => { setGridCols(c); setGridRows(r); }}
+            onChange={(c, r) => { setGridCols(c); setGridRows(r); localStorage.setItem('funny:grid-cols', String(c)); localStorage.setItem('funny:grid-rows', String(r)); }}
           />
         </div>
       </div>
