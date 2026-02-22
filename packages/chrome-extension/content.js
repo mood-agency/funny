@@ -1533,17 +1533,26 @@
   function generateMarkdown() {
     if (annotations.length === 0) return '';
 
-    let md = `## UI Review: ${window.location.href}\n\n`;
+    // -- User instructions first (clear, top-level) --
+    const instructions = annotations
+      .map((ann, i) => ann.prompt ? `${annotations.length > 1 ? `${i + 1}. ` : ''}${ann.prompt}` : null)
+      .filter(Boolean);
+
+    let md = '';
+    if (instructions.length > 0) {
+      md += instructions.join('\n') + '\n\n';
+    }
+
+    // -- UI context as supporting reference --
+    md += `<details>\n<summary>UI Context: ${window.location.href}</summary>\n\n`;
     md += `**Page title:** ${document.title}\n`;
     md += `**Viewport:** ${window.innerWidth}x${window.innerHeight}\n`;
-    md += `**Date:** ${new Date().toISOString()}\n\n---\n\n`;
+    md += `**Date:** ${new Date().toISOString()}\n\n`;
 
     annotations.forEach((ann, i) => {
-      md += `### Annotation ${i + 1}`;
+      md += `### Annotated element ${i + 1}`;
       if (ann.elements.length > 1) md += ` (${ann.elements.length} elements)`;
       md += `\n\n`;
-      // Action/prompt is the primary instruction — shown first
-      if (ann.prompt) md += `> **${ann.prompt}**\n\n`;
 
       ann.elements.forEach((elem, j) => {
         if (ann.elements.length > 1) md += `#### Element ${j + 1}: \`${elem.elementName}\`\n\n`;
@@ -1562,6 +1571,7 @@
       if (i < annotations.length - 1) md += `---\n\n`;
     });
 
+    md += `</details>`;
 
     return md;
   }
