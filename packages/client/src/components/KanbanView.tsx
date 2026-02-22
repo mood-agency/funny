@@ -146,7 +146,18 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
 
       {thread.branch && (
         <div className="flex items-center gap-1 mb-1.5 min-w-0" aria-label="Branch information">
-          <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+          {gitConf && GitIcon ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <GitIcon className={cn('h-3 w-3 shrink-0', gitConf.className)} />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                {t(gitConf.labelKey)}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
           <span className="text-xs text-muted-foreground truncate" title={thread.branch}>
             {thread.branch}
           </span>
@@ -171,28 +182,6 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
           {thread.provider === 'external' && (
             <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-medium">External</Badge>
           )}
-          {gitConf && GitIcon ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <GitIcon className={cn('h-3 w-3 shrink-0', gitConf.className)} />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <div>{t(gitConf.labelKey)}</div>
-                {thread.branch && (
-                  <div className="text-muted-foreground">{thread.branch}</div>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          ) : thread.branch ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                {thread.branch}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
         </div>
         <div className="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
           <span>{timeAgo(thread.completedAt || thread.createdAt, t)}</span>

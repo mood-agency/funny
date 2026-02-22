@@ -34,6 +34,12 @@
   let scrollRafId = null;
   let runtimeDisconnected = false;
 
+  // Multi-select state (Ctrl+click)
+  let multiSelectElements = [];
+  let multiSelectOverlays = []; // [{ hl, badge, element }]
+  let pendingMultiSelectElements = null; // snapshot while popover is open
+  let multiSelectContainer = null;
+
   // Cache for component name lookups (WeakMap so GC can collect removed elements)
   const componentNameCache = new WeakMap();
   const componentTreeCache = new WeakMap();
@@ -53,6 +59,7 @@
   let popoverTextarea = null;
   let popoverError = null;
   let popoverElementName = null;
+  let popoverElementList = null;
   let popoverAddBtn = null;
   let popoverDeleteBtn = null;
 
@@ -77,8 +84,10 @@
     // Containers
     highlightContainer = createElement('div', 'highlight-container');
     badgeContainer = createElement('div', 'badge-container');
+    multiSelectContainer = createElement('div', 'multi-select-container');
     shadowRoot.appendChild(highlightContainer);
     shadowRoot.appendChild(badgeContainer);
+    shadowRoot.appendChild(multiSelectContainer);
 
     // Hover highlight
     hoverHighlight = createElement('div', 'hover-highlight');
@@ -302,39 +311,42 @@
     if (!annotationsVisible) return;
 
     annotations.forEach((ann, i) => {
-      const el = ann._element;
-      if (!el || !document.contains(el)) return;
-      const rect = el.getBoundingClientRect();
+      // Each annotation can have one or more elements
+      for (const elemData of ann.elements) {
+        const el = elemData._element;
+        if (!el || !document.contains(el)) continue;
+        const rect = el.getBoundingClientRect();
 
-      // Persistent highlight (green dashed border)
-      const hl = createElement('div', 'annotation-highlight');
-      hl.style.cssText = `
-        position: fixed;
-        top: ${rect.top}px;
-        left: ${rect.left}px;
-        width: ${rect.width}px;
-        height: ${rect.height}px;
-        pointer-events: none;
-      `;
-      highlightContainer.appendChild(hl);
+        // Persistent highlight (green dashed border)
+        const hl = createElement('div', 'annotation-highlight');
+        hl.style.cssText = `
+          position: fixed;
+          top: ${rect.top}px;
+          left: ${rect.left}px;
+          width: ${rect.width}px;
+          height: ${rect.height}px;
+          pointer-events: none;
+        `;
+        highlightContainer.appendChild(hl);
 
-      // Badge
-      const badge = createElement('div', 'annotation-badge');
-      badge.textContent = String(i + 1);
-      badge.style.cssText = `
-        position: fixed;
-        top: ${rect.top - 10}px;
-        left: ${rect.right - 10}px;
-        pointer-events: auto;
-        cursor: pointer;
-      `;
-      badge.addEventListener('click', (e) => {
-        e.stopPropagation();
-        showPopoverForEdit(ann, i, e.clientX, e.clientY);
-      });
-      badgeContainer.appendChild(badge);
+        // Badge (same number for all elements in the group)
+        const badge = createElement('div', 'annotation-badge');
+        badge.textContent = String(i + 1);
+        badge.style.cssText = `
+          position: fixed;
+          top: ${rect.top - 10}px;
+          left: ${rect.right - 10}px;
+          pointer-events: auto;
+          cursor: pointer;
+        `;
+        badge.addEventListener('click', (e) => {
+          e.stopPropagation();
+          showPopoverForEdit(ann, i, e.clientX, e.clientY);
+        });
+        badgeContainer.appendChild(badge);
 
-      annotationOverlays.push({ hl, badge, element: el });
+        annotationOverlays.push({ hl, badge, element: el });
+      }
     });
   }
 
@@ -352,6 +364,62 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Multi-select highlights (Ctrl+click pending selection)
+  // ---------------------------------------------------------------------------
+  function renderMultiSelectHighlights() {
+    multiSelectOverlays = [];
+    multiSelectContainer.innerHTML = '';
+
+    multiSelectElements.forEach((el, i) => {
+      if (!document.contains(el)) return;
+      const rect = el.getBoundingClientRect();
+
+      const hl = createElement('div', 'multi-select-highlight');
+      hl.style.cssText = `
+        position: fixed;
+        top: ${rect.top}px;
+        left: ${rect.left}px;
+        width: ${rect.width}px;
+        height: ${rect.height}px;
+        pointer-events: none;
+      `;
+      multiSelectContainer.appendChild(hl);
+
+      const badge = createElement('div', 'multi-select-badge');
+      badge.textContent = String(i + 1);
+      badge.style.cssText = `
+        position: fixed;
+        top: ${rect.top - 10}px;
+        left: ${rect.right - 10}px;
+        pointer-events: none;
+      `;
+      multiSelectContainer.appendChild(badge);
+
+      multiSelectOverlays.push({ hl, badge, element: el });
+    });
+  }
+
+  function repositionMultiSelectHighlights() {
+    for (const { hl, badge, element } of multiSelectOverlays) {
+      if (!document.contains(element)) continue;
+      const rect = element.getBoundingClientRect();
+      hl.style.top = `${rect.top}px`;
+      hl.style.left = `${rect.left}px`;
+      hl.style.width = `${rect.width}px`;
+      hl.style.height = `${rect.height}px`;
+      badge.style.top = `${rect.top - 10}px`;
+      badge.style.left = `${rect.right - 10}px`;
+    }
+  }
+
+  function clearMultiSelect() {
+    multiSelectElements = [];
+    multiSelectOverlays = [];
+    pendingMultiSelectElements = null;
+    multiSelectContainer.innerHTML = '';
+  }
+
   // Reposition on scroll/resize (throttled via rAF)
   function onScrollOrResize() {
     if (!isActive) return;
@@ -360,6 +428,7 @@
       scrollRafId = null;
       // Move existing overlays (no DOM rebuild)
       repositionAnnotations();
+      repositionMultiSelectHighlights();
       // Update hover highlight position
       if (hoveredElement && document.contains(hoveredElement)) {
         const rect = hoveredElement.getBoundingClientRect();
@@ -386,8 +455,9 @@
       <div class="popover-header">
         <span class="popover-element-name"></span>
       </div>
-      <textarea class="popover-textarea" placeholder="Describe the issue or change..." rows="3"></textarea>
-      <div class="popover-error" style="display:none">Please describe the issue or change.</div>
+      <div class="popover-element-list" style="display:none"></div>
+      <textarea class="popover-textarea" placeholder="What should be done with this element?" rows="3"></textarea>
+      <div class="popover-error" style="display:none">Please describe the action needed.</div>
       <div class="popover-details">
         <button class="popover-details-toggle">
           <svg class="popover-details-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -419,6 +489,7 @@
     popoverTextarea = pop.querySelector('.popover-textarea');
     popoverError = pop.querySelector('.popover-error');
     popoverElementName = pop.querySelector('.popover-element-name');
+    popoverElementList = pop.querySelector('.popover-element-list');
     popoverAddBtn = pop.querySelector('.popover-add');
     popoverDeleteBtn = pop.querySelector('.popover-delete');
 
@@ -525,13 +596,19 @@
   function showPopoverForElement(el, clickX, clickY) {
     pendingAnnotationElement = el;
     editingAnnotationIndex = -1;
+    pendingMultiSelectElements = null;
 
     popoverElementName.textContent = getElementName(el);
+    popoverElementList.style.display = 'none';
+    popoverElementList.innerHTML = '';
     popoverTextarea.value = '';
+    popoverTextarea.placeholder = 'What should be done with this element?';
     popoverTextarea.classList.remove('popover-textarea-error');
     popoverError.style.display = 'none';
     popoverAddBtn.textContent = 'Add';
     popoverDeleteBtn.style.display = 'none';
+    const details = popover.querySelector('.popover-details');
+    if (details) details.style.display = '';
     populateElementDetails(el);
 
     positionPopoverAtPoint(clickX, clickY);
@@ -540,20 +617,131 @@
   }
 
   function showPopoverForEdit(ann, index, clickX, clickY) {
-    pendingAnnotationElement = ann._element;
     editingAnnotationIndex = index;
-
-    popoverElementName.textContent = ann.elementName;
-    popoverTextarea.value = ann.comment;
+    popoverTextarea.value = ann.prompt;
     popoverTextarea.classList.remove('popover-textarea-error');
     popoverError.style.display = 'none';
     popoverAddBtn.textContent = 'Update';
     popoverDeleteBtn.style.display = 'inline-block';
-    populateElementDetails(ann._element);
+
+    if (ann.elements.length > 1) {
+      // Multi-element annotation: show chips, hide details
+      pendingAnnotationElement = null;
+      pendingMultiSelectElements = ann.elements.map(e => e._element);
+      popoverElementName.textContent = `${ann.elements.length} elements selected`;
+      popoverTextarea.placeholder = 'What should be done with these elements?';
+      popoverElementList.innerHTML = '';
+      popoverElementList.style.display = 'flex';
+      ann.elements.forEach((elemData) => {
+        const chip = createElement('span', 'popover-element-chip');
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = elemData.elementName;
+        nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;';
+        chip.appendChild(nameSpan);
+        popoverElementList.appendChild(chip);
+      });
+      const details = popover.querySelector('.popover-details');
+      if (details) details.style.display = 'none';
+    } else {
+      // Single-element annotation
+      const elemData = ann.elements[0];
+      pendingAnnotationElement = elemData._element;
+      pendingMultiSelectElements = null;
+      popoverElementName.textContent = elemData.elementName;
+      popoverTextarea.placeholder = 'What should be done with this element?';
+      popoverElementList.style.display = 'none';
+      popoverElementList.innerHTML = '';
+      const details = popover.querySelector('.popover-details');
+      if (details) details.style.display = '';
+      populateElementDetails(elemData._element);
+    }
 
     positionPopoverAtPoint(clickX, clickY);
     popover.style.display = 'block';
     popoverTextarea.focus();
+  }
+
+  function showPopoverForMultiSelect(clickX, clickY) {
+    pendingAnnotationElement = null;
+    editingAnnotationIndex = -1;
+    pendingMultiSelectElements = [...multiSelectElements];
+
+    // Header shows count
+    popoverElementName.textContent = `${pendingMultiSelectElements.length} elements selected`;
+
+    // Populate chip list
+    popoverElementList.innerHTML = '';
+    popoverElementList.style.display = 'flex';
+    pendingMultiSelectElements.forEach((el, i) => {
+      const chip = createElement('span', 'popover-element-chip');
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = getElementName(el);
+      nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;';
+      chip.appendChild(nameSpan);
+
+      const removeBtn = createElement('button', 'popover-chip-remove');
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFromMultiSelect(i);
+      });
+      chip.appendChild(removeBtn);
+      popoverElementList.appendChild(chip);
+    });
+
+    popoverTextarea.value = '';
+    popoverTextarea.placeholder = 'What should be done with these elements?';
+    popoverTextarea.classList.remove('popover-textarea-error');
+    popoverError.style.display = 'none';
+    popoverAddBtn.textContent = 'Add';
+    popoverDeleteBtn.style.display = 'none';
+
+    // Hide element details accordion (not useful for multi-select)
+    const details = popover.querySelector('.popover-details');
+    if (details) details.style.display = 'none';
+
+    positionPopoverAtPoint(clickX, clickY);
+    popover.style.display = 'block';
+    popoverTextarea.focus();
+  }
+
+  function removeFromMultiSelect(index) {
+    if (!pendingMultiSelectElements) return;
+
+    // Remove from pending list
+    pendingMultiSelectElements.splice(index, 1);
+
+    // Also remove from the live multi-select array
+    multiSelectElements = [...pendingMultiSelectElements];
+    renderMultiSelectHighlights();
+
+    if (pendingMultiSelectElements.length === 0) {
+      // No elements left, close popover
+      hidePopover();
+      return;
+    }
+
+    // Re-render chips
+    popoverElementName.textContent = `${pendingMultiSelectElements.length} elements selected`;
+    popoverElementList.innerHTML = '';
+    pendingMultiSelectElements.forEach((el, i) => {
+      const chip = createElement('span', 'popover-element-chip');
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = getElementName(el);
+      nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;';
+      chip.appendChild(nameSpan);
+
+      const removeBtn = createElement('button', 'popover-chip-remove');
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = 'Remove';
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFromMultiSelect(i);
+      });
+      chip.appendChild(removeBtn);
+      popoverElementList.appendChild(chip);
+    });
   }
 
   function positionPopoverAtPoint(x, y) {
@@ -578,65 +766,80 @@
     popover.style.display = 'none';
     pendingAnnotationElement = null;
     editingAnnotationIndex = -1;
+    pendingMultiSelectElements = null;
     hideHoverHighlight();
+    // Clear multi-select visuals if popover is dismissed
+    if (multiSelectElements.length > 0) {
+      clearMultiSelect();
+    }
   }
 
-  function addAnnotationFromPopover() {
-    const comment = popoverTextarea.value.trim();
-    const el = pendingAnnotationElement;
-
-    if (!el) return;
-
-    // Validate: comment is required
-    if (!comment) {
-      popoverTextarea.classList.add('popover-textarea-error');
-      popoverError.style.display = 'block';
-      popoverTextarea.focus();
-      return;
-    }
-
+  function buildElementData(el) {
     const rect = el.getBoundingClientRect();
-    const annotationData = {
-      // Required (Agentation schema v1)
-      id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      comment,
+    return {
+      element: el.tagName.toLowerCase(),
       elementPath: getCSSSelector(el),
-      timestamp: Date.now(),
+      elementName: getElementName(el),
       x: Math.round((rect.left + rect.width / 2) / window.innerWidth * 100 * 10) / 10,
       y: Math.round(rect.top + window.scrollY),
-      element: el.tagName.toLowerCase(),
-      // Recommended
-      url: window.location.href,
       boundingBox: {
         x: Math.round(rect.x),
         y: Math.round(rect.y),
         width: Math.round(rect.width),
         height: Math.round(rect.height)
       },
-      // Optional context
       componentTree: getComponentTree(el),
       cssClasses: (typeof el.className === 'string' ? el.className : '').trim(),
       computedStyles: getComputedStylesSummary(el),
       accessibility: getAccessibilityInfo(el),
       nearbyText: getNearbyText(el),
-      selectedText: window.getSelection()?.toString()?.trim() || '',
-      // Browser component
       isFixed: ['fixed', 'sticky'].includes(window.getComputedStyle(el).position),
       fullPath: getFullPath(el),
       nearbyElements: getNearbyElements(el),
-      // Lifecycle
-      status: 'pending',
-      // Extra (not in schema, useful for agents)
-      elementName: getElementName(el),
       outerHTML: el.outerHTML.slice(0, 2000),
       _element: el // private ref, not serialized
     };
+  }
 
+  function buildAnnotation(prompt, elements) {
+    return {
+      id: `ann_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      prompt,
+      timestamp: Date.now(),
+      url: window.location.href,
+      selectedText: window.getSelection()?.toString()?.trim() || '',
+      status: 'pending',
+      elements: elements.map(buildElementData)
+    };
+  }
+
+  function addAnnotationFromPopover() {
+    const prompt = popoverTextarea.value.trim();
+
+    // Validate: prompt is required
+    if (!prompt) {
+      popoverTextarea.classList.add('popover-textarea-error');
+      popoverError.style.display = 'block';
+      popoverTextarea.focus();
+      return;
+    }
+
+    // Editing an existing annotation (single or multi-element)
     if (editingAnnotationIndex >= 0) {
-      annotations[editingAnnotationIndex] = annotationData;
-    } else {
+      const existing = annotations[editingAnnotationIndex];
+      const elements = existing.elements.map(e => e._element);
+      annotations[editingAnnotationIndex] = buildAnnotation(prompt, elements);
+    } else if (pendingMultiSelectElements && pendingMultiSelectElements.length > 0) {
+      // New multi-select annotation
       annotationCounter++;
-      annotations.push(annotationData);
+      annotations.push(buildAnnotation(prompt, pendingMultiSelectElements));
+      clearMultiSelect();
+    } else {
+      // New single-element annotation
+      const el = pendingAnnotationElement;
+      if (!el) return;
+      annotationCounter++;
+      annotations.push(buildAnnotation(prompt, [el]));
     }
 
     hidePopover();
@@ -795,6 +998,7 @@
       case 'clear':
         annotations = [];
         annotationCounter = 0;
+        clearMultiSelect();
         renderAnnotations();
         updateToolbarCount();
         break;
@@ -852,6 +1056,7 @@
       btn.title = 'Annotate mode — select elements';
       hideHoverHighlight();
       hidePopover();
+      clearMultiSelect();
     } else {
       btn.classList.remove('toolbar-btn-active');
       btn.title = 'Browse mode — navigate the page';
@@ -1048,7 +1253,7 @@
 
       // Populate mode
       const modeSelect = settingsPanel.querySelector('[data-key="mode"]');
-      modeSelect.value = config.mode || 'local';
+      modeSelect.value = config.mode || 'worktree';
 
       // Populate projects
       const projectSelect = settingsPanel.querySelector('[data-key="projectId"]');
@@ -1187,26 +1392,29 @@
     md += `**Date:** ${new Date().toISOString()}\n\n---\n\n`;
 
     annotations.forEach((ann, i) => {
-      md += `### Annotation ${i + 1}\n\n`;
-      md += `**Element:** \`${ann.element}\` at \`${ann.elementPath}\`\n`;
-      md += `**Position:** ${ann.x}% from left, ${ann.y}px from top\n`;
-      if (ann.cssClasses) md += `**Classes:** \`${ann.cssClasses}\`\n`;
-      if (ann.componentTree) md += `**Component Tree:** \`${ann.componentTree}\`\n`;
-      md += `**Styles:** ${ann.computedStyles}\n`;
-      md += `**Accessibility:** ${ann.accessibility}\n`;
-      md += `**Nearby text:** ${ann.nearbyText}\n`;
-      md += `**Bounding box:** ${ann.boundingBox.width}x${ann.boundingBox.height} at (${ann.boundingBox.x}, ${ann.boundingBox.y})\n`;
-      if (ann.isFixed) md += `**Fixed position:** yes\n`;
-      if (ann.comment) md += `\n**Comment:** ${ann.comment}\n`;
-      md += `\n**HTML (truncated):**\n\`\`\`html\n${ann.outerHTML.slice(0, 500)}\n\`\`\`\n\n`;
+      md += `### Annotation ${i + 1}`;
+      if (ann.elements.length > 1) md += ` (${ann.elements.length} elements)`;
+      md += `\n\n`;
+      // Action/prompt is the primary instruction — shown first
+      if (ann.prompt) md += `> **${ann.prompt}**\n\n`;
+
+      ann.elements.forEach((elem, j) => {
+        if (ann.elements.length > 1) md += `#### Element ${j + 1}: \`${elem.elementName}\`\n\n`;
+        md += `**Element:** \`${elem.element}\` at \`${elem.elementPath}\`\n`;
+        md += `**Position:** ${elem.x}% from left, ${elem.y}px from top\n`;
+        if (elem.cssClasses) md += `**Classes:** \`${elem.cssClasses}\`\n`;
+        if (elem.componentTree) md += `**Component Tree:** \`${elem.componentTree}\`\n`;
+        md += `**Styles:** ${elem.computedStyles}\n`;
+        md += `**Accessibility:** ${elem.accessibility}\n`;
+        md += `**Nearby text:** ${elem.nearbyText}\n`;
+        md += `**Bounding box:** ${elem.boundingBox.width}x${elem.boundingBox.height} at (${elem.boundingBox.x}, ${elem.boundingBox.y})\n`;
+        if (elem.isFixed) md += `**Fixed position:** yes\n`;
+        md += `\n**HTML (truncated):**\n\`\`\`html\n${elem.outerHTML.slice(0, 500)}\n\`\`\`\n\n`;
+      });
+
       if (i < annotations.length - 1) md += `---\n\n`;
     });
 
-    md += `\n---\n\nPlease analyze these UI annotations and provide:\n`;
-    md += `1. CSS/styling fixes for each issue\n`;
-    md += `2. Accessibility improvements if needed\n`;
-    md += `3. Responsive design suggestions\n`;
-    md += `4. Code changes with file paths and specific selectors\n`;
 
     return md;
   }
@@ -1236,8 +1444,11 @@
       // Take screenshot
       const screenshot = await captureScreenshot();
 
-      // Serialize annotations (strip _element refs)
-      const serialized = annotations.map(({ _element, ...rest }) => rest);
+      // Serialize annotations (strip _element refs from each element)
+      const serialized = annotations.map(ann => ({
+        ...ann,
+        elements: ann.elements.map(({ _element, ...rest }) => rest)
+      }));
 
       // Send to background worker
       safeSendMessage({
@@ -1339,7 +1550,31 @@
     e.preventDefault();
     e.stopPropagation();
 
-    // Keep the hover highlight visible while the popover is open
+    // Ctrl+click (or Cmd+click on Mac): toggle element in/out of multi-selection
+    if (e.ctrlKey || e.metaKey) {
+      const idx = multiSelectElements.indexOf(el);
+      if (idx >= 0) {
+        multiSelectElements.splice(idx, 1);
+      } else {
+        multiSelectElements.push(el);
+      }
+      renderMultiSelectHighlights();
+      hideHoverHighlight();
+      return;
+    }
+
+    // Normal click with pending multi-selection → open popover for all
+    if (multiSelectElements.length > 0) {
+      // Add the clicked element too if not already selected
+      if (!multiSelectElements.includes(el)) {
+        multiSelectElements.push(el);
+        renderMultiSelectHighlights();
+      }
+      showPopoverForMultiSelect(e.clientX, e.clientY);
+      return;
+    }
+
+    // Single element annotation (existing behavior)
     showPopoverForElement(el, e.clientX, e.clientY);
   }
 
@@ -1350,6 +1585,8 @@
         hideSettingsPanel();
       } else if (popover.style.display === 'block') {
         hidePopover();
+      } else if (multiSelectElements.length > 0) {
+        clearMultiSelect();
       } else {
         deactivate();
       }
@@ -1392,6 +1629,7 @@
     hideHoverHighlight();
     hidePopover();
     hideSettingsPanel();
+    clearMultiSelect();
     toolbar.style.display = 'none';
     highlightContainer.innerHTML = '';
     badgeContainer.innerHTML = '';
@@ -1434,7 +1672,10 @@
       sendResponse({
         active: isActive,
         annotationCount: annotations.length,
-        annotations: annotations.map(({ _element, ...rest }) => rest)
+        annotations: annotations.map(ann => ({
+          ...ann,
+          elements: ann.elements.map(({ _element, ...rest }) => rest)
+        }))
       });
     } else if (msg.type === 'ACTIVATE') {
       activate();

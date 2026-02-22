@@ -359,6 +359,16 @@ export function PromptInput({
     { value: 'confirmEdit', label: t('prompt.askBeforeEdits') },
   ], [t]);
 
+  // Sync mode with active thread's permission mode
+  const activeThread = useThreadStore(s => s.activeThread);
+  const activeThreadPermissionMode = activeThread?.permissionMode;
+  const [newThreadBranches, setNewThreadBranches] = useState<string[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<string>('');
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [sendToBacklog, setSendToBacklog] = useState(false);
+  const [localCurrentBranch, setLocalCurrentBranch] = useState<string | null>(null);
+  const [newThreadCurrentBranch, setNewThreadCurrentBranch] = useState<string | null>(null);
+
   // Get the display label for thread mode selector
   const getThreadModeLabel = useCallback((mode: string) => {
     if (mode === 'worktree') return t('thread.mode.worktree');
@@ -372,16 +382,6 @@ export function PromptInput({
       setModel(models[0].value);
     }
   }, [provider]);
-
-  // Sync mode with active thread's permission mode
-  const activeThread = useThreadStore(s => s.activeThread);
-  const activeThreadPermissionMode = activeThread?.permissionMode;
-  const [newThreadBranches, setNewThreadBranches] = useState<string[]>([]);
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
-  const [images, setImages] = useState<ImageAttachment[]>([]);
-  const [sendToBacklog, setSendToBacklog] = useState(false);
-  const [localCurrentBranch, setLocalCurrentBranch] = useState<string | null>(null);
-  const [newThreadCurrentBranch, setNewThreadCurrentBranch] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaCallbackRef = useCallback((node: HTMLTextAreaElement | null) => {
     textareaRef.current = node;

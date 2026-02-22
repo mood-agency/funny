@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load config
   const config = await sendMessage({ type: 'GET_CONFIG' });
   serverUrlInput.value = config.serverUrl || 'http://localhost:3001';
-  modeSelect.value = config.mode || 'local';
+  modeSelect.value = config.mode || 'worktree';
 
   // Get state from content script
   try {
@@ -207,15 +207,17 @@ function renderAnnotationList(annotations) {
     return;
   }
 
-  annotationList.innerHTML = annotations.map((ann, i) => `
+  annotationList.innerHTML = annotations.map((ann, i) => {
+    const names = (ann.elements || []).map(e => e.elementName).join(', ') || 'Unknown';
+    return `
     <div class="annotation-item">
       <div class="annotation-number">${i + 1}</div>
       <div class="annotation-info">
-        <div class="annotation-name">${escapeHtml(ann.elementName)}</div>
-        ${ann.comment ? `<div class="annotation-comment">${escapeHtml(ann.comment)}</div>` : ''}
+        <div class="annotation-name">${escapeHtml(names)}</div>
+        ${ann.prompt ? `<div class="annotation-comment">${escapeHtml(ann.prompt)}</div>` : ''}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 async function loadProjects(selectedProjectId) {

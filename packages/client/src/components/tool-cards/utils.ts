@@ -166,7 +166,7 @@ export function getToolLabel(name: string, t: (key: string) => string): string {
 }
 
 // Re-export editor utilities from the central module
-export { toEditorUri, toEditorUriWithLine, hasEditorUri, openFileInEditor, getEditorLabel } from '@/lib/editor-utils';
+export { toEditorUri, toEditorUriWithLine, hasEditorUri, openFileInEditor, openFileInInternalEditor, getEditorLabel } from '@/lib/editor-utils';
 
 const EXT_TO_SHIKI_LANG: Record<string, string> = {
   ts: 'typescript',

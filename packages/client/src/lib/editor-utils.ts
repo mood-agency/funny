@@ -62,21 +62,11 @@ export function getEditorLabel(editor?: Editor): string {
 /**
  * Open a file in the user's default (or specified) editor.
  * For URI-capable editors, navigates via the protocol URI.
- * If internal editor is enabled via settings, opens the Monaco editor dialog.
  * For others, calls the server API which spawns the editor CLI.
  */
-export function openFileInEditor(filePath: string, editor?: Editor, forceInternal?: boolean): void {
-  const { defaultEditor, useInternalEditor } = useSettingsStore.getState();
+export function openFileInEditor(filePath: string, editor?: Editor): void {
+  const { defaultEditor } = useSettingsStore.getState();
   const e = editor ?? defaultEditor;
-
-  // Handle internal editor if enabled and requested (or forced)
-  if (forceInternal || useInternalEditor) {
-    // Dynamic import to avoid circular dependencies
-    import('@/stores/internal-editor-store').then(({ useInternalEditorStore }) => {
-      useInternalEditorStore.getState().openFile(filePath);
-    });
-    return;
-  }
 
   // Handle URI-capable editors
   const uri = toEditorUri(filePath, e);
@@ -86,4 +76,15 @@ export function openFileInEditor(filePath: string, editor?: Editor, forceInterna
     // Fallback to server API for vim/sublime
     api.openInEditor(filePath, e);
   }
+}
+
+/**
+ * Open a file in the internal Monaco editor.
+ * Only call this when the user explicitly requests to use the internal editor.
+ */
+export function openFileInInternalEditor(filePath: string): void {
+  // Dynamic import to avoid circular dependencies
+  import('@/stores/internal-editor-store').then(({ useInternalEditorStore }) => {
+    useInternalEditorStore.getState().openFile(filePath);
+  });
 }
