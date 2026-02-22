@@ -1149,6 +1149,7 @@ export function ThreadView() {
           <PromptTimeline
             messages={activeThread.messages}
             activeMessageId={showScrollDown ? undefined : activeThread.messages.filter(m => m.role === 'user' && m.content?.trim()).at(-1)?.id}
+            threadStatus={activeThread.status}
             onScrollToMessage={(msgId, toolCallId) => {
               // Try tool call element first, then user message
               const el = toolCallId

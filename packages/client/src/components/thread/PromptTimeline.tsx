@@ -1,10 +1,10 @@
 import { useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ListTodo, MessageCircleQuestion, FileCode2 } from 'lucide-react';
-import type { Message, ToolCall } from '@funny/shared';
+import { ListTodo, MessageCircleQuestion, FileCode2, Play, CheckCircle2 } from 'lucide-react';
+import type { Message, ToolCall, ThreadStatus } from '@funny/shared';
 
-type MilestoneType = 'prompt' | 'todo' | 'question' | 'plan';
+type MilestoneType = 'prompt' | 'todo' | 'question' | 'plan' | 'start' | 'end';
 
 interface PromptMilestone {
   id: string;
@@ -89,10 +89,11 @@ const TOOL_CALL_TYPES: Record<string, MilestoneType> = {
 interface PromptTimelineProps {
   messages: (Message & { toolCalls?: ToolCall[] })[];
   activeMessageId?: string | null;
+  threadStatus?: ThreadStatus;
   onScrollToMessage?: (messageId: string, toolCallId?: string) => void;
 }
 
-export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }: PromptTimelineProps) {
+export function PromptTimeline({ messages, activeMessageId, threadStatus, onScrollToMessage }: PromptTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const milestones = useMemo<PromptMilestone[]>(() => {
@@ -117,6 +118,18 @@ export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }:
       }
     }
 
+    // Start marker — first message timestamp
+    if (messages.length > 0) {
+      const first = messages[0];
+      result.push({
+        id: 'timeline-start',
+        content: 'Start',
+        timestamp: first.timestamp,
+        index: idx++,
+        type: 'start',
+      });
+    }
+
     // Track whether we've already inserted the todo items
     let todosInserted = false;
 
@@ -138,11 +151,14 @@ export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }:
           // Insert individual todo items at the position of the first TodoWrite
           if (tc.name === 'TodoWrite' && !todosInserted && lastTodoSnapshot) {
             todosInserted = true;
-            for (let i = 0; i < lastTodoSnapshot.todos.length; i++) {
+            const total = lastTodoSnapshot.todos.length;
+            for (let i = 0; i < total; i++) {
               const todo = lastTodoSnapshot.todos[i];
+              const step = `${i + 1}/${total}`;
+              const label = todo.content || todo.activeForm || `Task ${i + 1}`;
               result.push({
                 id: `todo-${i}`,
-                content: todo.content || todo.activeForm || `Task ${i + 1}`,
+                content: `${step} · ${label}`,
                 timestamp: m.timestamp,
                 index: idx++,
                 type: 'todo',
@@ -176,8 +192,22 @@ export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }:
       }
     }
 
+    // End marker — only for finished threads
+    const isFinished = threadStatus === 'completed' || threadStatus === 'failed' || threadStatus === 'stopped';
+    if (messages.length > 0 && isFinished) {
+      const last = messages[messages.length - 1];
+      const endLabel = threadStatus === 'completed' ? 'Completed' : threadStatus === 'failed' ? 'Failed' : 'Stopped';
+      result.push({
+        id: 'timeline-end',
+        content: endLabel,
+        timestamp: last.timestamp,
+        index: idx++,
+        type: 'end',
+      });
+    }
+
     return result;
-  }, [messages]);
+  }, [messages, threadStatus]);
 
   if (milestones.length === 0) return null;
 
@@ -236,6 +266,8 @@ const MILESTONE_ICON: Record<MilestoneType, typeof ListTodo | null> = {
   todo: ListTodo,
   question: MessageCircleQuestion,
   plan: FileCode2,
+  start: Play,
+  end: CheckCircle2,
 };
 
 const MILESTONE_COLOR: Record<MilestoneType, { icon: string; text: string }> = {
@@ -243,6 +275,8 @@ const MILESTONE_COLOR: Record<MilestoneType, { icon: string; text: string }> = {
   todo: { icon: 'text-amber-400', text: 'text-amber-400/80' },
   question: { icon: 'text-blue-400', text: 'text-blue-400/80' },
   plan: { icon: 'text-purple-400', text: 'text-purple-400/80' },
+  start: { icon: 'text-green-400', text: 'text-green-400/80' },
+  end: { icon: 'text-green-400', text: 'text-green-400/80' },
 };
 
 function TimelineMilestone({
