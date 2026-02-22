@@ -27,7 +27,6 @@ import { ProjectHeader } from './thread/ProjectHeader';
 import { NewThreadInput } from './thread/NewThreadInput';
 import { AgentResultCard, AgentInterruptedCard, AgentStoppedCard } from './thread/AgentStatusCards';
 import { TodoPanel } from './thread/TodoPanel';
-import { StickyUserMessage } from './thread/StickyUserMessage';
 import { PromptTimeline } from './thread/PromptTimeline';
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 import { useTodoSnapshots } from '@/hooks/use-todo-panel';
@@ -495,7 +494,6 @@ export function ThreadView() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [todoPanelDismissed, setTodoPanelDismissed] = useState(false);
   const [currentSnapshotIdx, setCurrentSnapshotIdx] = useState(-1);
-  const [stickyUserMsgId, setStickyUserMsgId] = useState<string | null>(null);
   const prefersReducedMotion = useReducedMotion();
   // Track which message/tool-call IDs existed when the thread was loaded.
   // Messages in this set skip entrance animations to prevent CLS.
@@ -531,7 +529,6 @@ export function ThreadView() {
   useEffect(() => {
     setTodoPanelDismissed(false);
     setCurrentSnapshotIdx(-1);
-    setStickyUserMsgId(null);
   }, [activeThread?.id]);
 
   // Scroll to bottom when opening or switching threads.
@@ -558,11 +555,6 @@ export function ThreadView() {
   const currentSnapshot = currentSnapshotIdx >= 0 && currentSnapshotIdx < snapshots.length
     ? snapshots[currentSnapshotIdx]
     : null;
-
-  const stickyUserMsg = useMemo(() => {
-    if (!stickyUserMsgId || !activeThread?.messages) return null;
-    return activeThread.messages.find(m => m.id === stickyUserMsgId) ?? null;
-  }, [stickyUserMsgId, activeThread?.messages]);
 
   const openLightbox = useCallback((images: { src: string; alt: string }[], index: number) => {
     setLightboxImages(images);
@@ -627,27 +619,6 @@ export function ThreadView() {
             }
           });
           setCurrentSnapshotIdx(latestIdx >= 0 ? latestIdx : -1);
-        }
-      }
-
-      // Determine the sticky user message (most recent one scrolled above viewport top).
-      // Hide sticky when near the top of the scroll and there are no older messages to load,
-      // since the user can already see the beginning of the conversation.
-      if (scrollTop < 80 && !hasMore) {
-        setStickyUserMsgId(null);
-      } else {
-        const userMsgEls = document.querySelectorAll<HTMLElement>('[data-user-msg]');
-        if (userMsgEls.length === 0) {
-          setStickyUserMsgId(null);
-        } else {
-          const stickyThreshold = viewportRect.top + 8;
-          let latestAboveId: string | null = null;
-          userMsgEls.forEach((el) => {
-            if (el.getBoundingClientRect().bottom < stickyThreshold) {
-              latestAboveId = el.dataset.userMsg!;
-            }
-          });
-          setStickyUserMsgId(latestAboveId);
         }
       }
     };
@@ -858,23 +829,6 @@ export function ThreadView() {
       <div className="flex-1 flex min-h-0">
         {/* Messages column */}
         <div className="flex-1 relative min-h-0 min-w-0">
-          {/* Sticky user message */}
-          <AnimatePresence mode="wait">
-            {stickyUserMsg && (
-              <StickyUserMessage
-                key={stickyUserMsgId}
-                content={stickyUserMsg.content}
-                images={stickyUserMsg.images}
-                onScrollTo={() => {
-                  const el = scrollViewportRef.current?.querySelector(
-                    `[data-user-msg="${stickyUserMsgId}"]`
-                  );
-                  el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }}
-              />
-            )}
-          </AnimatePresence>
-
           <ScrollArea className="h-full px-4 [&_[data-radix-scroll-area-viewport]>div]:!flex [&_[data-radix-scroll-area-viewport]>div]:!flex-col [&_[data-radix-scroll-area-viewport]>div]:min-h-full" viewportRef={scrollViewportRef}>
           <div className="w-full mx-auto max-w-3xl min-w-[320px] space-y-4 overflow-hidden py-4 mt-auto">
             {loadingMore && (
@@ -1192,7 +1146,7 @@ export function ThreadView() {
         {activeThread.messages.length > 0 && (
           <PromptTimeline
             messages={activeThread.messages}
-            activeMessageId={stickyUserMsgId ?? (showScrollDown ? undefined : activeThread.messages.filter(m => m.role === 'user' && m.content?.trim()).at(-1)?.id)}
+            activeMessageId={showScrollDown ? undefined : activeThread.messages.filter(m => m.role === 'user' && m.content?.trim()).at(-1)?.id}
             onScrollToMessage={(msgId) => {
               const el = scrollViewportRef.current?.querySelector(
                 `[data-user-msg="${msgId}"]`

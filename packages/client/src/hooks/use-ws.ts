@@ -140,6 +140,31 @@ function handleMessage(e: MessageEvent) {
       });
       break;
     }
+    case 'automation:run_updated': {
+      import('@/stores/automation-store').then(({ useAutomationStore }) => {
+        useAutomationStore.getState().loadInbox();
+      });
+      break;
+    }
+    case 'thread:comment_deleted': {
+      // Comment deleted server-side — refresh the active thread if it matches
+      const store = useAppStore.getState();
+      if (store.activeThread?.id === threadId) {
+        store.refreshActiveThread();
+      }
+      break;
+    }
+    case 'thread:updated': {
+      // Thread archived or status changed server-side — refresh thread list
+      const store = useAppStore.getState();
+      if (data.status) {
+        store.handleWSStatus(threadId, { status: data.status });
+      }
+      if (data.archived) {
+        store.refreshAllLoadedThreads();
+      }
+      break;
+    }
     case 'git:status': {
       console.log('[ws] git:status received:', data.statuses);
       import('@/stores/git-status-store').then(({ useGitStatusStore }) => {

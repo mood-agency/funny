@@ -314,6 +314,22 @@ export interface WSWorkflowStatusData {
   qualityScores?: Record<string, { status: string; details: string }>;
 }
 
+export interface WSCommentDeletedData {
+  commentId: string;
+}
+
+export interface WSThreadUpdatedData {
+  status?: string;
+  archived?: number;
+}
+
+export interface WSAutomationRunUpdatedData {
+  automationId: string;
+  runId: string;
+  triageStatus?: string;
+  status?: string;
+}
+
 export type WSEvent =
   | { type: 'agent:init'; threadId: string; data: WSInitData }
   | { type: 'agent:message'; threadId: string; data: WSMessageData }
@@ -326,9 +342,12 @@ export type WSEvent =
   | { type: 'command:status'; threadId: string; data: WSCommandStatusData }
   | { type: 'automation:run_started'; threadId: string; data: WSAutomationRunStartedData }
   | { type: 'automation:run_completed'; threadId: string; data: WSAutomationRunCompletedData }
+  | { type: 'automation:run_updated'; threadId: string; data: WSAutomationRunUpdatedData }
   | { type: 'git:status'; threadId: string; data: WSGitStatusData }
   | { type: 'pty:data'; threadId: string; data: WSPtyDataData }
   | { type: 'pty:exit'; threadId: string; data: WSPtyExitData }
+  | { type: 'thread:comment_deleted'; threadId: string; data: WSCommentDeletedData }
+  | { type: 'thread:updated'; threadId: string; data: WSThreadUpdatedData }
   | { type: 'thread:queue_update'; threadId: string; data: WSQueueUpdateData }
   | { type: 'workflow:step'; threadId: string; data: WSWorkflowStepData }
   | { type: 'workflow:status'; threadId: string; data: WSWorkflowStatusData };

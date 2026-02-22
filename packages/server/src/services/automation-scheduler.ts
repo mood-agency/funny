@@ -212,6 +212,16 @@ async function checkCompletedRuns(): Promise<void> {
 
       if (!hasFindings) {
         am.updateRun(run.id, { triageStatus: 'dismissed' });
+        const dismissEvent = {
+          type: 'automation:run_updated' as const,
+          threadId: run.threadId,
+          data: { automationId: run.automationId, runId: run.id, triageStatus: 'dismissed' },
+        };
+        if (thread.userId && thread.userId !== '__local__') {
+          wsBroker.emitToUser(thread.userId, dismissEvent);
+        } else {
+          wsBroker.emit(dismissEvent);
+        }
       }
 
       await cleanupOldRuns(run.automationId);
@@ -235,6 +245,25 @@ async function cleanupOldRuns(automationId: string): Promise<void> {
     for (const run of toRemove) {
       tm.updateThread(run.threadId, { archived: 1 });
       am.updateRun(run.id, { status: 'archived' });
+
+      const thread = tm.getThread(run.threadId);
+      const archiveEvent = {
+        type: 'thread:updated' as const,
+        threadId: run.threadId,
+        data: { archived: 1 },
+      };
+      const runArchiveEvent = {
+        type: 'automation:run_updated' as const,
+        threadId: run.threadId,
+        data: { automationId, runId: run.id, status: 'archived' },
+      };
+      if (thread?.userId && thread.userId !== '__local__') {
+        wsBroker.emitToUser(thread.userId, archiveEvent);
+        wsBroker.emitToUser(thread.userId, runArchiveEvent);
+      } else {
+        wsBroker.emit(archiveEvent);
+        wsBroker.emit(runArchiveEvent);
+      }
     }
   }
 }

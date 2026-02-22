@@ -565,6 +565,16 @@ threadRoutes.patch('/:id', async (c) => {
       ).catch((err) => {
         log.error('Failed to auto-start agent for idle thread', { namespace: 'agent', threadId: id, error: err });
         tm.updateThread(id, { status: 'failed', completedAt: new Date().toISOString() });
+        const failEvent = {
+          type: 'agent:status' as const,
+          threadId: id,
+          data: { status: 'failed' },
+        };
+        if (thread.userId && thread.userId !== '__local__') {
+          wsBroker.emitToUser(thread.userId, failEvent);
+        } else {
+          wsBroker.emit(failEvent);
+        }
       });
     }
   }
@@ -648,6 +658,19 @@ threadRoutes.delete('/:id/comments/:commentId', (c) => {
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
   tm.deleteComment(commentId);
+
+  const thread = threadResult.value;
+  const event = {
+    type: 'thread:comment_deleted' as const,
+    threadId: id,
+    data: { commentId },
+  };
+  if (thread.userId && thread.userId !== '__local__') {
+    wsBroker.emitToUser(thread.userId, event);
+  } else {
+    wsBroker.emit(event);
+  }
+
   return c.json({ ok: true });
 });
 
