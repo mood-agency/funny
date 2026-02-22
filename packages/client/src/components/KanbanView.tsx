@@ -88,6 +88,7 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
   const gitStatus = statusByThread[thread.id];
   const gitConf = gitStatus ? gitSyncStateConfig[gitStatus.state] : null;
   const GitIcon = gitConf?.icon;
+  const displayBranch = thread.branch || thread.baseBranch;
 
   return (
     <div
@@ -144,7 +145,7 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
         </span>
       )}
 
-      {thread.branch && (
+      {displayBranch && (
         <div className="flex items-center gap-1 mb-1.5 min-w-0" aria-label="Branch information">
           {gitConf && GitIcon ? (
             <Tooltip>
@@ -158,8 +159,8 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
           ) : (
             <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
-          <span className="text-xs text-muted-foreground truncate" title={thread.branch}>
-            {thread.branch}
+          <span className="text-xs text-muted-foreground truncate" title={displayBranch}>
+            {displayBranch}
           </span>
         </div>
       )}

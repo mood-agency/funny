@@ -60,15 +60,21 @@ export function getEditorLabel(editor?: Editor): string {
 }
 
 /**
- * Open a file in the user's default (or specified) editor.
- * For URI-capable editors, navigates via the protocol URI.
- * For others, calls the server API which spawns the editor CLI.
+ * Open a file in the user's preferred editor.
+ * If useInternalEditor is enabled, opens in Monaco (browser).
+ * Otherwise, opens in the external editor (URI protocol or server API).
  */
 export function openFileInEditor(filePath: string, editor?: Editor): void {
-  const { defaultEditor } = useSettingsStore.getState();
-  const e = editor ?? defaultEditor;
+  const { defaultEditor, useInternalEditor } = useSettingsStore.getState();
 
-  // Handle URI-capable editors
+  // If internal editor is enabled, use Monaco
+  if (useInternalEditor) {
+    openFileInInternalEditor(filePath);
+    return;
+  }
+
+  // Otherwise use external editor
+  const e = editor ?? defaultEditor;
   const uri = toEditorUri(filePath, e);
   if (uri) {
     window.location.href = uri;

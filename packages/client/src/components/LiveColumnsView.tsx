@@ -334,9 +334,9 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
               {projectName}
             </Badge>
           )}
-          {thread.branch && (
+          {(thread.branch || thread.baseBranch) && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-mono font-normal truncate max-w-[120px]">
-              {thread.branch}
+              {thread.branch || thread.baseBranch}
             </Badge>
           )}
         </div>

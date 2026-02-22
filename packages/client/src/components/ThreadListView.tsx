@@ -192,9 +192,9 @@ export function ThreadListView({
                   <HighlightText text={thread.title} query={search} className="text-xs font-medium truncate block" />
                   <div className="flex items-center gap-2 mt-0.5">
                     {renderExtraBadges?.(thread)}
-                    {thread.branch && (
+                    {(thread.branch || thread.baseBranch) && (
                       <span className="text-xs text-muted-foreground bg-secondary px-1.5 py-0.5 rounded truncate max-w-[150px]">
-                        {thread.branch}
+                        {thread.branch || thread.baseBranch}
                       </span>
                     )}
                     <span className="text-xs text-muted-foreground">
