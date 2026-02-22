@@ -23,10 +23,14 @@ export function hasEditorUri(editor?: Editor): boolean {
 
 /**
  * Generate an editor URI for the given file path.
- * Returns `null` for editors without a URI scheme (sublime, vim).
+ * Returns `null` for editors without a URI scheme (sublime, vim),
+ * or when the internal editor is enabled (so clicks go through openFileInEditor instead).
  */
 export function toEditorUri(filePath: string, editor?: Editor): string | null {
-  const e = editor ?? useSettingsStore.getState().defaultEditor;
+  const { defaultEditor, useInternalEditor } = useSettingsStore.getState();
+  if (useInternalEditor) return null;
+
+  const e = editor ?? defaultEditor;
   const scheme = EDITOR_URI_SCHEMES[e];
   if (!scheme) return null;
 
@@ -40,7 +44,10 @@ export function toEditorUri(filePath: string, editor?: Editor): string | null {
  * (e.g. `/src/file.ts:42`), appending `:line` to the URI.
  */
 export function toEditorUriWithLine(filePath: string, editor?: Editor): string | null {
-  const e = editor ?? useSettingsStore.getState().defaultEditor;
+  const { defaultEditor, useInternalEditor } = useSettingsStore.getState();
+  if (useInternalEditor) return null;
+
+  const e = editor ?? defaultEditor;
   const scheme = EDITOR_URI_SCHEMES[e];
   if (!scheme) return null;
 
@@ -81,6 +88,21 @@ export function openFileInEditor(filePath: string, editor?: Editor): void {
   } else {
     // Fallback to server API for vim/sublime
     api.openInEditor(filePath, e);
+  }
+}
+
+/**
+ * Open a directory/project in the external editor.
+ * Always uses the external editor — the internal editor cannot open directories.
+ */
+export function openDirectoryInEditor(dirPath: string, editor?: Editor): void {
+  const { defaultEditor } = useSettingsStore.getState();
+  const e = editor ?? defaultEditor;
+  const uri = toEditorUri(dirPath, e);
+  if (uri) {
+    window.location.href = uri;
+  } else {
+    api.openInEditor(dirPath, e);
   }
 }
 

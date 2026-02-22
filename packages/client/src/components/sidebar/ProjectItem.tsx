@@ -24,7 +24,7 @@ import {
 import type { Project, Thread } from '@funny/shared';
 import { useGitStatusStore } from '@/stores/git-status-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { openFileInEditor, getEditorLabel } from '@/lib/editor-utils';
+import { openDirectoryInEditor, getEditorLabel } from '@/lib/editor-utils';
 import { ThreadItem } from './ThreadItem';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 
@@ -215,7 +215,7 @@ export const ProjectItem = memo(function ProjectItem({
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
-                    openFileInEditor(project.path, defaultEditor);
+                    openDirectoryInEditor(project.path, defaultEditor);
                   }}
                 >
                   <SquareTerminal className="h-3.5 w-3.5" />
