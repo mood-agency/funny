@@ -359,6 +359,13 @@ export function PromptInput({
     { value: 'confirmEdit', label: t('prompt.askBeforeEdits') },
   ], [t]);
 
+  // Get the display label for thread mode selector
+  const getThreadModeLabel = useCallback((mode: string) => {
+    if (mode === 'worktree') return t('thread.mode.worktree');
+    // For local mode, show the current branch name
+    return newThreadCurrentBranch || t('thread.mode.local');
+  }, [newThreadCurrentBranch, t]);
+
   // When provider changes, reset model to first available for that provider
   useEffect(() => {
     if (!models.some(m => m.value === model)) {
@@ -1104,9 +1111,10 @@ export function PromptInput({
                         'px-2 py-1 text-xs flex items-center gap-1 transition-colors',
                         threadMode === 'local' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
                       )}
+                      title={newThreadCurrentBranch ? t('thread.mode.localHint', `Working on ${newThreadCurrentBranch}`) : undefined}
                     >
                       <Monitor className="h-3 w-3" />
-                      {t('thread.mode.local')}
+                      <span className="font-mono">{getThreadModeLabel('local')}</span>
                     </button>
                     <button
                       onClick={() => setThreadMode('worktree')}
@@ -1118,15 +1126,9 @@ export function PromptInput({
                       )}
                     >
                       <GitBranch className="h-3 w-3" />
-                      {t('thread.mode.worktree')}
+                      {getThreadModeLabel('worktree')}
                     </button>
                   </div>
-                  {threadMode === 'local' && newThreadCurrentBranch && (
-                    <button className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted truncate max-w-[200px]" disabled>
-                      <GitBranch className="h-3 w-3 shrink-0" />
-                      <span className="truncate font-mono">{newThreadCurrentBranch}</span>
-                    </button>
-                  )}
                   {threadMode === 'worktree' && newThreadBranches.length > 0 && (
                     <BranchPicker
                       branches={newThreadBranches}
