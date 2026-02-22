@@ -864,6 +864,7 @@ export function ThreadView() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                       className={(tc.name === 'AskUserQuestion' || tc.name === 'ExitPlanMode' || tc.name === 'TodoWrite' || tc.name === 'Edit') ? 'border border-border rounded-lg' : undefined}
+                      data-tool-call-id={tc.id}
                       {...(snapshotMap.has(tc.id) ? { 'data-todo-snapshot': snapshotMap.get(tc.id) } : {})}
                     >
                       <ToolCallCard
@@ -890,6 +891,7 @@ export function ThreadView() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                       className={(ti.name === 'AskUserQuestion' || ti.name === 'ExitPlanMode' || ti.name === 'TodoWrite' || ti.name === 'Edit') ? 'border border-border rounded-lg' : undefined}
+                      data-tool-call-id={ti.calls[0].id}
                       {...(groupSnapshotIdx >= 0 ? { 'data-todo-snapshot': groupSnapshotIdx } : {})}
                     >
                       <ToolCallGroup
@@ -1147,10 +1149,11 @@ export function ThreadView() {
           <PromptTimeline
             messages={activeThread.messages}
             activeMessageId={showScrollDown ? undefined : activeThread.messages.filter(m => m.role === 'user' && m.content?.trim()).at(-1)?.id}
-            onScrollToMessage={(msgId) => {
-              const el = scrollViewportRef.current?.querySelector(
-                `[data-user-msg="${msgId}"]`
-              );
+            onScrollToMessage={(msgId, toolCallId) => {
+              // Try tool call element first, then user message
+              const el = toolCallId
+                ? scrollViewportRef.current?.querySelector(`[data-tool-call-id="${toolCallId}"]`)
+                : scrollViewportRef.current?.querySelector(`[data-user-msg="${msgId}"]`);
               if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
               }

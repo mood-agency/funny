@@ -314,6 +314,12 @@ export interface WSWorkflowStatusData {
   qualityScores?: Record<string, { status: string; details: string }>;
 }
 
+export interface WSThreadCreatedData {
+  projectId: string;
+  title: string;
+  source?: string;
+}
+
 export interface WSCommentDeletedData {
   commentId: string;
 }
@@ -346,6 +352,7 @@ export type WSEvent =
   | { type: 'git:status'; threadId: string; data: WSGitStatusData }
   | { type: 'pty:data'; threadId: string; data: WSPtyDataData }
   | { type: 'pty:exit'; threadId: string; data: WSPtyExitData }
+  | { type: 'thread:created'; threadId: string; data: WSThreadCreatedData }
   | { type: 'thread:comment_deleted'; threadId: string; data: WSCommentDeletedData }
   | { type: 'thread:updated'; threadId: string; data: WSThreadUpdatedData }
   | { type: 'thread:queue_update'; threadId: string; data: WSQueueUpdateData }

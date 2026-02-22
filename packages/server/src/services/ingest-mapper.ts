@@ -223,6 +223,7 @@ function onAccepted(event: IngestEvent): void {
     tm.insertMessage({ threadId, role: 'user', content: prompt });
   }
 
+  emitWS(state, { type: 'thread:created', threadId, data: { projectId, title, source: 'ingest' } });
   emitWS(state, { type: 'agent:status', threadId, data: { status: 'pending' } });
   log.info('Thread created', { namespace: 'ingest', threadId, requestId: request_id });
 }

@@ -146,6 +146,12 @@ function handleMessage(e: MessageEvent) {
       });
       break;
     }
+    case 'thread:created': {
+      // New thread created externally (e.g. Chrome extension ingest)
+      // Refresh threads for the project so it appears in the sidebar
+      useAppStore.getState().loadThreadsForProject(data.projectId);
+      break;
+    }
     case 'thread:comment_deleted': {
       // Comment deleted server-side — refresh the active thread if it matches
       const store = useAppStore.getState();

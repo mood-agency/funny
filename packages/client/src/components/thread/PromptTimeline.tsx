@@ -1,13 +1,19 @@
 import { useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Message } from '@funny/shared';
+import { ListTodo, MessageCircleQuestion, FileCode2 } from 'lucide-react';
+import type { Message, ToolCall } from '@funny/shared';
+
+type MilestoneType = 'prompt' | 'todo' | 'question' | 'plan';
 
 interface PromptMilestone {
   id: string;
   content: string;
   timestamp: string;
   index: number;
+  type: MilestoneType;
+  /** Tool call ID for scrolling to tool call elements */
+  toolCallId?: string;
 }
 
 function formatTime(dateStr: string): string {
@@ -49,10 +55,48 @@ function truncate(text: string, max: number): string {
   return text.slice(0, max).trimEnd() + '…';
 }
 
+/** Extract a short summary for a tool call milestone */
+function getToolCallSummary(name: string, input: string): string | null {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = typeof input === 'string' ? JSON.parse(input) : input;
+  } catch {
+    return null;
+  }
+
+  if (name === 'TodoWrite') {
+    const todos = parsed.todos;
+    if (!Array.isArray(todos)) return null;
+    const done = todos.filter((t: any) => t.status === 'completed').length;
+    // Find the current in_progress task for a meaningful label
+    const inProgress = todos.find((t: any) => t.status === 'in_progress');
+    if (inProgress?.activeForm) return `${done}/${todos.length} · ${inProgress.activeForm}`;
+    return `${done}/${todos.length} done`;
+  }
+
+  if (name === 'AskUserQuestion') {
+    const questions = parsed.questions;
+    if (!Array.isArray(questions) || questions.length === 0) return null;
+    return questions[0].question as string ?? 'Question';
+  }
+
+  if (name === 'ExitPlanMode') {
+    return 'Plan ready for review';
+  }
+
+  return null;
+}
+
+const TOOL_CALL_TYPES: Record<string, MilestoneType> = {
+  TodoWrite: 'todo',
+  AskUserQuestion: 'question',
+  ExitPlanMode: 'plan',
+};
+
 interface PromptTimelineProps {
-  messages: (Message & { toolCalls?: any[] })[];
+  messages: (Message & { toolCalls?: ToolCall[] })[];
   activeMessageId?: string | null;
-  onScrollToMessage?: (messageId: string) => void;
+  onScrollToMessage?: (messageId: string, toolCallId?: string) => void;
 }
 
 export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }: PromptTimelineProps) {
@@ -60,14 +104,42 @@ export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }:
 
   const milestones = useMemo<PromptMilestone[]>(() => {
     let idx = 0;
-    return messages
-      .filter((m) => m.role === 'user' && m.content?.trim())
-      .map((m) => ({
-        id: m.id,
-        content: m.content,
-        timestamp: m.timestamp,
-        index: idx++,
-      }));
+    const result: PromptMilestone[] = [];
+
+    for (const m of messages) {
+      // User messages become prompt milestones
+      if (m.role === 'user' && m.content?.trim()) {
+        result.push({
+          id: m.id,
+          content: m.content,
+          timestamp: m.timestamp,
+          index: idx++,
+          type: 'prompt',
+        });
+      }
+
+      // Scan assistant tool calls for todos, questions, plans
+      if (m.role === 'assistant' && m.toolCalls) {
+        for (const tc of m.toolCalls) {
+          const milestoneType = TOOL_CALL_TYPES[tc.name];
+          if (!milestoneType) continue;
+
+          const summary = getToolCallSummary(tc.name, tc.input);
+          if (!summary) continue;
+
+          result.push({
+            id: `tc-${tc.id}`,
+            content: summary,
+            timestamp: m.timestamp,
+            index: idx++,
+            type: milestoneType,
+            toolCallId: tc.id,
+          });
+        }
+      }
+    }
+
+    return result;
   }, [messages]);
 
   if (milestones.length === 0) return null;
@@ -103,7 +175,7 @@ export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }:
 
               {group.milestones.map((ms, mi) => {
                 const isLast = gi === groups.length - 1 && mi === group.milestones.length - 1;
-                const isActive = ms.id === activeMessageId;
+                const isActive = ms.type === 'prompt' && ms.id === activeMessageId;
                 return (
                   <TimelineMilestone
                     key={ms.id}
@@ -122,6 +194,20 @@ export function PromptTimeline({ messages, activeMessageId, onScrollToMessage }:
   );
 }
 
+const MILESTONE_ICON: Record<MilestoneType, typeof ListTodo | null> = {
+  prompt: null,
+  todo: ListTodo,
+  question: MessageCircleQuestion,
+  plan: FileCode2,
+};
+
+const MILESTONE_COLOR: Record<MilestoneType, { icon: string; text: string }> = {
+  prompt: { icon: '', text: '' },
+  todo: { icon: 'text-amber-400', text: 'text-amber-400/80' },
+  question: { icon: 'text-blue-400', text: 'text-blue-400/80' },
+  plan: { icon: 'text-purple-400', text: 'text-purple-400/80' },
+};
+
 function TimelineMilestone({
   milestone,
   isLast,
@@ -131,21 +217,28 @@ function TimelineMilestone({
   milestone: PromptMilestone;
   isLast: boolean;
   isActive: boolean;
-  onScrollTo?: (id: string) => void;
+  onScrollTo?: (messageId: string, toolCallId?: string) => void;
 }) {
+  const Icon = MILESTONE_ICON[milestone.type];
+  const colors = MILESTONE_COLOR[milestone.type];
+
   return (
     <div className="flex gap-2 group/milestone">
-      {/* Vertical line + dot */}
+      {/* Vertical line + dot/icon */}
       <div className="flex flex-col items-center flex-shrink-0 w-4">
-        <div
-          className={cn(
-            'w-2.5 h-2.5 rounded-full border-2 flex-shrink-0 mt-0.5 transition-colors',
-            isActive
-              ? 'border-primary bg-primary'
-              : 'border-primary/60 bg-background',
-            'group-hover/milestone:border-primary group-hover/milestone:bg-primary/20'
-          )}
-        />
+        {Icon ? (
+          <Icon className={cn('w-3.5 h-3.5 flex-shrink-0 mt-0.5', colors.icon)} />
+        ) : (
+          <div
+            className={cn(
+              'w-2.5 h-2.5 rounded-full border-2 flex-shrink-0 mt-0.5 transition-colors',
+              isActive
+                ? 'border-primary bg-primary'
+                : 'border-primary/60 bg-background',
+              'group-hover/milestone:border-primary group-hover/milestone:bg-primary/20'
+            )}
+          />
+        )}
         {!isLast && (
           <div className="w-px flex-1 bg-border min-h-[16px]" />
         )}
@@ -155,7 +248,14 @@ function TimelineMilestone({
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            onClick={() => onScrollTo?.(milestone.id)}
+            onClick={() => {
+              if (milestone.type === 'prompt') {
+                onScrollTo?.(milestone.id);
+              } else {
+                // For tool call milestones, pass the original message ID + tool call ID
+                onScrollTo?.(milestone.id, milestone.toolCallId);
+              }
+            }}
             className={cn(
               'flex-1 text-left pb-4 min-w-0 group/btn cursor-pointer',
               'hover:opacity-100 transition-opacity'
@@ -169,7 +269,11 @@ function TimelineMilestone({
             </div>
             <div className={cn(
               'text-[11px] leading-snug line-clamp-2 transition-colors',
-              isActive ? 'text-foreground font-medium' : 'text-muted-foreground group-hover/btn:text-foreground'
+              milestone.type !== 'prompt'
+                ? colors.text
+                : isActive
+                  ? 'text-foreground font-medium'
+                  : 'text-muted-foreground group-hover/btn:text-foreground'
             )}>
               {truncate(milestone.content, 80)}
             </div>

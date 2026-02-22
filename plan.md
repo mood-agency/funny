@@ -1,97 +1,50 @@
-# Plan: Server-side thread state machine (XState)
+# Plan: Enrich PromptTimeline with Todos, Questions & Plans
 
-## Problem
+## Goal
+Add TodoWrite, AskUserQuestion, and ExitPlanMode tool calls as distinct milestone items in the PromptTimeline sidebar, interleaved chronologically with user messages.
 
-Thread status transitions are scattered across 4+ server files with ad-hoc `updateThread({ status: '...' })` calls. This causes bugs like the one just fixed — where responding to a `waiting` thread (question/plan) was treated as a "session interrupted" resume because the code couldn't distinguish between the two contexts. The `previousStatus` fix patches one symptom, but the root cause is the lack of a centralized state machine on the server.
+## Current Behavior
+The timeline only shows user messages (`role === 'user'`), filtering out everything else. Tool calls (todos, questions, plans) are invisible.
 
-The client already has an XState machine (`packages/client/src/machines/thread-machine.ts`) that validates transitions, but the server — the actual source of truth — doesn't use one.
+## Proposed Changes
 
-## Approach
+### 1. Extend `PromptMilestone` type
 
-Move the thread state machine to `packages/shared` so both client and server use the same definition. Then integrate it into the server so that all status transitions go through the machine, which also provides `resumeReason` context that downstream code can use instead of ad-hoc if/else checks.
+Add a `type` discriminator:
+- `'prompt'` — user message (current behavior)
+- `'todo'` — TodoWrite tool call
+- `'question'` — AskUserQuestion tool call
+- `'plan'` — ExitPlanMode tool call
 
-## Steps
+Each type stores a short summary (e.g., "3/5 done" for todos, first question text for questions, "Plan" label for plans).
 
-### 1. Move the machine to `packages/shared`
+### 2. Update milestone extraction in `PromptTimeline.tsx`
 
-- Create `packages/shared/src/thread-machine.ts`
-- Move the machine definition from `packages/client/src/machines/thread-machine.ts`
-- Add `resumeReason` to the machine context: `'interrupted' | 'waiting-response' | 'post-merge' | 'follow-up' | null`
-  - Set on entry to `running` based on which event triggered it (START vs RESTART vs RESPOND)
-  - Add a `RESPOND` event (distinct from `START`/`RESTART`) for the waiting→running transition
-- Export the machine, types, and `wsEventToMachineEvent` helper from shared
-- Update `packages/client` to import from `@funny/shared` instead of local machine file
-- Keep the client bridge (`thread-machine-bridge.ts`) as-is — it just wraps actors
+Instead of filtering only `role === 'user'`, iterate ALL messages:
+- User messages → `'prompt'` milestone (same as today)
+- Assistant messages → scan `toolCalls[]` for `TodoWrite`, `AskUserQuestion`, `ExitPlanMode` and create milestones
 
-### 2. Add XState to `packages/shared` and use it in the server
+Items stay chronologically ordered since messages are already sorted by timestamp.
 
-- Add `xstate` as a dependency to `packages/shared` (since shared is already depended on by both client and server)
-- Create `packages/server/src/services/thread-status-machine.ts` — server-side bridge (similar to client's `thread-machine-bridge.ts`)
-  - Actor registry: `Map<threadId, actor>`
-  - `transitionStatus(threadId, event, currentStatus)` → returns `{ status, resumeReason }`
-  - `getResumeReason(threadId)` — reads from actor context
-  - Actors are lazy-created on first use, cleaned up on thread delete/archive
+### 3. Render different styles per type
 
-### 3. Integrate into agent-runner.ts
+Each type gets a small colored Lucide icon instead of the plain dot:
+- `ListTodo` for todos (amber)
+- `MessageCircleQuestion` for questions (blue)
+- `FileCode2` for plans (purple)
+- Plain dot for user prompts (unchanged)
 
-Replace the scattered status updates + `previousStatus` hack:
+Same click-to-scroll behavior — scrolls to the parent message element.
 
-```typescript
-// Before (current)
-const previousStatus = this.threadManager.getThread(threadId)?.status;
-this.threadManager.updateThread(threadId, { status: 'running' });
-// ... later
-const wasWaitingForUser = previousStatus === 'waiting';
+### 4. Files changed
 
-// After (with machine)
-const { status, resumeReason } = this.statusMachine.transition(threadId, { type: 'RESPOND' });
-// or { type: 'RESTART' } for genuine resumes
-this.threadManager.updateThread(threadId, { status });
-const systemPrefix = RESUME_PREFIXES[resumeReason]; // clean lookup
-```
+**`packages/client/src/components/thread/PromptTimeline.tsx`** — Main changes:
+- Add Lucide icon imports
+- Extend `PromptMilestone` with `type`, optional `messageId` field
+- Update `useMemo` to extract tool call milestones from assistant messages
+- Render icon + colored styling per type in `TimelineMilestone`
 
-### 4. Integrate into agent-message-handler.ts
+**`packages/client/src/components/ThreadView.tsx`** — Minor:
+- Pass `onScrollToMessage` to also handle scrolling to assistant message elements (already works since all messages have rendered elements)
 
-Replace direct status updates for waiting/completed/failed:
-
-```typescript
-// Before
-this.threadManager.updateThread(threadId, { status: 'waiting' });
-
-// After
-const { status } = this.statusMachine.transition(threadId, { type: 'WAIT', reason: 'question' });
-this.threadManager.updateThread(threadId, { status });
-```
-
-### 5. Integrate into orchestrator event handlers (in agent-runner.ts constructor)
-
-The `agent:stopped`, `agent:error`, `agent:unexpected-exit` handlers all set status directly. Route these through the machine:
-
-```typescript
-this.orchestrator.on('agent:stopped', (threadId) => {
-  const { status } = this.statusMachine.transition(threadId, { type: 'STOP' });
-  this.threadManager.updateThread(threadId, { status, completedAt: ... });
-});
-```
-
-### 6. Update tests
-
-- Update `packages/client/src/__tests__/machines/thread-machine.test.ts` to import from shared
-- Add test for the new `RESPOND` event and `resumeReason` context
-- Add server-side test for the bridge in `packages/server/src/__tests__/`
-
-## What this fixes
-
-- **The original bug**: `RESPOND` event produces `resumeReason: 'waiting-response'` which maps to a non-alarming system prefix (or none). `RESTART` from `stopped`/`failed`/`interrupted` produces `resumeReason: 'interrupted'` which maps to the current "session was interrupted" prefix.
-- **Future bugs**: Invalid transitions are caught by the machine (e.g., `completed → waiting` would be rejected)
-- **Code clarity**: One place defines all valid transitions instead of 10+ scattered `updateThread` calls
-
-## Files changed
-
-1. `packages/shared/src/thread-machine.ts` — NEW (moved from client)
-2. `packages/shared/src/types.ts` — export `ResumeReason` type
-3. `packages/client/src/machines/thread-machine.ts` — re-export from shared
-4. `packages/server/src/services/thread-status-machine.ts` — NEW (server bridge)
-5. `packages/server/src/services/agent-runner.ts` — use machine for transitions
-6. `packages/server/src/services/agent-message-handler.ts` — use machine for transitions
-7. Tests updated
+No new files. No new dependencies. No translation changes needed.
