@@ -52,6 +52,7 @@
   let hoverLabel = null;
   let popover = null;
   let settingsPanel = null;
+  let historyPanel = null;
   let badgeContainer = null;
   let highlightContainer = null;
 
@@ -102,6 +103,10 @@
     // Settings panel (hidden by default, positioned above toolbar)
     settingsPanel = createSettingsPanel();
     shadowRoot.appendChild(settingsPanel);
+
+    // History panel (hidden by default)
+    historyPanel = createHistoryPanel();
+    shadowRoot.appendChild(historyPanel);
 
     // Toolbar
     toolbar = createToolbar();
@@ -909,6 +914,12 @@
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
       </button>
+      <button class="toolbar-btn" data-action="history" title="Sent history">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+      </button>
       <div class="toolbar-separator"></div>
       <button class="toolbar-btn toolbar-btn-send" data-action="send" title="Send to Funny">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1004,6 +1015,9 @@
         break;
       case 'settings':
         toggleSettingsPanel();
+        break;
+      case 'history':
+        toggleHistoryPanel();
         break;
       case 'send':
         sendToFunny();
@@ -1171,6 +1185,7 @@
   }
 
   function showSettingsPanel() {
+    hideHistoryPanel();
     settingsPanel.style.display = 'block';
     positionSettingsPanel();
     loadSettingsData();
@@ -1381,6 +1396,138 @@
   }
 
   // ---------------------------------------------------------------------------
+  // History panel
+  // ---------------------------------------------------------------------------
+  function createHistoryPanel() {
+    const panel = createElement('div', 'history-panel');
+    panel.style.display = 'none';
+    panel.innerHTML = `
+      <div class="history-header">
+        <span class="history-title">Sent History</span>
+        <button class="history-close-btn" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="history-body"></div>
+    `;
+
+    panel.querySelector('.history-close-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideHistoryPanel();
+    });
+
+    panel.addEventListener('click', (e) => e.stopPropagation());
+    panel.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    return panel;
+  }
+
+  function toggleHistoryPanel() {
+    if (historyPanel.style.display === 'block') {
+      hideHistoryPanel();
+    } else {
+      showHistoryPanel();
+    }
+  }
+
+  function showHistoryPanel() {
+    hideSettingsPanel();
+    historyPanel.style.display = 'block';
+    positionHistoryPanel();
+    loadHistoryData();
+  }
+
+  function hideHistoryPanel() {
+    historyPanel.style.display = 'none';
+  }
+
+  function positionHistoryPanel() {
+    const historyBtn = toolbar.querySelector('[data-action="history"]');
+    const btnRect = historyBtn.getBoundingClientRect();
+    const panelWidth = 360;
+    const gap = 12;
+
+    let left = btnRect.left + btnRect.width / 2 - panelWidth / 2;
+    let top = btnRect.top - gap;
+
+    if (left + panelWidth > window.innerWidth - 8) left = window.innerWidth - panelWidth - 8;
+    if (left < 8) left = 8;
+
+    historyPanel.style.left = `${left}px`;
+    historyPanel.style.top = 'auto';
+    historyPanel.style.bottom = `${window.innerHeight - top}px`;
+  }
+
+  function loadHistoryData() {
+    const body = historyPanel.querySelector('.history-body');
+
+    chrome.storage.local.get('funnyHistory', (result) => {
+      const history = result.funnyHistory || [];
+
+      if (history.length === 0) {
+        body.innerHTML = '<div class="history-empty">No annotations sent yet</div>';
+        return;
+      }
+
+      body.innerHTML = '';
+      history.forEach((entry) => {
+        const item = createElement('div', 'history-item');
+
+        const timeAgo = formatTimeAgo(entry.timestamp);
+        const prompts = (entry.annotations || []).map(a => a.prompt).filter(Boolean);
+
+        let promptsHtml = '';
+        if (prompts.length > 0) {
+          promptsHtml = `<div class="history-item-prompts">${prompts.slice(0, 3).map(p =>
+            `<div class="history-item-prompt">${escapeHtml(p.slice(0, 80))}</div>`
+          ).join('')}${prompts.length > 3 ? `<div class="history-item-prompt">+${prompts.length - 3} more</div>` : ''}</div>`;
+        }
+
+        item.innerHTML = `
+          <div class="history-item-header">
+            <span class="history-item-title">${escapeHtml(entry.title || 'Untitled')}</span>
+            <span class="history-item-count">${entry.annotationCount} ann.</span>
+          </div>
+          <div class="history-item-url">${escapeHtml(entry.url || '')}</div>
+          ${promptsHtml}
+          <div class="history-item-time">${timeAgo}</div>
+        `;
+
+        // Click to open thread in Funny if threadId exists
+        if (entry.threadId && entry.serverUrl) {
+          item.title = 'Open thread in Funny';
+          item.addEventListener('click', () => {
+            window.open(`${entry.serverUrl}?thread=${entry.threadId}`, '_blank');
+          });
+        }
+
+        body.appendChild(item);
+      });
+    });
+  }
+
+  function formatTimeAgo(ts) {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(ts).toLocaleDateString();
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ---------------------------------------------------------------------------
   // Generate markdown output
   // ---------------------------------------------------------------------------
   function generateMarkdown() {
@@ -1450,6 +1597,8 @@
         elements: ann.elements.map(({ _element, ...rest }) => rest)
       }));
 
+      const markdown = generateMarkdown();
+
       // Send to background worker
       safeSendMessage({
         type: 'SEND_TO_FUNNY',
@@ -1458,7 +1607,7 @@
           title: document.title,
           viewport: { width: window.innerWidth, height: window.innerHeight },
           annotations: serialized,
-          markdown: generateMarkdown(),
+          markdown,
           screenshot
         }
       }, (response) => {
@@ -1466,6 +1615,16 @@
         sendBtn.removeAttribute('disabled');
 
         if (response?.success) {
+          // Save to history before clearing
+          saveToHistory(serialized, response.threadId);
+
+          // Clear all annotations
+          annotations = [];
+          annotationCounter = 0;
+          clearMultiSelect();
+          renderAnnotations();
+          updateToolbarCount();
+
           showToast(`Sent to Funny! Thread created.`);
         } else {
           showToast(response?.error || 'Failed to send. Is Funny running?', true);
@@ -1476,6 +1635,34 @@
       sendBtn.removeAttribute('disabled');
       showToast(`Error: ${err.message}`, true);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Annotation history
+  // ---------------------------------------------------------------------------
+  function saveToHistory(serializedAnnotations, threadId) {
+    const entry = {
+      id: `hist_${Date.now()}`,
+      timestamp: Date.now(),
+      url: window.location.href,
+      title: document.title,
+      threadId: threadId || null,
+      annotationCount: serializedAnnotations.length,
+      annotations: serializedAnnotations
+    };
+
+    safeSendMessage({ type: 'GET_CONFIG' }, (config) => {
+      const serverUrl = config?.serverUrl || 'http://localhost:3001';
+      entry.serverUrl = serverUrl;
+
+      // Store in chrome.storage.local (keep last 50 entries)
+      chrome.storage.local.get('funnyHistory', (result) => {
+        const history = result.funnyHistory || [];
+        history.unshift(entry);
+        if (history.length > 50) history.length = 50;
+        chrome.storage.local.set({ funnyHistory: history });
+      });
+    });
   }
 
   function captureScreenshot() {
@@ -1581,7 +1768,9 @@
   function onKeyDown(e) {
     if (!isActive) return;
     if (e.key === 'Escape') {
-      if (settingsPanel.style.display === 'block') {
+      if (historyPanel.style.display === 'block') {
+        hideHistoryPanel();
+      } else if (settingsPanel.style.display === 'block') {
         hideSettingsPanel();
       } else if (popover.style.display === 'block') {
         hidePopover();
@@ -1629,6 +1818,7 @@
     hideHoverHighlight();
     hidePopover();
     hideSettingsPanel();
+    hideHistoryPanel();
     clearMultiSelect();
     toolbar.style.display = 'none';
     highlightContainer.innerHTML = '';

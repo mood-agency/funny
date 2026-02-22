@@ -665,3 +665,150 @@
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);
 }
+
+/* History panel */
+.history-panel {
+  position: fixed;
+  width: 360px;
+  max-height: 420px;
+  background: #1a1a1a;
+  color: #e5e5e5;
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  pointer-events: auto;
+  z-index: 250;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+
+.history-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: white;
+}
+
+.history-close-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0;
+}
+.history-close-btn:hover {
+  background: #333;
+  color: white;
+}
+
+.history-body {
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.history-body::-webkit-scrollbar {
+  width: 4px;
+}
+.history-body::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 2px;
+}
+
+.history-empty {
+  color: #666;
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 16px;
+}
+
+.history-item {
+  padding: 10px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+.history-item:hover {
+  background: #2a2a2a;
+}
+.history-item + .history-item {
+  border-top: 1px solid #222;
+}
+
+.history-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.history-item-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  background: #333;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #aaa;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+
+.history-item-time {
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.history-item-title {
+  font-size: 12px;
+  color: #ccc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item-url {
+  font-size: 10px;
+  color: #555;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.history-item-prompts {
+  margin-top: 4px;
+}
+
+.history-item-prompt {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-left: 8px;
+  border-left: 2px solid #333;
+  margin-top: 2px;
+}
