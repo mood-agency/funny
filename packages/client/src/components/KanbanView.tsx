@@ -53,6 +53,7 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
   const navigate = useNavigate();
   const statusByThread = useGitStatusStore((s) => s.statusByThread);
   const setKanbanContext = useUIStore((s) => s.setKanbanContext);
+  const pinThread = useThreadStore((s) => s.pinThread);
   const ref = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -107,15 +108,25 @@ function KanbanCard({ thread, projectInfo, onDelete, search, ghost, contentSnipp
       }}
     >
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
-        {thread.pinned && stage === 'review' && (
-          <Pin className="h-3 w-3 text-primary rotate-45" />
-        )}
+        {thread.pinned && stage === 'review' ? (
+          <button
+            className="p-1 rounded transition-opacity hover:bg-primary/10 text-primary"
+            onClick={async (e) => {
+              e.stopPropagation();
+              await pinThread(thread.id, thread.projectId, false);
+            }}
+            aria-label="Unpin thread"
+          >
+            <Pin className="h-3 w-3 rotate-45" />
+          </button>
+        ) : null}
         <button
           className="p-1 rounded opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
           onClick={(e) => {
             e.stopPropagation();
             onDelete(thread);
           }}
+          aria-label="Delete thread"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>

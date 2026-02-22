@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { ToolPermission, AgentProvider, AgentModel } from '@funny/shared';
 
 export type Theme = 'light' | 'dark' | 'system';
-export type Editor = 'cursor' | 'vscode' | 'windsurf' | 'zed' | 'sublime' | 'vim' | 'internal';
+export type Editor = 'cursor' | 'vscode' | 'windsurf' | 'zed' | 'sublime' | 'vim';
 export type ThreadMode = 'local' | 'worktree';
 export type ClaudeModel = 'haiku' | 'sonnet' | 'opus';
 export type PermissionMode = 'plan' | 'autoEdit' | 'confirmEdit';
@@ -15,7 +15,6 @@ const editorLabels: Record<Editor, string> = {
   zed: 'Zed',
   sublime: 'Sublime Text',
   vim: 'Vim',
-  internal: 'Internal Editor',
 };
 
 export const ALL_STANDARD_TOOLS = [
@@ -44,6 +43,7 @@ const DEFAULT_TOOL_PERMISSIONS: Record<string, ToolPermission> = Object.fromEntr
 interface SettingsState {
   theme: Theme;
   defaultEditor: Editor;
+  useInternalEditor: boolean;
   defaultThreadMode: ThreadMode;
   defaultProvider: AgentProvider;
   defaultModel: AgentModel;
@@ -52,6 +52,7 @@ interface SettingsState {
   setupCompleted: boolean;
   setTheme: (theme: Theme) => void;
   setDefaultEditor: (editor: Editor) => void;
+  setUseInternalEditor: (use: boolean) => void;
   setDefaultThreadMode: (mode: ThreadMode) => void;
   setDefaultProvider: (provider: AgentProvider) => void;
   setDefaultModel: (model: AgentModel) => void;
@@ -91,6 +92,7 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       theme: 'dark',
       defaultEditor: 'cursor',
+      useInternalEditor: false,
       defaultThreadMode: 'worktree',
       defaultProvider: 'claude',
       defaultModel: 'opus',
@@ -102,6 +104,7 @@ export const useSettingsStore = create<SettingsState>()(
         set({ theme });
       },
       setDefaultEditor: (editor) => set({ defaultEditor: editor }),
+      setUseInternalEditor: (use) => set({ useInternalEditor: use }),
       setDefaultThreadMode: (mode) => set({ defaultThreadMode: mode }),
       setDefaultProvider: (provider) => set({ defaultProvider: provider }),
       setDefaultModel: (model) => set({ defaultModel: model }),
@@ -114,7 +117,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'funny-settings',
-      version: 5,
+      version: 6,
       migrate: (persisted: any, version: number) => {
         if (version < 2) {
           // Old format had allowedTools: string[]
@@ -141,9 +144,19 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (version < 5) {
           // Add default provider for existing users
-          return {
+          persisted = {
             ...persisted,
             defaultProvider: persisted.defaultProvider ?? 'claude',
+          };
+          version = 5;
+        }
+        if (version < 6) {
+          // Migrate from 'internal' editor to useInternalEditor flag
+          const wasInternal = persisted.defaultEditor === 'internal';
+          return {
+            ...persisted,
+            defaultEditor: wasInternal ? 'cursor' : persisted.defaultEditor,
+            useInternalEditor: wasInternal ? true : (persisted.useInternalEditor ?? false),
           };
         }
         return persisted as any;

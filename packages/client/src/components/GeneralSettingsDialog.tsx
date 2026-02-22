@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Sun, Moon, Monitor } from 'lucide-react';
 
 function getLanguageName(code: string): string {
@@ -85,11 +86,12 @@ export function GeneralSettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { theme, defaultEditor, setTheme, setDefaultEditor } = useSettingsStore();
+  const { theme, defaultEditor, useInternalEditor, setTheme, setDefaultEditor, setUseInternalEditor } = useSettingsStore();
   const { t, i18n } = useTranslation();
 
   // Local draft state — only committed to the store on Save
   const [draftEditor, setDraftEditor] = useState<Editor>(defaultEditor);
+  const [draftUseInternalEditor, setDraftUseInternalEditor] = useState(useInternalEditor);
   const [draftTheme, setDraftTheme] = useState<Theme>(theme);
   const [draftLanguage, setDraftLanguage] = useState(i18n.language);
 
@@ -97,17 +99,19 @@ export function GeneralSettingsDialog({
   useEffect(() => {
     if (open) {
       setDraftEditor(defaultEditor);
+      setDraftUseInternalEditor(useInternalEditor);
       setDraftTheme(theme);
       setDraftLanguage(i18n.language);
     }
-  }, [open, defaultEditor, theme, i18n.language]);
+  }, [open, defaultEditor, useInternalEditor, theme, i18n.language]);
 
   const handleSave = useCallback(() => {
     setDefaultEditor(draftEditor);
+    setUseInternalEditor(draftUseInternalEditor);
     setTheme(draftTheme);
     i18n.changeLanguage(draftLanguage);
     onOpenChange(false);
-  }, [draftEditor, draftTheme, draftLanguage, setDefaultEditor, setTheme, i18n, onOpenChange]);
+  }, [draftEditor, draftUseInternalEditor, draftTheme, draftLanguage, setDefaultEditor, setUseInternalEditor, setTheme, i18n, onOpenChange]);
 
   const handleCancel = useCallback(() => {
     onOpenChange(false);
@@ -143,6 +147,16 @@ export function GeneralSettingsDialog({
                     ))}
                   </SelectContent>
                 </Select>
+              </SettingRow>
+
+              <SettingRow
+                title={t('settings.useInternalEditor')}
+                description={t('settings.useInternalEditorDesc')}
+              >
+                <Checkbox
+                  checked={draftUseInternalEditor}
+                  onCheckedChange={(checked) => setDraftUseInternalEditor(!!checked)}
+                />
               </SettingRow>
 
               <SettingRow

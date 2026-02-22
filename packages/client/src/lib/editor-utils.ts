@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 
 /**
  * URI protocol schemes for each supported editor.
- * Editors without a URI scheme (sublime, vim, internal) return null — use the server API fallback or internal editor.
+ * Editors without a URI scheme (sublime, vim) return null — use the server API fallback.
  */
 const EDITOR_URI_SCHEMES: Record<Editor, string | null> = {
   vscode: 'vscode',
@@ -13,7 +13,6 @@ const EDITOR_URI_SCHEMES: Record<Editor, string | null> = {
   zed: 'zed',
   sublime: null,
   vim: null,
-  internal: null,
 };
 
 /** Returns true if the editor supports a `scheme://file/...` URI protocol. */
@@ -63,14 +62,15 @@ export function getEditorLabel(editor?: Editor): string {
 /**
  * Open a file in the user's default (or specified) editor.
  * For URI-capable editors, navigates via the protocol URI.
- * For 'internal' editor, opens the Monaco editor dialog.
+ * If internal editor is enabled via settings, opens the Monaco editor dialog.
  * For others, calls the server API which spawns the editor CLI.
  */
-export function openFileInEditor(filePath: string, editor?: Editor): void {
-  const e = editor ?? useSettingsStore.getState().defaultEditor;
+export function openFileInEditor(filePath: string, editor?: Editor, forceInternal?: boolean): void {
+  const { defaultEditor, useInternalEditor } = useSettingsStore.getState();
+  const e = editor ?? defaultEditor;
 
-  // Handle internal editor separately
-  if (e === 'internal') {
+  // Handle internal editor if enabled and requested (or forced)
+  if (forceInternal || useInternalEditor) {
     // Dynamic import to avoid circular dependencies
     import('@/stores/internal-editor-store').then(({ useInternalEditorStore }) => {
       useInternalEditorStore.getState().openFile(filePath);
