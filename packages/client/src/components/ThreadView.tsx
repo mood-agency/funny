@@ -1192,6 +1192,7 @@ export function ThreadView() {
         {activeThread.messages.length > 0 && (
           <PromptTimeline
             messages={activeThread.messages}
+            activeMessageId={stickyUserMsgId ?? (showScrollDown ? undefined : activeThread.messages.filter(m => m.role === 'user' && m.content?.trim()).at(-1)?.id)}
             onScrollToMessage={(msgId) => {
               const el = scrollViewportRef.current?.querySelector(
                 `[data-user-msg="${msgId}"]`
