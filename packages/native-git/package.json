@@ -1,21 +1,30 @@
 {
   "name": "@funny/native-git",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
   "scripts": {
     "build": "napi build --platform --release",
-    "build:debug": "napi build --platform"
+    "build:debug": "napi build --platform",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
+    "version": "napi version"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.5.1"
   },
+  "optionalDependencies": {
+    "@funny/native-git-darwin-arm64": "0.1.0",
+    "@funny/native-git-linux-x64-gnu": "0.1.0",
+    "@funny/native-git-win32-x64-msvc": "0.1.0"
+  },
   "napi": {
-    "name": "native-git",
-    "triples": {
-      "defaults": true
-    }
+    "binaryName": "native-git",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu"
+    ]
   }
 }

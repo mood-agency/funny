@@ -164,6 +164,9 @@ export function AppSidebar() {
     };
     threadsEl?.addEventListener('scroll', onThreadsScroll, { passive: true });
     projectsEl?.addEventListener('scroll', onProjectsScroll, { passive: true });
+    // Check initial scroll position on mount
+    setThreadsScrolled((threadsEl?.scrollTop ?? 0) > 2);
+    setProjectsScrolled((projectsEl?.scrollTop ?? 0) > 2);
     return () => {
       threadsEl?.removeEventListener('scroll', onThreadsScroll);
       projectsEl?.removeEventListener('scroll', onProjectsScroll);
