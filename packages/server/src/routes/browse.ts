@@ -188,11 +188,6 @@ app.post('/open-directory', async (c) => {
   // Normalize and resolve the path to its absolute form
   const normalizedPath = normalize(resolve(dirPath));
 
-  // Log for debugging
-  console.log('[open-directory] Original path:', dirPath);
-  console.log('[open-directory] Normalized path:', normalizedPath);
-  console.log('[open-directory] Exists?', existsSync(normalizedPath));
-
   // Validate directory exists before opening
   if (!existsSync(normalizedPath)) {
     return c.json({ error: 'Directory does not exist' }, 404);
@@ -313,7 +308,7 @@ app.post('/open-terminal', async (c) => {
   return c.json({ ok: true });
 });
 
-// List files in a git repository (respects .gitignore)
+// List files and folders in a git repository (respects .gitignore)
 app.get('/files', async (c) => {
   const dirPathOrRes = checkRequired(c.req.query('path'), 'path query parameter');
   if (dirPathOrRes instanceof Response) return dirPathOrRes;
@@ -336,20 +331,37 @@ app.get('/files', async (c) => {
       return c.json({ files: [], truncated: false, error: 'Not a git repository or git error' });
     }
 
-    let files = result.stdout
+    const allFiles = result.stdout
       .split('\n')
       .map((f) => f.trim())
       .filter(Boolean);
 
-    if (query) {
-      const lowerQuery = query.toLowerCase();
-      files = files.filter((f) => f.toLowerCase().includes(lowerQuery));
+    // Extract unique directories from file paths
+    const dirSet = new Set<string>();
+    for (const file of allFiles) {
+      const parts = file.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        dirSet.add(parts.slice(0, i).join('/'));
+      }
     }
 
-    const truncated = files.length > 200;
-    files = files.slice(0, 200);
+    // Build combined list: folders first, then files
+    type BrowseItem = { path: string; type: 'file' | 'folder' };
+    let folders: BrowseItem[] = Array.from(dirSet)
+      .sort()
+      .map((d) => ({ path: d, type: 'folder' as const }));
+    let files: BrowseItem[] = allFiles.map((f) => ({ path: f, type: 'file' as const }));
 
-    return c.json({ files, truncated });
+    if (query) {
+      const lowerQuery = query.toLowerCase();
+      folders = folders.filter((f) => f.path.toLowerCase().includes(lowerQuery));
+      files = files.filter((f) => f.path.toLowerCase().includes(lowerQuery));
+    }
+
+    const items = [...folders, ...files];
+    const truncated = items.length > 200;
+
+    return c.json({ files: items.slice(0, 200), truncated });
   } catch (error: any) {
     return c.json({ files: [], truncated: false, error: error.message });
   }

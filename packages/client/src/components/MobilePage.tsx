@@ -405,6 +405,7 @@ function ChatView({
         images,
         opts.model as any,
         opts.mode as any,
+        opts.fileReferences,
       );
 
     const result = await api.sendMessage(

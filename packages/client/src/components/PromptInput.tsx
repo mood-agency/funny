@@ -337,7 +337,7 @@ interface PromptInputProps {
       baseBranch?: string;
       cwd?: string;
       sendToBacklog?: boolean;
-      fileReferences?: { path: string }[];
+      fileReferences?: { path: string; type?: 'file' | 'folder' }[];
     },
     images?: ImageAttachment[],
   ) => Promise<boolean | void> | boolean | void;
@@ -454,10 +454,13 @@ export const PromptInput = memo(function PromptInput({
   const [showMentionMenu, setShowMentionMenu] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionFiles, setMentionFiles] = useState<string[]>([]);
+  const [mentionItems, setMentionItems] = useState<
+    Array<{ path: string; type: 'file' | 'folder' }>
+  >([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [mentionTruncated, setMentionTruncated] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [selectedFileTypes, setSelectedFileTypes] = useState<Record<string, 'file' | 'folder'>>({});
   const mentionMenuRef = useRef<HTMLDivElement>(null);
   const mentionStartPosRef = useRef<number>(-1);
   const loadFilesTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -711,7 +714,11 @@ export const PromptInput = memo(function PromptInput({
         setMentionLoading(true);
         const result = await api.browseFiles(path, query || undefined);
         if (result.isOk()) {
-          setMentionFiles(result.value.files);
+          // Normalize: server may return objects { path, type } or legacy strings
+          const items = result.value.files.map((f) =>
+            typeof f === 'string' ? { path: f, type: 'file' as const } : f,
+          );
+          setMentionItems(items);
           setMentionTruncated(result.value.truncated);
         }
         setMentionLoading(false);
@@ -739,16 +746,19 @@ export const PromptInput = memo(function PromptInput({
     [loadFiles],
   );
 
-  // Select a file from the mention menu (rerender-functional-setstate)
+  // Select a file/folder from the mention menu (rerender-functional-setstate)
   const selectMentionFile = useCallback(
-    (filePath: string) => {
+    (filePath: string, itemType: 'file' | 'folder' = 'file') => {
       const startPos = mentionStartPosRef.current;
+      // Remove the @mention text — the file/folder is shown as a chip instead
       setPrompt((prev) => {
         const before = prev.slice(0, startPos);
         const afterCursor = prev.slice(startPos + mentionFilter.length + 1); // +1 for @
-        return `${before}@${filePath} ${afterCursor}`;
+        // Collapse extra whitespace left behind
+        return before + afterCursor.replace(/^\s+/, before.length > 0 ? ' ' : '');
       });
       setSelectedFiles((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
+      setSelectedFileTypes((prev) => ({ ...prev, [filePath]: itemType }));
       setShowMentionMenu(false);
       textareaRef.current?.focus();
     },
@@ -809,10 +819,13 @@ export const PromptInput = memo(function PromptInput({
     const submittedPrompt = prompt;
     const submittedImages = images.length > 0 ? images : undefined;
     const submittedFiles =
-      selectedFiles.length > 0 ? selectedFiles.map((p) => ({ path: p })) : undefined;
+      selectedFiles.length > 0
+        ? selectedFiles.map((p) => ({ path: p, type: selectedFileTypes[p] || ('file' as const) }))
+        : undefined;
     setPrompt('');
     setImages([]);
     setSelectedFiles([]);
+    setSelectedFileTypes({});
     hasSubmittedRef.current = true;
     if (selectedThreadId) clearPromptDraft(selectedThreadId);
     textareaRef.current?.focus();
@@ -850,21 +863,38 @@ export const PromptInput = memo(function PromptInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Delete last chip on Backspace when cursor is at position 0 and textarea is empty
+    if (e.key === 'Backspace' && selectedFiles.length > 0 && !showMentionMenu && !showSlashMenu) {
+      const cursorPos = textareaRef.current?.selectionStart ?? 0;
+      if (cursorPos === 0 && !prompt) {
+        e.preventDefault();
+        const lastFile = selectedFiles[selectedFiles.length - 1];
+        setSelectedFiles((prev) => prev.slice(0, -1));
+        setSelectedFileTypes((prev) => {
+          const next = { ...prev };
+          delete next[lastFile];
+          return next;
+        });
+        return;
+      }
+    }
+
     // Handle @ mention menu navigation
-    if (showMentionMenu && mentionFiles.length > 0) {
+    if (showMentionMenu && mentionItems.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setMentionIndex((i) => (i + 1) % mentionFiles.length);
+        setMentionIndex((i) => (i + 1) % mentionItems.length);
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setMentionIndex((i) => (i - 1 + mentionFiles.length) % mentionFiles.length);
+        setMentionIndex((i) => (i - 1 + mentionItems.length) % mentionItems.length);
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        selectMentionFile(mentionFiles[mentionIndex]);
+        const item = mentionItems[mentionIndex];
+        selectMentionFile(item.path, item.type);
         return;
       }
       if (e.key === 'Escape') {
@@ -974,11 +1004,9 @@ export const PromptInput = memo(function PromptInput({
           // Get relative path if possible, or use absolute path
           const filePath = (file as any).path || file.name;
 
-          // Add to selected files if not already added
+          // Add to selected files if not already added (shown as chip, not in prompt text)
           if (!selectedFiles.includes(filePath)) {
             setSelectedFiles((prev) => [...prev, filePath]);
-            // Optionally add to prompt text as well
-            setPrompt((prev) => (prev ? `${prev} @${filePath}` : `@${filePath}`));
           }
         }
       }
@@ -1074,47 +1102,52 @@ export const PromptInput = memo(function PromptInput({
         {/* Textarea + bottom toolbar */}
         <div
           className={cn(
-            'relative rounded-md border bg-input/50',
+            'relative rounded-md border bg-input/80',
             isDragging
               ? 'border-primary border-2 ring-2 ring-primary/20'
-              : 'border-input focus-within:border-ring',
+              : 'border-border/80 focus-within:border-ring',
           )}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          {/* File mention dropdown */}
+          {/* File/folder mention dropdown */}
           {showMentionMenu && (
             <div
               ref={mentionMenuRef}
               className="absolute bottom-full left-0 z-50 mb-1 max-h-52 w-full overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
             >
-              {mentionLoading && mentionFiles.length === 0 ? (
+              {mentionLoading && mentionItems.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-muted-foreground">
                   {t('prompt.loadingFiles', 'Loading files\u2026')}
                 </div>
-              ) : mentionFiles.length === 0 ? (
+              ) : mentionItems.length === 0 ? (
                 <div className="px-3 py-2 text-xs text-muted-foreground">
                   {t('prompt.noFilesMatch', 'No files match')}
                 </div>
               ) : (
                 <>
-                  {mentionFiles.map((file, i) => (
+                  {mentionItems.map((item, i) => (
                     <button
-                      key={file}
+                      key={`${item.type}:${item.path}`}
+                      data-testid={`mention-item-${item.path}`}
                       className={cn(
                         'w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent transition-colors',
                         i === mentionIndex && 'bg-accent',
-                        selectedFiles.includes(file) && 'text-primary',
+                        selectedFiles.includes(item.path) && 'text-primary',
                       )}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        selectMentionFile(file);
+                        selectMentionFile(item.path, item.type);
                       }}
                       onMouseEnter={() => setMentionIndex(i)}
                     >
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate font-mono text-xs">{file}</span>
+                      {item.type === 'folder' ? (
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="truncate font-mono text-xs">{item.path}</span>
                     </button>
                   ))}
                   {mentionTruncated && (
@@ -1164,53 +1197,68 @@ export const PromptInput = memo(function PromptInput({
               )}
             </div>
           )}
-          <textarea
-            ref={textareaCallbackRef}
-            data-testid="prompt-textarea"
-            aria-label={t('prompt.messageLabel', 'Message')}
-            className="w-full resize-none bg-transparent px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-            style={{ minHeight: '4.5rem' }}
-            placeholder={
-              running
-                ? isQueueMode
-                  ? t('thread.typeToQueue')
-                  : t('thread.typeToInterrupt')
-                : defaultPlaceholder
-            }
-            value={prompt}
-            onChange={(e) => {
-              const value = e.target.value;
-              setPrompt(value);
-              resizeTextarea();
-              handleMentionDetection(value, e.target.selectionStart ?? value.length);
-            }}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            rows={1}
-            disabled={loading}
-          />
-          {/* Selected file mention chips */}
-          {selectedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-1 border-t border-border/50 px-2 py-1">
-              {selectedFiles.map((file) => (
-                <span
-                  key={file}
-                  className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
-                  title={file}
+          {/* Inline chips + textarea in a single flow */}
+          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+          <div
+            className="flex flex-wrap items-end gap-1 px-3 pt-2"
+            onClick={() => textareaRef.current?.focus()}
+          >
+            {selectedFiles.map((file) => (
+              <span
+                key={file}
+                data-testid={`selected-file-${file}`}
+                className="mb-0.5 inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-muted/60 px-2 py-0.5 font-mono text-xs text-foreground/80"
+                title={file}
+              >
+                {selectedFileTypes[file] === 'folder' ? (
+                  <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : (
+                  <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                )}
+                {file.split('/').pop()}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedFiles((prev) => prev.filter((f) => f !== file));
+                    setSelectedFileTypes((prev) => {
+                      const next = { ...prev };
+                      delete next[file];
+                      return next;
+                    });
+                  }}
+                  aria-label={t('prompt.removeFile', 'Remove file')}
+                  className="ml-0.5 rounded-sm hover:text-destructive"
                 >
-                  <FileText className="h-3 w-3 shrink-0" />
-                  {file.split('/').pop()}
-                  <button
-                    onClick={() => setSelectedFiles((prev) => prev.filter((f) => f !== file))}
-                    aria-label={t('prompt.removeFile', 'Remove file')}
-                    className="ml-0.5 hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <textarea
+              ref={textareaCallbackRef}
+              data-testid="prompt-textarea"
+              aria-label={t('prompt.messageLabel', 'Message')}
+              className="min-w-0 flex-1 resize-none bg-transparent py-0.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              style={{ minHeight: selectedFiles.length > 0 ? '1.5rem' : '4.5rem' }}
+              placeholder={
+                running
+                  ? isQueueMode
+                    ? t('thread.typeToQueue')
+                    : t('thread.typeToInterrupt')
+                  : defaultPlaceholder
+              }
+              value={prompt}
+              onChange={(e) => {
+                const value = e.target.value;
+                setPrompt(value);
+                resizeTextarea();
+                handleMentionDetection(value, e.target.selectionStart ?? value.length);
+              }}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              rows={1}
+              disabled={loading}
+            />
+          </div>
           {/* Bottom toolbar */}
           <input
             ref={fileInputRef}

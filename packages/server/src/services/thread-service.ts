@@ -229,10 +229,16 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     tm.createThread(thread);
 
     if (params.prompt) {
+      // Augment prompt with file contents so the stored message includes <referenced-files> XML
+      const storedContent = await augmentPromptWithFiles(
+        params.prompt,
+        params.fileReferences,
+        project.path,
+      );
       tm.insertMessage({
         threadId,
         role: 'user',
-        content: params.prompt,
+        content: storedContent,
         images: params.images?.length ? JSON.stringify(params.images) : null,
       });
     }
@@ -499,7 +505,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     tm.insertMessage({
       threadId: params.threadId,
       role: 'user',
-      content: params.content,
+      content: augmentedContent,
       images: params.images ? JSON.stringify(params.images) : null,
       model: effectiveModel,
       permissionMode: effectivePermission,

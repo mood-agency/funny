@@ -671,7 +671,10 @@ export const api = {
   browseFiles: (path: string, query?: string) => {
     const params = new URLSearchParams({ path });
     if (query) params.set('query', query);
-    return request<{ files: string[]; truncated: boolean }>(`/browse/files?${params.toString()}`);
+    return request<{
+      files: Array<{ path: string; type: 'file' | 'folder' } | string>;
+      truncated: boolean;
+    }>(`/browse/files?${params.toString()}`);
   },
 
   // GitHub

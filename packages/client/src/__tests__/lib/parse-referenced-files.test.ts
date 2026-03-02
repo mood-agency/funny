@@ -2,6 +2,9 @@ import { describe, test, expect } from 'vitest';
 
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 
+/** Helper: wrap a path string into a file ReferencedItem */
+const f = (path: string) => ({ path, type: 'file' as const });
+
 describe('parseReferencedFiles', () => {
   describe('no referenced files block', () => {
     test('returns empty files and original content when no block present', () => {
@@ -37,7 +40,7 @@ describe('parseReferencedFiles', () => {
       const content =
         '<referenced-files>\n<file path="src/index.ts" />\n</referenced-files>\nPlease review this file.';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['src/index.ts']);
+      expect(result.files).toEqual([f('src/index.ts')]);
       expect(result.cleanContent).toBe('Please review this file.');
     });
 
@@ -45,7 +48,7 @@ describe('parseReferencedFiles', () => {
       const content =
         '<referenced-files>\n<file path="README.md" />\n</referenced-files>\nCheck readme.';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['README.md']);
+      expect(result.files).toEqual([f('README.md')]);
     });
 
     test('extracts file with non-self-closing tag', () => {
@@ -53,7 +56,7 @@ describe('parseReferencedFiles', () => {
         '<referenced-files>\n<file path="test.ts"></file>\n</referenced-files>\nContent here.';
       const result = parseReferencedFiles(content);
       // The regex uses [^>]* after the path, so the > closing the tag is matched
-      expect(result.files).toEqual(['test.ts']);
+      expect(result.files).toEqual([f('test.ts')]);
     });
   });
 
@@ -62,7 +65,7 @@ describe('parseReferencedFiles', () => {
       const content =
         '<referenced-files>\n<file path="src/a.ts" />\n<file path="src/b.ts" />\n<file path="src/c.ts" />\n</referenced-files>\nReview these files.';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+      expect(result.files).toEqual([f('src/a.ts'), f('src/b.ts'), f('src/c.ts')]);
       expect(result.cleanContent).toBe('Review these files.');
     });
 
@@ -70,7 +73,7 @@ describe('parseReferencedFiles', () => {
       const content =
         '<referenced-files><file path="a.ts" /><file path="b.ts" /></referenced-files>Content';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['a.ts', 'b.ts']);
+      expect(result.files).toEqual([f('a.ts'), f('b.ts')]);
       expect(result.cleanContent).toBe('Content');
     });
 
@@ -78,7 +81,7 @@ describe('parseReferencedFiles', () => {
       const content =
         '<referenced-files>\n<file path="z.ts" />\n<file path="a.ts" />\n<file path="m.ts" />\n</referenced-files>\nDone.';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['z.ts', 'a.ts', 'm.ts']);
+      expect(result.files).toEqual([f('z.ts'), f('a.ts'), f('m.ts')]);
     });
   });
 
@@ -107,7 +110,7 @@ describe('parseReferencedFiles', () => {
     test('returns empty clean content when nothing follows the block', () => {
       const content = '<referenced-files>\n<file path="x.ts" />\n</referenced-files>';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['x.ts']);
+      expect(result.files).toEqual([f('x.ts')]);
       expect(result.cleanContent).toBe('');
     });
   });
@@ -132,7 +135,7 @@ describe('parseReferencedFiles', () => {
     test('allows leading whitespace before the block', () => {
       const content = '  \n<referenced-files>\n<file path="x.ts" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['x.ts']);
+      expect(result.files).toEqual([f('x.ts')]);
       expect(result.cleanContent).toBe('Content');
     });
   });
@@ -142,35 +145,35 @@ describe('parseReferencedFiles', () => {
       const content =
         '<referenced-files>\n<file path="src/my file.ts" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['src/my file.ts']);
+      expect(result.files).toEqual([f('src/my file.ts')]);
     });
 
     test('handles paths with dots', () => {
       const content =
         '<referenced-files>\n<file path="src/.env.local" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['src/.env.local']);
+      expect(result.files).toEqual([f('src/.env.local')]);
     });
 
     test('handles deep nested paths', () => {
       const content =
         '<referenced-files>\n<file path="packages/server/src/utils/git-v2.ts" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['packages/server/src/utils/git-v2.ts']);
+      expect(result.files).toEqual([f('packages/server/src/utils/git-v2.ts')]);
     });
 
     test('handles Windows-style paths', () => {
       const content =
         '<referenced-files>\n<file path="C:\\Users\\test\\file.ts" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['C:\\Users\\test\\file.ts']);
+      expect(result.files).toEqual([f('C:\\Users\\test\\file.ts')]);
     });
 
     test('handles paths with hyphens and underscores', () => {
       const content =
         '<referenced-files>\n<file path="my-project/some_file.test.ts" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['my-project/some_file.test.ts']);
+      expect(result.files).toEqual([f('my-project/some_file.test.ts')]);
     });
   });
 
@@ -197,18 +200,53 @@ describe('parseReferencedFiles', () => {
     });
   });
 
+  describe('folder references', () => {
+    test('extracts folder as a single item instead of expanding files', () => {
+      const content =
+        '<referenced-files>\n<folder path="docs">\n<file path="docs/readme.md">\ncontent\n</file>\n<file path="docs/guide.md">\ncontent\n</file>\n</folder>\n</referenced-files>\nCheck this folder.';
+      const result = parseReferencedFiles(content);
+      expect(result.files).toEqual([{ path: 'docs', type: 'folder' }]);
+      expect(result.cleanContent).toBe('Check this folder.');
+    });
+
+    test('extracts folder with note attribute', () => {
+      const content =
+        '<referenced-files>\n<folder path="src" note="Showing 50 of 120 files.">\n<file path="src/a.ts">\ncontent\n</file>\n</folder>\n</referenced-files>\nContent';
+      const result = parseReferencedFiles(content);
+      expect(result.files).toEqual([{ path: 'src', type: 'folder' }]);
+    });
+
+    test('extracts mix of folders and standalone files', () => {
+      const content =
+        '<referenced-files>\n<folder path="docs">\n<file path="docs/a.md">\ncontent\n</file>\n</folder>\n<file path="README.md" />\n</referenced-files>\nContent';
+      const result = parseReferencedFiles(content);
+      expect(result.files).toEqual([
+        { path: 'docs', type: 'folder' },
+        { path: 'README.md', type: 'file' },
+      ]);
+    });
+
+    test('does not count files inside folders as standalone files', () => {
+      const content =
+        '<referenced-files>\n<folder path="src">\n<file path="src/index.ts">\ncode\n</file>\n<file path="src/utils.ts">\ncode\n</file>\n</folder>\n</referenced-files>\nContent';
+      const result = parseReferencedFiles(content);
+      expect(result.files).toHaveLength(1);
+      expect(result.files[0]).toEqual({ path: 'src', type: 'folder' });
+    });
+  });
+
   describe('edge cases', () => {
     test('handles file tag with additional attributes', () => {
       const content =
         '<referenced-files>\n<file path="src/a.ts" line="10" />\n</referenced-files>\nContent';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['src/a.ts']);
+      expect(result.files).toEqual([f('src/a.ts')]);
     });
 
     test('handles compact block on single line', () => {
       const content = '<referenced-files><file path="a.ts" /></referenced-files>Content';
       const result = parseReferencedFiles(content);
-      expect(result.files).toEqual(['a.ts']);
+      expect(result.files).toEqual([f('a.ts')]);
       expect(result.cleanContent).toBe('Content');
     });
 

@@ -1,5 +1,14 @@
 import type { Thread } from '@funny/shared';
-import { Loader2, Columns3, Grid2x2, Plus, Search, GitBranch, FileText } from 'lucide-react';
+import {
+  Loader2,
+  Columns3,
+  Grid2x2,
+  Plus,
+  Search,
+  GitBranch,
+  FileText,
+  FolderOpen,
+} from 'lucide-react';
 import { useReducedMotion } from 'motion/react';
 import {
   useState,
@@ -207,7 +216,12 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
   const handleSend = useCallback(
     async (
       prompt: string,
-      opts: { provider?: string; model: string; mode: string; fileReferences?: { path: string }[] },
+      opts: {
+        provider?: string;
+        model: string;
+        mode: string;
+        fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+      },
       images?: any[],
     ) => {
       if (sending || !thread) return;
@@ -218,7 +232,14 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
       startTransition(() => {
         useAppStore
           .getState()
-          .appendOptimisticMessage(threadId, prompt, images, opts.model as any, opts.mode as any);
+          .appendOptimisticMessage(
+            threadId,
+            prompt,
+            images,
+            opts.model as any,
+            opts.mode as any,
+            opts.fileReferences,
+          );
       });
       const { allowedTools, disallowedTools } = deriveToolLists(
         useSettingsStore.getState().toolPermissions,
@@ -344,14 +365,18 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
                         <>
                           {files.length > 0 && (
                             <div className="mb-1.5 flex flex-wrap gap-1">
-                              {files.map((file) => (
+                              {files.map((item) => (
                                 <span
-                                  key={file}
+                                  key={`${item.type}:${item.path}`}
                                   className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-mono text-xs text-background/70"
-                                  title={file}
+                                  title={item.path}
                                 >
-                                  <FileText className="h-3 w-3 shrink-0" />
-                                  {file.split('/').pop()}
+                                  {item.type === 'folder' ? (
+                                    <FolderOpen className="h-3 w-3 shrink-0" />
+                                  ) : (
+                                    <FileText className="h-3 w-3 shrink-0" />
+                                  )}
+                                  {item.path.split('/').pop()}
                                 </span>
                               ))}
                             </div>

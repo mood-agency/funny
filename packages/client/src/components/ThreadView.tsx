@@ -9,6 +9,7 @@ import {
   ArrowDown,
   ShieldQuestion,
   FileText,
+  FolderOpen,
   ChevronRight,
   ChevronDown,
 } from 'lucide-react';
@@ -744,14 +745,18 @@ const MemoizedMessageList = memo(
                       <>
                         {files.length > 0 && (
                           <div className="mb-1.5 flex flex-wrap gap-1">
-                            {files.map((file) => (
+                            {files.map((item) => (
                               <span
-                                key={file}
+                                key={`${item.type}:${item.path}`}
                                 className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-mono text-xs text-background/70"
-                                title={file}
+                                title={item.path}
                               >
-                                <FileText className="h-3 w-3 shrink-0" />
-                                {file.split('/').pop()}
+                                {item.type === 'folder' ? (
+                                  <FolderOpen className="h-3 w-3 shrink-0" />
+                                ) : (
+                                  <FileText className="h-3 w-3 shrink-0" />
+                                )}
+                                {item.path.split('/').pop()}
                               </span>
                             ))}
                           </div>
@@ -1146,7 +1151,7 @@ export function ThreadView() {
         provider?: string;
         model: string;
         mode: string;
-        fileReferences?: { path: string }[];
+        fileReferences?: { path: string; type?: 'file' | 'folder' }[];
         baseBranch?: string;
       },
       images?: any[],
@@ -1175,7 +1180,14 @@ export function ThreadView() {
       startTransition(() => {
         useThreadStore
           .getState()
-          .appendOptimisticMessage(thread.id, prompt, images, opts.model as any, opts.mode as any);
+          .appendOptimisticMessage(
+            thread.id,
+            prompt,
+            images,
+            opts.model as any,
+            opts.mode as any,
+            opts.fileReferences,
+          );
       });
 
       const { allowedTools, disallowedTools } = deriveToolLists(

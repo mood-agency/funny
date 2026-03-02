@@ -72,7 +72,7 @@ const THEME_OPTIONS: ThemeOption[] = [
   {
     value: 'one-dark',
     label: 'settings.themes.oneDark',
-    colors: { bg: '#282c34', sidebar: '#21252b', accent: '#528bff', fg: '#abb2bf' },
+    colors: { bg: '#252931', sidebar: '#1e2127', accent: '#528bff', fg: '#b8beca' },
   },
   {
     value: 'dracula',

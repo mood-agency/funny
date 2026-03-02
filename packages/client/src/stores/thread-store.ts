@@ -96,6 +96,7 @@ export interface ThreadState {
     images?: any[],
     model?: AgentModel,
     permissionMode?: PermissionMode,
+    fileReferences?: { path: string; type?: 'file' | 'folder' }[],
   ) => void;
   loadOlderMessages: () => Promise<void>;
   refreshActiveThread: () => Promise<void>;
@@ -525,7 +526,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     api.deleteThread(threadId);
   },
 
-  appendOptimisticMessage: (threadId, content, images, model, permissionMode) => {
+  appendOptimisticMessage: (threadId, content, images, model, permissionMode, fileReferences) => {
     const { activeThread, threadsByProject } = get();
     if (activeThread?.id === threadId) {
       const pid = activeThread.projectId;
@@ -549,11 +550,24 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           return { model: model || activeThread.model, cwd, tools: [] as string[] };
         })();
 
+      // Build a minimal <referenced-files> XML header so chips render in the message
+      let messageContent = content;
+      if (fileReferences && fileReferences.length > 0) {
+        const tags = fileReferences
+          .map((ref) =>
+            ref.type === 'folder'
+              ? `<folder path="${ref.path}"></folder>`
+              : `<file path="${ref.path}" />`,
+          )
+          .join('\n');
+        messageContent = `<referenced-files>\n${tags}\n</referenced-files>\n${content}`;
+      }
+
       const newMessage = {
         id: crypto.randomUUID(),
         threadId,
         role: 'user' as MessageRole,
-        content,
+        content: messageContent,
         images,
         timestamp: new Date().toISOString(),
         model,
