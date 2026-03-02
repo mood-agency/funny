@@ -3,8 +3,11 @@ import {
   dropTargetForElements,
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import type { ProjectHook } from '@funny/shared';
+import type { ProjectHook, HookType } from '@funny/shared';
+import { HOOK_TYPES } from '@funny/shared';
+import { Editor, type BeforeMount } from '@monaco-editor/react';
 import { Plus, Pencil, Trash2, X, Check, GripVertical } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -25,21 +28,81 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
 
-const HOOK_TYPES = ['postCommit', 'postPush', 'preMerge'] as const;
+/* ── Inline shell editor (Monaco) ── */
+
+const handleBeforeMount: BeforeMount = (monaco) => {
+  monaco.editor.defineTheme('funny-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#0a0a0a',
+      'editorGutter.background': '#0a0a0a',
+    },
+  });
+};
+
+function ShellEditor({
+  value,
+  onChange,
+  testId,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  testId?: string;
+}) {
+  const { resolvedTheme } = useTheme();
+  const monacoTheme = resolvedTheme === 'monochrome' ? 'vs' : 'funny-dark';
+  const lineCount = Math.max(value.split('\n').length, 3);
+  const height = Math.min(Math.max(lineCount * 22 + 16, 100), 400);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-input" data-testid={testId}>
+      <Editor
+        height={height}
+        language="shell"
+        theme={monacoTheme}
+        beforeMount={handleBeforeMount}
+        value={value}
+        onChange={(v) => onChange(v ?? '')}
+        options={{
+          minimap: { enabled: false },
+          fontSize: 13,
+          lineNumbers: 'off',
+          glyphMargin: false,
+          folding: false,
+          lineDecorationsWidth: 8,
+          lineNumbersMinChars: 0,
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+          automaticLayout: true,
+          overviewRulerLanes: 0,
+          hideCursorInOverviewRuler: true,
+          scrollbar: { vertical: 'auto', horizontal: 'hidden', verticalScrollbarSize: 8 },
+          renderLineHighlight: 'none',
+          padding: { top: 6, bottom: 6 },
+        }}
+      />
+    </div>
+  );
+}
+
+/** Unique key for a hook command (hookType + index) */
+function hookKey(hook: ProjectHook): string {
+  return `${hook.hookType}:${hook.index}`;
+}
 
 /* ── Draggable hook row ── */
 function HookItem({
   hook,
-  hookTypeLabel,
   onEdit,
   onDelete,
   onToggleEnabled,
   t,
 }: {
   hook: ProjectHook;
-  hookTypeLabel: (type: string) => string;
   onEdit: (hook: ProjectHook) => void;
-  onDelete: (hookId: string) => void;
+  onDelete: (hook: ProjectHook) => void;
   onToggleEnabled: (hook: ProjectHook) => void;
   t: (key: string) => string;
 }) {
@@ -47,6 +110,7 @@ function HookItem({
   const handleRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const key = hookKey(hook);
 
   useEffect(() => {
     const el = ref.current;
@@ -56,15 +120,23 @@ function HookItem({
     const cleanupDrag = draggable({
       element: el,
       dragHandle: handle,
-      getInitialData: () => ({ type: 'hook-item', hookId: hook.id }),
+      getInitialData: () => ({
+        type: 'hook-item',
+        key,
+        hookType: hook.hookType,
+        index: hook.index,
+      }),
       onDragStart: () => setIsDragging(true),
       onDrop: () => setIsDragging(false),
     });
 
     const cleanupDrop = dropTargetForElements({
       element: el,
-      getData: () => ({ type: 'hook-item', hookId: hook.id }),
-      canDrop: ({ source }) => source.data.type === 'hook-item' && source.data.hookId !== hook.id,
+      getData: () => ({ type: 'hook-item', key, hookType: hook.hookType, index: hook.index }),
+      canDrop: ({ source }) =>
+        source.data.type === 'hook-item' &&
+        source.data.key !== key &&
+        source.data.hookType === hook.hookType,
       onDragEnter: () => setIsDropTarget(true),
       onDragLeave: () => setIsDropTarget(false),
       onDrop: () => setIsDropTarget(false),
@@ -74,12 +146,12 @@ function HookItem({
       cleanupDrag();
       cleanupDrop();
     };
-  }, [hook.id]);
+  }, [key, hook.hookType, hook.index]);
 
   return (
     <div
       ref={ref}
-      data-testid={`hook-item-${hook.id}`}
+      data-testid={`hook-item-${key}`}
       className={cn(
         'group flex items-center gap-1.5 rounded-md border border-border/50 bg-card px-1.5 py-1.5 transition-all hover:bg-accent/30',
         isDragging && 'opacity-40',
@@ -90,7 +162,7 @@ function HookItem({
       <div
         ref={handleRef}
         className="flex-shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
-        data-testid={`hook-drag-${hook.id}`}
+        data-testid={`hook-drag-${key}`}
       >
         <GripVertical className="h-3.5 w-3.5" />
       </div>
@@ -109,7 +181,7 @@ function HookItem({
               <Switch
                 checked={hook.enabled}
                 onCheckedChange={() => onToggleEnabled(hook)}
-                data-testid={`hook-toggle-${hook.id}`}
+                data-testid={`hook-toggle-${key}`}
                 className="h-4 w-7 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input [&>span]:h-3 [&>span]:w-3 [&>span]:data-[state=checked]:translate-x-3"
               />
             </div>
@@ -124,7 +196,7 @@ function HookItem({
                 size="icon-xs"
                 onClick={() => onEdit(hook)}
                 className="text-muted-foreground"
-                data-testid={`hook-edit-${hook.id}`}
+                data-testid={`hook-edit-${key}`}
               >
                 <Pencil className="h-3 w-3" />
               </Button>
@@ -136,9 +208,9 @@ function HookItem({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={() => onDelete(hook.id)}
+                onClick={() => onDelete(hook)}
                 className="text-muted-foreground hover:text-status-error"
-                data-testid={`hook-delete-${hook.id}`}
+                data-testid={`hook-delete-${key}`}
               >
                 <Trash2 className="h-3 w-3" />
               </Button>
@@ -156,8 +228,8 @@ export function ProjectHooksSettings() {
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
   const [hooks, setHooks] = useState<ProjectHook[]>([]);
   const [adding, setAdding] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [hookType, setHookType] = useState<string>('postCommit');
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [hookType, setHookType] = useState<HookType>('pre-commit');
   const [label, setLabel] = useState('');
   const [command, setCommand] = useState('');
 
@@ -181,29 +253,33 @@ export function ProjectHooksSettings() {
         if (!targets.length) return;
         if (source.data.type !== 'hook-item') return;
 
-        const sourceId = source.data.hookId as string;
-        const targetId = targets[0].data.hookId as string;
-        if (sourceId === targetId) return;
+        const sourceHookType = source.data.hookType as HookType;
+        const sourceIndex = source.data.index as number;
+        const targetIndex = targets[0].data.index as number;
+        if (sourceIndex === targetIndex || sourceHookType !== targets[0].data.hookType) return;
 
         setHooks((prev) => {
-          const oldIndex = prev.findIndex((h) => h.id === sourceId);
-          const newIndex = prev.findIndex((h) => h.id === targetId);
-          if (oldIndex === -1 || newIndex === -1) return prev;
+          // Get hooks of this type
+          const typeHooks = prev.filter((h) => h.hookType === sourceHookType);
+          const others = prev.filter((h) => h.hookType !== sourceHookType);
 
-          const reordered = [...prev];
-          const [moved] = reordered.splice(oldIndex, 1);
-          reordered.splice(newIndex, 0, moved);
+          const oldIdx = typeHooks.findIndex((h) => h.index === sourceIndex);
+          const newIdx = typeHooks.findIndex((h) => h.index === targetIndex);
+          if (oldIdx === -1 || newIdx === -1) return prev;
 
-          // Persist sortOrder for hooks that changed position
+          const reordered = [...typeHooks];
+          const [moved] = reordered.splice(oldIdx, 1);
+          reordered.splice(newIdx, 0, moved);
+
+          // Persist reorder
           if (selectedProjectId) {
-            reordered.forEach((hook, index) => {
-              if (hook.sortOrder !== index) {
-                api.updateHook(selectedProjectId, hook.id, { sortOrder: index });
-              }
-            });
+            const newOrder = reordered.map((h) => h.index);
+            api.reorderHooks(selectedProjectId, sourceHookType, newOrder);
           }
 
-          return reordered.map((h, i) => ({ ...h, sortOrder: i }));
+          // Update indexes
+          const updated = reordered.map((h, i) => ({ ...h, index: i }));
+          return [...others, ...updated];
         });
       },
     });
@@ -234,7 +310,7 @@ export function ProjectHooksSettings() {
     }
   };
 
-  const handleUpdate = async (hookId: string) => {
+  const handleUpdate = async (hook: ProjectHook) => {
     if (!selectedProjectId) return;
     if (!label.trim()) {
       toast.error(t('hooks.labelRequired'));
@@ -244,13 +320,13 @@ export function ProjectHooksSettings() {
       toast.error(t('hooks.commandRequired'));
       return;
     }
-    const result = await api.updateHook(selectedProjectId, hookId, {
+    const result = await api.updateHook(selectedProjectId, hook.hookType, hook.index, {
       hookType,
       label: label.trim(),
       command: command.trim(),
     });
     if (result.isOk()) {
-      setEditingId(null);
+      setEditingKey(null);
       resetForm();
       loadHooks();
       toast.success(t('hooks.hookUpdated'));
@@ -259,9 +335,9 @@ export function ProjectHooksSettings() {
     }
   };
 
-  const handleDelete = async (hookId: string) => {
+  const handleDelete = async (hook: ProjectHook) => {
     if (!selectedProjectId) return;
-    const result = await api.deleteHook(selectedProjectId, hookId);
+    const result = await api.deleteHook(selectedProjectId, hook.hookType, hook.index);
     if (result.isOk()) {
       loadHooks();
       toast.success(t('hooks.hookDeleted'));
@@ -272,7 +348,7 @@ export function ProjectHooksSettings() {
 
   const handleToggleEnabled = async (hook: ProjectHook) => {
     if (!selectedProjectId) return;
-    const result = await api.updateHook(selectedProjectId, hook.id, {
+    const result = await api.updateHook(selectedProjectId, hook.hookType, hook.index, {
       enabled: !hook.enabled,
     });
     if (result.isOk()) {
@@ -281,7 +357,7 @@ export function ProjectHooksSettings() {
   };
 
   const startEditing = (hook: ProjectHook) => {
-    setEditingId(hook.id);
+    setEditingKey(hookKey(hook));
     setHookType(hook.hookType);
     setLabel(hook.label);
     setCommand(hook.command);
@@ -289,13 +365,13 @@ export function ProjectHooksSettings() {
   };
 
   const resetForm = () => {
-    setHookType('postCommit');
+    setHookType('pre-commit');
     setLabel('');
     setCommand('');
   };
 
   const cancelEdit = () => {
-    setEditingId(null);
+    setEditingKey(null);
     setAdding(false);
     resetForm();
   };
@@ -305,7 +381,7 @@ export function ProjectHooksSettings() {
     return t(key);
   };
 
-  // Group hooks by type, preserving sortOrder within each group
+  // Group hooks by type
   const hookGroups = useMemo(() => {
     const grouped = new Map<string, ProjectHook[]>();
     for (const type of HOOK_TYPES) {
@@ -324,7 +400,7 @@ export function ProjectHooksSettings() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -358,67 +434,60 @@ export function ProjectHooksSettings() {
             {hookTypeLabelFn(type)}
           </h3>
           {groupHooks.map((hook) => {
-            if (editingId === hook.id) {
+            const key = hookKey(hook);
+            if (editingKey === key) {
               return (
                 <div
-                  key={hook.id}
-                  data-testid={`hook-item-${hook.id}`}
+                  key={key}
+                  data-testid={`hook-item-${key}`}
                   className="space-y-2 rounded-lg border border-border bg-muted/30 p-3"
                 >
-                  <div className="grid grid-cols-6 gap-2">
-                    <div>
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        {t('hooks.hookType')}
-                      </label>
-                      <Select value={hookType} onValueChange={setHookType}>
-                        <SelectTrigger className="text-sm" data-testid="hooks-type-select">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {HOOK_TYPES.map((ht) => (
-                            <SelectItem key={ht} value={ht} className="text-sm">
-                              {hookTypeLabelFn(ht)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        {t('hooks.label')}
-                      </label>
-                      <Input
-                        className="h-auto py-1.5"
-                        placeholder={t('hooks.label')}
-                        value={label}
-                        onChange={(e) => setLabel(e.target.value)}
-                        data-testid="hooks-label-input"
-                        autoFocus
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <label className="mb-1 block text-xs text-muted-foreground">
-                        {t('hooks.command')}
-                      </label>
-                      <Input
-                        className="h-auto py-1.5 font-mono"
-                        placeholder={t('hooks.commandPlaceholder')}
-                        value={command}
-                        onChange={(e) => setCommand(e.target.value)}
-                        data-testid="hooks-command-input"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleUpdate(hook.id);
-                          if (e.key === 'Escape') cancelEdit();
-                        }}
-                      />
-                    </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      {t('hooks.hookType')}
+                    </label>
+                    <Select value={hookType} onValueChange={(v) => setHookType(v as HookType)}>
+                      <SelectTrigger className="text-sm" data-testid="hooks-type-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOOK_TYPES.map((ht) => (
+                          <SelectItem key={ht} value={ht} className="text-sm">
+                            {hookTypeLabelFn(ht)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      {t('hooks.label')}
+                    </label>
+                    <Input
+                      className="h-auto py-1.5"
+                      placeholder={t('hooks.label')}
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      data-testid="hooks-label-input"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-muted-foreground">
+                      {t('hooks.command')}
+                    </label>
+                    <ShellEditor
+                      value={command}
+                      onChange={setCommand}
+                      testId="hooks-command-input"
+                    />
                   </div>
                   <div className="flex items-center justify-end gap-2 pt-1">
                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={cancelEdit}>
                       <X className="mr-1 h-3.5 w-3.5" />
                       {t('common.cancel')}
                     </Button>
-                    <Button size="sm" className="h-7 text-xs" onClick={() => handleUpdate(hook.id)}>
+                    <Button size="sm" className="h-7 text-xs" onClick={() => handleUpdate(hook)}>
                       <Check className="mr-1 h-3.5 w-3.5" />
                       {t('common.save')}
                     </Button>
@@ -429,9 +498,8 @@ export function ProjectHooksSettings() {
 
             return (
               <HookItem
-                key={hook.id}
+                key={key}
                 hook={hook}
-                hookTypeLabel={hookTypeLabelFn}
                 onEdit={startEditing}
                 onDelete={handleDelete}
                 onToggleEnabled={handleToggleEnabled}
@@ -445,51 +513,37 @@ export function ProjectHooksSettings() {
       {/* Add form */}
       {adding && (
         <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
-          <div className="grid grid-cols-6 gap-2">
-            <div>
-              <label className="mb-1 block text-xs text-muted-foreground">
-                {t('hooks.hookType')}
-              </label>
-              <Select value={hookType} onValueChange={setHookType}>
-                <SelectTrigger className="text-sm" data-testid="hooks-type-select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {HOOK_TYPES.map((ht) => (
-                    <SelectItem key={ht} value={ht} className="text-sm">
-                      {hookTypeLabelFn(ht)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <label className="mb-1 block text-xs text-muted-foreground">{t('hooks.label')}</label>
-              <Input
-                className="h-auto py-1.5"
-                placeholder={t('hooks.label')}
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                data-testid="hooks-label-input"
-                autoFocus
-              />
-            </div>
-            <div className="col-span-3">
-              <label className="mb-1 block text-xs text-muted-foreground">
-                {t('hooks.command')}
-              </label>
-              <Input
-                className="h-auto py-1.5 font-mono"
-                placeholder={t('hooks.commandPlaceholder')}
-                value={command}
-                onChange={(e) => setCommand(e.target.value)}
-                data-testid="hooks-command-input"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAdd();
-                  if (e.key === 'Escape') cancelEdit();
-                }}
-              />
-            </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">
+              {t('hooks.hookType')}
+            </label>
+            <Select value={hookType} onValueChange={(v) => setHookType(v as HookType)}>
+              <SelectTrigger className="text-sm" data-testid="hooks-type-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {HOOK_TYPES.map((ht) => (
+                  <SelectItem key={ht} value={ht} className="text-sm">
+                    {hookTypeLabelFn(ht)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">{t('hooks.label')}</label>
+            <Input
+              className="h-auto py-1.5"
+              placeholder={t('hooks.label')}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              data-testid="hooks-label-input"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">{t('hooks.command')}</label>
+            <ShellEditor value={command} onChange={setCommand} testId="hooks-command-input" />
           </div>
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={cancelEdit}>

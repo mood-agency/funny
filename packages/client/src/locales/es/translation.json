@@ -477,6 +477,24 @@
     "commandUpdateError": "Error al actualizar el comando",
     "commandDeleteError": "Error al eliminar el comando"
   },
+  "projectConfig": {
+    "title": "Config del Proyecto",
+    "saved": "Configuración guardada",
+    "saveError": "Error al guardar la configuración",
+    "noProject": "Selecciona un proyecto para configurar",
+    "envFiles": "Archivos Env",
+    "envFilesDescription": "Rutas relativas a archivos .env copiados a los worktrees",
+    "envFilePlaceholder": "packages/server/.env",
+    "portGroups": "Grupos de Puertos",
+    "portGroupsDescription": "Grupos de puertos para aislamiento de worktrees — cada grupo recibe un puerto único compartido entre sus variables",
+    "addPortGroup": "Agregar grupo de puertos",
+    "groupNamePlaceholder": "Nombre del grupo",
+    "portPlaceholder": "Puerto",
+    "envVarPlaceholder": "VAR_ENV",
+    "postCreate": "Post Creación",
+    "postCreateDescription": "Comandos shell que se ejecutan en los worktrees después de crearlos",
+    "postCreatePlaceholder": "bun install"
+  },
   "hooks": {
     "title": "Hooks",
     "addHook": "Agregar Hook",
@@ -486,9 +504,12 @@
     "command": "Comando",
     "commandPlaceholder": "ej. bun test",
     "hookType": "Tipo",
-    "postCommit": "Post-Commit",
-    "postPush": "Post-Push",
-    "preMerge": "Pre-Merge",
+    "pre-commit": "Pre-Commit",
+    "commit-msg": "Commit Message",
+    "pre-push": "Pre-Push",
+    "post-commit": "Post-Commit",
+    "post-merge": "Post-Merge",
+    "post-checkout": "Post-Checkout",
     "enabled": "Habilitado",
     "disabled": "Deshabilitado",
     "hookAdded": "Hook agregado",
@@ -500,7 +521,10 @@
     "labelRequired": "La etiqueta es obligatoria",
     "commandRequired": "El comando es obligatorio",
     "edit": "Editar",
-    "delete": "Eliminar"
+    "delete": "Eliminar",
+    "importFromHusky": "Importar desde Husky",
+    "imported": "Se importaron {{count}} hook(s) desde .husky/",
+    "importError": "Error al importar hooks"
   },
   "preview": {
     "open": "Abrir Preview",

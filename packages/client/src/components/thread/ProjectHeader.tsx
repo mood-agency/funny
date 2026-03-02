@@ -12,6 +12,7 @@ import {
   Loader2,
   Columns3,
   ArrowLeft,
+  Milestone,
   Copy,
   ClipboardList,
   Check,
@@ -421,6 +422,8 @@ export const ProjectHeader = memo(function ProjectHeader() {
   const projects = useProjectStore((s) => s.projects);
   const setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
+  const timelineVisible = useUIStore((s) => s.timelineVisible);
+  const setTimelineVisible = useUIStore((s) => s.setTimelineVisible);
   const kanbanContext = useUIStore((s) => s.kanbanContext);
   const { openPreview, isTauri } = usePreviewWindow();
   const toggleTerminalPanel = useTerminalStore((s) => s.togglePanel);
@@ -626,6 +629,22 @@ export const ProjectHeader = memo(function ProjectHeader() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            {activeThreadId && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setTimelineVisible(!timelineVisible)}
+                    data-testid="header-toggle-timeline"
+                    className={timelineVisible ? 'text-primary' : 'text-muted-foreground'}
+                  >
+                    <Milestone className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('thread.toggleTimeline', 'Toggle Timeline')}</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

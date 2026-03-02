@@ -6,11 +6,12 @@
  * @domain depends: ProjectManager, ProjectHooksService, StartupCommandsService, CommandRunner
  */
 
-import { listBranches, getDefaultBranch, getCurrentBranch, executeShell } from '@funny/core/git';
+import { listBranches, getDefaultBranch, getCurrentBranch } from '@funny/core/git';
 import { Hono } from 'hono';
 
 import { requireAdmin } from '../middleware/auth.js';
 import { startCommand, stopCommand, isCommandRunning } from '../services/command-runner.js';
+import * as pc from '../services/project-config-service.js';
 import * as ph from '../services/project-hooks-service.js';
 import * as pm from '../services/project-manager.js';
 import * as sc from '../services/startup-commands-service.js';
@@ -24,7 +25,7 @@ import {
   createCommandSchema,
   createHookSchema,
   updateHookSchema,
-  runHookSchema,
+  reorderHooksSchema,
   validate,
 } from '../validation/schemas.js';
 
@@ -194,68 +195,115 @@ projectRoutes.get('/:id/commands/:cmdId/status', (c) => {
   return c.json({ running: isCommandRunning(cmdId) });
 });
 
-// ─── Project Hooks ──────────────────────────────────────
+// ─── Project Config (.funny.json) ──────────────────────
+
+// GET /api/projects/:id/config
+projectRoutes.get('/:id/config', (c) => {
+  const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  const config = pc.getConfig(projectResult.value.path);
+  return c.json(config);
+});
+
+// PUT /api/projects/:id/config
+projectRoutes.put('/:id/config', async (c) => {
+  const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  const body = await c.req.json();
+  pc.updateConfig(projectResult.value.path, body);
+  return c.json({ ok: true });
+});
+
+// ─── Project Hooks (Husky-backed) ──────────────────────
 
 // GET /api/projects/:id/hooks
 projectRoutes.get('/:id/hooks', (c) => {
   const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
   const hookType = c.req.query('hookType') as import('@funny/shared').HookType | undefined;
-  const hooks = ph.listHooks(projectId, hookType);
+  const hooks = ph.listHooks(projectResult.value.path, hookType);
   return c.json(hooks);
 });
 
-// POST /api/projects/:id/hooks
+// POST /api/projects/:id/hooks — add a command
 projectRoutes.post('/:id/hooks', async (c) => {
   const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
   const raw = await c.req.json();
   const parsed = validate(createHookSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
+
   const { hookType, label, command } = parsed.value;
-  const entry = ph.createHook({ projectId, hookType, label, command });
+  const entry = ph.addCommand(projectResult.value.path, hookType, label, command);
   return c.json(entry, 201);
 });
 
-// PUT /api/projects/:id/hooks/:hookId
-projectRoutes.put('/:id/hooks/:hookId', async (c) => {
-  const hookId = c.req.param('hookId');
+// PUT /api/projects/:id/hooks/reorder — reorder commands within a hook type
+// IMPORTANT: Must be registered before /:hookType/:index to avoid matching "reorder" as hookType
+projectRoutes.put('/:id/hooks/reorder', async (c) => {
+  const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  const raw = await c.req.json();
+  const parsed = validate(reorderHooksSchema, raw);
+  if (parsed.isErr()) return resultToResponse(c, parsed);
+
+  ph.reorderCommands(projectResult.value.path, parsed.value.hookType, parsed.value.newOrder);
+  return c.json({ ok: true });
+});
+
+// PUT /api/projects/:id/hooks/:hookType/:index — update a command
+projectRoutes.put('/:id/hooks/:hookType/:index', async (c) => {
+  const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  const hookType = c.req.param('hookType') as import('@funny/shared').HookType;
+  const index = parseInt(c.req.param('index'), 10);
+
   const raw = await c.req.json();
   const parsed = validate(updateHookSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
-  ph.updateHook(hookId, parsed.value);
-  return c.json({ ok: true });
-});
-
-// DELETE /api/projects/:id/hooks/:hookId
-projectRoutes.delete('/:id/hooks/:hookId', (c) => {
-  const hookId = c.req.param('hookId');
-  ph.deleteHook(hookId);
-  return c.json({ ok: true });
-});
-
-// POST /api/projects/:id/hooks/:hookId/run
-// Executes a single hook command and returns the result.
-projectRoutes.post('/:id/hooks/:hookId/run', async (c) => {
-  const hookId = c.req.param('hookId');
-  const raw = await c.req.json().catch(() => ({}));
-  const parsed = validate(runHookSchema, raw);
-  if (parsed.isErr()) return resultToResponse(c, parsed);
-
-  const hook = ph.getHook(hookId);
-  if (!hook) return c.json({ error: 'Hook not found' }, 404);
 
   try {
-    const result = await executeShell(hook.command, {
-      cwd: parsed.value.cwd,
-      timeout: 120_000,
-      reject: false,
-    });
-    return c.json({
-      ok: result.exitCode === 0,
-      output: result.stdout + (result.stderr ? '\n' + result.stderr : ''),
-      exitCode: result.exitCode,
-    });
+    ph.updateCommand(projectResult.value.path, hookType, index, parsed.value);
+    return c.json({ ok: true });
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Hook execution failed';
-    return c.json({ ok: false, output: message, exitCode: -1 }, 500);
+    const message = e instanceof Error ? e.message : 'Update failed';
+    return c.json({ error: message }, 404);
+  }
+});
+
+// DELETE /api/projects/:id/hooks/:hookType/:index — delete a command
+projectRoutes.delete('/:id/hooks/:hookType/:index', (c) => {
+  const projectId = c.req.param('id');
+  const userId = c.get('userId');
+  const projectResult = requireProject(projectId, userId);
+  if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  const hookType = c.req.param('hookType') as import('@funny/shared').HookType;
+  const index = parseInt(c.req.param('index'), 10);
+
+  try {
+    ph.deleteCommand(projectResult.value.path, hookType, index);
+    return c.json({ ok: true });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'Delete failed';
+    return c.json({ error: message }, 404);
   }
 });

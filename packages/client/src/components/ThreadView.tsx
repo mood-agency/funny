@@ -869,6 +869,7 @@ export function ThreadView() {
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const newThreadProjectId = useUIStore((s) => s.newThreadProjectId);
+  const timelineVisible = useUIStore((s) => s.timelineVisible);
   const hasProjects = useProjectStore((s) => s.projects.length > 0);
   const loadOlderMessages = useThreadStore((s) => s.loadOlderMessages);
   const hasMore = activeThread?.hasMore ?? false;
@@ -1558,7 +1559,7 @@ export function ThreadView() {
         </div>
 
         {/* Prompt Timeline — hidden when container < 600px */}
-        {activeThread.messages.length > 0 && (
+        {timelineVisible && activeThread.messages.length > 0 && (
           <PromptTimeline
             messages={activeThread.messages}
             activeMessageId={

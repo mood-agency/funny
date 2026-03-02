@@ -19,7 +19,8 @@ import type {
   PaginatedMessages,
   QueuedMessage,
   ProjectHook,
-  HookRunResult,
+  HookType,
+  FunnyProjectConfig,
 } from '@funny/shared';
 import type { DomainError } from '@funny/shared/errors';
 import { internal, processError } from '@funny/shared/errors';
@@ -510,39 +511,49 @@ export const api = {
   stopCommand: (projectId: string, cmdId: string) =>
     request<{ ok: boolean }>(`/projects/${projectId}/commands/${cmdId}/stop`, { method: 'POST' }),
 
-  // Project Hooks
-  listHooks: (projectId: string, hookType?: string) =>
+  // Project Config (.funny.json)
+  getProjectConfig: (projectId: string) =>
+    request<FunnyProjectConfig>(`/projects/${projectId}/config`),
+  updateProjectConfig: (projectId: string, config: FunnyProjectConfig) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  // Project Hooks (Husky-backed)
+  listHooks: (projectId: string, hookType?: HookType) =>
     request<ProjectHook[]>(
       `/projects/${projectId}/hooks${hookType ? `?hookType=${hookType}` : ''}`,
     ),
-  addHook: (projectId: string, data: { hookType?: string; label: string; command: string }) =>
+  addHook: (projectId: string, data: { hookType?: HookType; label: string; command: string }) =>
     request<ProjectHook>(`/projects/${projectId}/hooks`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
   updateHook: (
     projectId: string,
-    hookId: string,
+    hookType: HookType,
+    index: number,
     data: {
       label?: string;
       command?: string;
       enabled?: boolean;
-      hookType?: string;
-      sortOrder?: number;
+      hookType?: HookType;
     },
   ) =>
-    request<{ ok: boolean }>(`/projects/${projectId}/hooks/${hookId}`, {
+    request<{ ok: boolean }>(`/projects/${projectId}/hooks/${hookType}/${index}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  deleteHook: (projectId: string, hookId: string) =>
-    request<{ ok: boolean }>(`/projects/${projectId}/hooks/${hookId}`, { method: 'DELETE' }),
-  runHook: (projectId: string, hookId: string, cwd: string) =>
-    request<HookRunResult>(`/projects/${projectId}/hooks/${hookId}/run`, {
-      method: 'POST',
-      body: JSON.stringify({ cwd }),
+  deleteHook: (projectId: string, hookType: HookType, index: number) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/hooks/${hookType}/${index}`, {
+      method: 'DELETE',
     }),
-
+  reorderHooks: (projectId: string, hookType: HookType, newOrder: number[]) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/hooks/reorder`, {
+      method: 'PUT',
+      body: JSON.stringify({ hookType, newOrder }),
+    }),
   // MCP Servers
   listMcpServers: (projectPath: string) =>
     request<{ servers: McpServer[] }>(

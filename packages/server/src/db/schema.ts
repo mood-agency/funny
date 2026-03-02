@@ -80,18 +80,8 @@ export const startupCommands = sqliteTable('startup_commands', {
   createdAt: text('created_at').notNull(),
 });
 
-export const projectHooks = sqliteTable('project_hooks', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
-  hookType: text('hook_type').notNull().default('postCommit'), // 'postCommit' | 'postPush' | 'preMerge'
-  label: text('label').notNull(),
-  command: text('command').notNull(),
-  enabled: integer('enabled').notNull().default(1),
-  sortOrder: integer('sort_order').notNull().default(0),
-  createdAt: text('created_at').notNull(),
-});
+// project_hooks table removed — hooks are now managed via .funny.json + Husky.
+// The table remains in the DB for existing installs (migration 028) but is no longer used.
 
 export const toolCalls = sqliteTable('tool_calls', {
   id: text('id').primaryKey(),

@@ -82,7 +82,7 @@ const CLAUDE_PERMISSION_MAP: Record<PermissionMode, string> = {
 
 // ── Ask-mode tools (read-only) ───────────────────────────────
 
-const CLAUDE_ASK_TOOLS = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Task'];
+const CLAUDE_ASK_TOOLS = ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'];
 
 // ── Default tools per provider ────────────────────────────────
 

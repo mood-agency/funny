@@ -477,6 +477,24 @@
     "commandUpdateError": "Failed to update command",
     "commandDeleteError": "Failed to delete command"
   },
+  "projectConfig": {
+    "title": "Project Config",
+    "saved": "Configuration saved",
+    "saveError": "Failed to save configuration",
+    "noProject": "Select a project to configure",
+    "envFiles": "Env Files",
+    "envFilesDescription": "Relative paths to .env files copied into worktrees",
+    "envFilePlaceholder": "packages/server/.env",
+    "portGroups": "Port Groups",
+    "portGroupsDescription": "Port groups for worktree isolation — each group gets a unique port shared across its env vars",
+    "addPortGroup": "Add port group",
+    "groupNamePlaceholder": "Group name",
+    "portPlaceholder": "Port",
+    "envVarPlaceholder": "ENV_VAR",
+    "postCreate": "Post Create",
+    "postCreateDescription": "Shell commands to run in worktrees after creation",
+    "postCreatePlaceholder": "bun install"
+  },
   "hooks": {
     "title": "Hooks",
     "addHook": "Add Hook",
@@ -486,9 +504,12 @@
     "command": "Command",
     "commandPlaceholder": "e.g. bun test",
     "hookType": "Type",
-    "postCommit": "Post-Commit",
-    "postPush": "Post-Push",
-    "preMerge": "Pre-Merge",
+    "pre-commit": "Pre-Commit",
+    "commit-msg": "Commit Message",
+    "pre-push": "Pre-Push",
+    "post-commit": "Post-Commit",
+    "post-merge": "Post-Merge",
+    "post-checkout": "Post-Checkout",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "hookAdded": "Hook added",
@@ -500,7 +521,10 @@
     "labelRequired": "Label is required",
     "commandRequired": "Command is required",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "importFromHusky": "Import from Husky",
+    "imported": "Imported {{count}} hook(s) from .husky/",
+    "importError": "Failed to import hooks"
   },
   "preview": {
     "open": "Open Preview",

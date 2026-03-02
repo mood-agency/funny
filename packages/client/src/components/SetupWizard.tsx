@@ -201,6 +201,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
       // Retry once after a short delay
       setTimeout(() => api.completeSetup(), 2000);
     }
+    localStorage.setItem('funny:setupCompleted', 'true');
     onComplete();
   };
 

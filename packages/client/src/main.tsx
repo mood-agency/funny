@@ -52,7 +52,10 @@ function AuthGate() {
   const initialize = useAuthStore((s) => s.initialize);
   const initializeFromProfile = useSettingsStore((s) => s.initializeFromProfile);
   const { setTheme } = useTheme();
-  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(() => {
+    // Use cached value so a backend restart doesn't flash the setup wizard
+    return localStorage.getItem('funny:setupCompleted') === 'true' ? true : null;
+  });
 
   useEffect(() => {
     initialize();
@@ -73,7 +76,13 @@ function AuthGate() {
       api.getProfile().then((res) => {
         if (res.isOk()) {
           const profile = res.value;
-          setSetupCompleted(profile.setupCompleted ?? false);
+          const completed = profile.setupCompleted ?? false;
+          setSetupCompleted(completed);
+          if (completed) {
+            localStorage.setItem('funny:setupCompleted', 'true');
+          } else {
+            localStorage.removeItem('funny:setupCompleted');
+          }
           initializeFromProfile(profile);
           if (profile.theme) {
             setTheme(profile.theme);
@@ -82,13 +91,15 @@ function AuthGate() {
           // Server might still be starting — retry with backoff
           retries++;
           setTimeout(fetchProfile, retries * 1000);
-        } else {
+        } else if (!setupCompleted) {
+          // Only show wizard if we have no cached state
           setSetupCompleted(false);
         }
       });
     };
 
     fetchProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canCheckSetup, initializeFromProfile, setTheme]);
 
   if (isLoading || setupCompleted === null) {

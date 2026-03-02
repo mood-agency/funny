@@ -1,5 +1,4 @@
-#!/bin/sh
-# Husky pre-commit hook
+#!/usr/bin/env sh
 
 # Secret detection
 git diff --cached --name-only --diff-filter=ACM | grep -v '^docker/' | xargs -r npx secretlint
@@ -13,3 +12,19 @@ fi
 
 # Lint staged JS/TS files (runs after format so code is already clean)
 git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx)$' | xargs -r npx oxlint
+
+# Detect merge conflict markers (exclude hook scripts to avoid self-match)
+CONFLICT_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -v '^\.husky/' | xargs -r grep -l '<<<<<<<\|=======\|>>>>>>>' || true)
+if [ -n "$CONFLICT_FILES" ]; then
+  echo "Merge conflict markers found in:"
+  echo "$CONFLICT_FILES"
+  exit 1
+fi
+
+# Block console.log and debugger statements
+DEBUG_MATCHES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx)$' | xargs -r grep -n 'console\.log\|debugger' || true)
+if [ -n "$DEBUG_MATCHES" ]; then
+  echo "Debug statements found:"
+  echo "$DEBUG_MATCHES"
+  exit 1
+fi

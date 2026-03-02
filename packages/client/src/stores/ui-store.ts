@@ -7,6 +7,7 @@ const REVIEW_PANE_WIDTH_KEY = 'review_pane_width';
 const DEFAULT_REVIEW_PANE_WIDTH = 50; // percentage of viewport width
 const MIN_REVIEW_PANE_WIDTH = 20;
 const MAX_REVIEW_PANE_WIDTH = 70;
+const TIMELINE_VISIBLE_KEY = 'timeline_visible';
 
 interface UIState {
   reviewPaneOpen: boolean;
@@ -21,6 +22,7 @@ interface UIState {
   analyticsOpen: boolean;
   liveColumnsOpen: boolean;
   generalSettingsOpen: boolean;
+  timelineVisible: boolean;
   kanbanContext: { projectId?: string; search?: string; threadId?: string } | null;
   setReviewPaneOpen: (open: boolean) => void;
   setReviewPaneWidth: (width: number) => void;
@@ -35,6 +37,7 @@ interface UIState {
   showGlobalSearch: () => void;
   setAnalyticsOpen: (open: boolean) => void;
   setLiveColumnsOpen: (open: boolean) => void;
+  setTimelineVisible: (visible: boolean) => void;
   setKanbanContext: (
     context: { projectId?: string; search?: string; threadId?: string } | null,
   ) => void;
@@ -60,6 +63,14 @@ export const useUIStore = create<UIState>((set) => ({
   analyticsOpen: false,
   liveColumnsOpen: false,
   generalSettingsOpen: false,
+  timelineVisible: (() => {
+    try {
+      const stored = localStorage.getItem(TIMELINE_VISIBLE_KEY);
+      return stored !== null ? stored === 'true' : true;
+    } catch {
+      return true;
+    }
+  })(),
   kanbanContext: null,
   setReviewPaneOpen: (open) => set({ reviewPaneOpen: open }),
   setReviewPaneWidth: (width) => {
@@ -191,5 +202,11 @@ export const useUIStore = create<UIState>((set) => ({
     );
   },
 
+  setTimelineVisible: (visible) => {
+    try {
+      localStorage.setItem(TIMELINE_VISIBLE_KEY, String(visible));
+    } catch {}
+    set({ timelineVisible: visible });
+  },
   setKanbanContext: (context) => set({ kanbanContext: context }),
 }));
