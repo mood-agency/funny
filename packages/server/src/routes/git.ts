@@ -9,6 +9,7 @@
 import { existsSync } from 'fs';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { resolveSDKCliPath } from '@funny/core/agents';
 import {
   getDiff,
   getDiffSummary,
@@ -511,6 +512,7 @@ ${diffSummary}`;
           maxTurns: 1,
           permissionMode: 'plan',
           abortController: controller,
+          pathToClaudeCodeExecutable: resolveSDKCliPath(),
           systemPrompt: { type: 'preset', preset: 'claude_code' },
           tools: { type: 'preset', preset: 'claude_code' },
         },
@@ -925,6 +927,7 @@ ${diffSummary}`;
           maxTurns: 1,
           permissionMode: 'plan',
           abortController: controller,
+          pathToClaudeCodeExecutable: resolveSDKCliPath(),
           systemPrompt: { type: 'preset', preset: 'claude_code' },
           tools: { type: 'preset', preset: 'claude_code' },
         },

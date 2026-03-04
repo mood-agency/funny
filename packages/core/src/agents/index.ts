@@ -10,6 +10,7 @@ export {
   type OrchestratorEvents,
 } from './orchestrator.js';
 export { defaultProcessFactory, registerProvider } from './process-factory.js';
+export { resolveSDKCliPath } from './resolve-sdk-cli.js';
 
 // ── LLM Provider Abstraction ──────────────────────────────────
 export * from './llm/index.js';

@@ -182,6 +182,7 @@ export class AgentRunner {
       hasImages: !!images?.length,
       skipMessageInsert: !!skipMessageInsert,
       promptPreview: prompt.slice(0, 100),
+      promptFull: prompt,
     });
 
     // Clear stale DB-mapping state from previous runs

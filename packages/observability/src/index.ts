@@ -1,3 +1,4 @@
+import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 import type { MiddlewareHandler } from 'hono';
 
 import { loadConfig, createResource, type ObservabilityConfig } from './config.js';
@@ -19,6 +20,9 @@ function ensureInitialized(overrides?: Partial<ObservabilityConfig>): void {
   }
 
   try {
+    // Enable OTEL diagnostic logging to surface silent export errors
+    diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
+
     const resource = createResource(config);
     const traceExporter = createTraceExporter(config);
     const metricExporter = createMetricExporter(config);

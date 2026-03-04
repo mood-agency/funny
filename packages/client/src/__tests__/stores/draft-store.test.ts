@@ -9,7 +9,12 @@ describe('useDraftStore', () => {
 
   describe('setPromptDraft', () => {
     test('stores prompt, images, and selectedFiles', () => {
-      const images = [{ url: 'data:image/png;base64,abc', mediaType: 'image/png' as const }];
+      const images = [
+        {
+          type: 'image' as const,
+          source: { type: 'base64' as const, media_type: 'image/png' as const, data: 'abc' },
+        },
+      ];
       const files = ['/path/to/file.ts'];
 
       useDraftStore.getState().setPromptDraft('t1', 'hello', images, files);

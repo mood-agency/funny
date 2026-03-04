@@ -1,5 +1,5 @@
 import { trace } from '@opentelemetry/api';
-import type { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
+import type { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import type { Resource } from '@opentelemetry/resources';
 import { NodeTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-node';
 

@@ -162,6 +162,7 @@ export class AgentMessageHandler {
       cliMsgId,
       hasText: String(!!textContent),
       textChars: String(textContent.length),
+      textContent: textContent || '',
       toolUseCount: String(toolUseBlocks.length),
       toolNames: toolUseBlocks.map((b: any) => b.name).join(','),
     });
@@ -229,7 +230,7 @@ export class AgentMessageHandler {
           namespace: 'agent',
           threadId,
           tool: block.name,
-          input: block.input,
+          input: JSON.stringify(block.input),
         });
 
         // Ensure there's always a parent assistant message for tool calls

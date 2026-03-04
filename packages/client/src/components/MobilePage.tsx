@@ -387,7 +387,12 @@ function ChatView({
 
   const handleSend = async (
     prompt: string,
-    opts: { provider?: string; model: string; mode: string },
+    opts: {
+      provider?: string;
+      model: string;
+      mode: string;
+      fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+    },
     images?: any[],
   ) => {
     if (!activeThread || sending) return;

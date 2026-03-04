@@ -11,6 +11,7 @@ import type { SDKMessage, HookCallback, Query } from '@anthropic-ai/claude-agent
 
 import { createDebugLogger } from '../debug.js';
 import { BaseAgentProcess } from './base-process.js';
+import { resolveSDKCliPath } from './resolve-sdk-cli.js';
 import type { CLIMessage } from './types.js';
 
 const dlog = createDebugLogger('sdk');
@@ -34,6 +35,7 @@ export class SDKClaudeProcess extends BaseAgentProcess {
     const promptInput = this.buildPromptInput();
 
     const sdkOptions: Record<string, any> = {
+      pathToClaudeCodeExecutable: resolveSDKCliPath(),
       model: this.options.model,
       cwd: this.options.cwd,
       maxTurns: this.options.maxTurns,
@@ -96,6 +98,10 @@ export class SDKClaudeProcess extends BaseAgentProcess {
           cwd: options.cwd,
           env: options.env as NodeJS.ProcessEnv,
           windowsHide: true,
+        });
+        // Capture stderr so we can diagnose startup failures (exit code 1)
+        child.stderr?.on('data', (data: Buffer) => {
+          dlog.error('child stderr', { data: data.toString().trimEnd() });
         });
         // On Windows, child.kill('SIGTERM') only kills the immediate process,
         // not the subprocess tree. Use taskkill /F /T to kill the entire tree.
