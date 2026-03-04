@@ -262,6 +262,10 @@ function handleMessage(e: MessageEvent) {
       import('@/stores/git-status-store').then(({ useGitStatusStore }) => {
         useGitStatusStore.getState().updateFromWS(data.statuses);
       });
+      // Bridge: also refresh ReviewPane diff when git status changes
+      import('@/stores/review-pane-store').then(({ useReviewPaneStore }) => {
+        useReviewPaneStore.getState().notifyDirty(threadId);
+      });
       break;
     }
     case 'git:workflow_progress': {

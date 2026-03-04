@@ -23,11 +23,6 @@ export const gitStatusHandler: EventHandler<'git:changed'> = {
   name: 'emit-git-status-on-change',
   event: 'git:changed',
 
-  // Only emit for worktree threads
-  filter(event: GitChangedEvent) {
-    return event.worktreePath !== null;
-  },
-
   action(event: GitChangedEvent, ctx) {
     const { threadId } = event;
 
@@ -47,9 +42,11 @@ export const gitStatusHandler: EventHandler<'git:changed'> = {
 };
 
 async function emitGitStatus(event: GitChangedEvent, ctx: HandlerServiceContext) {
-  const { threadId, worktreePath, userId } = event;
+  const { threadId, worktreePath, userId, cwd } = event;
 
-  if (!worktreePath) return;
+  // Use worktreePath if available, otherwise fall back to cwd (local-mode threads)
+  const effectiveCwd = worktreePath ?? cwd;
+  if (!effectiveCwd) return;
 
   const thread = ctx.getThread(threadId);
   if (!thread) return;
@@ -60,10 +57,10 @@ async function emitGitStatus(event: GitChangedEvent, ctx: HandlerServiceContext)
   ctx.log(`Emitting git status for thread ${threadId} (debounced, tool: ${event.toolName})`);
 
   // Invalidate core-level cache so we get fresh data after the file modification
-  invalidateStatusCache(worktreePath);
+  invalidateStatusCache(effectiveCwd);
 
   const summaryResult = await ctx.getGitStatusSummary(
-    worktreePath,
+    effectiveCwd,
     thread.baseBranch ?? undefined,
     project.path,
   );

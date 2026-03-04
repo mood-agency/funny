@@ -1,76 +1,105 @@
-# Plan: Cross-Platform Native Git Publishing
+# Plan: Delegate Commit Operations to Claude Code Agent via `/commit`
 
-## Context
-- `packages/native-git/` has a Rust/NAPI-RS module (gitoxide) that currently only has a Windows x64 `.node` binary committed to git
-- The auto-generated `index.js` already supports loading platform-specific npm packages (`@funny/native-git-{platform}`)
-- `@funny/core` has `@funny/native-git` as an `optionalDependency`
-- Target: **3 essential platforms** — Windows x64, macOS ARM64, Linux x64 GNU
-- Registry: **public npm**
+## Problem
 
-## Important: npm scope
-The root package publishes as `@ironmussa/funny`. The native-git uses `@funny` scope internally. For publishing platform packages to npm, we need to use a scope you own. The plan uses `@funny` scope — if that's not available on npm, we'll need to switch to `@ironmussa` scope and update accordingly.
+Currently, when the user clicks Commit in the review pane (right sidebar), the server's `git-workflow-service.ts` executes the git workflow directly (stage, run hooks, commit, push, PR, merge). If pre-commit hooks fail, the workflow stops and the user has to manually fix the issue and retry.
 
----
+The goal is to instead **delegate the entire workflow to the Claude Code agent** by sending it a follow-up message with a commit instruction. The agent (Claude Code) has built-in skills `/commit` and `/commit-push-pr` that automatically handle pre-commit hook failures, re-stages, and retries — removing this burden from the user.
 
-## Step 1 — Limit triples in `package.json` to essential 3
+## Scope
 
-Update `packages/native-git/package.json`:
-- Remove `"private": true`
-- Change `triples` from `{ "defaults": true }` to explicit list of 3 targets
-- Add `optionalDependencies` for the 3 platform packages
-- Add `prepublishOnly` and `artifacts` scripts
-- Add `"os"` and `"cpu"` fields for npm filtering
+- **Full workflow**: The agent handles everything the user selected (stage, hooks, commit, push, PR, merge).
+- **Threads only**: Only delegate to the agent when a thread is active. Project-mode commits (no thread) keep the existing `git-workflow-service` workflow unchanged.
 
-## Step 2 — Regenerate `index.js` with limited targets
+## Approach: Send a `/commit` or `/commit-push-pr` command to the agent via `sendMessage`
 
-Run `napi create-npm-dirs` to:
-- Generate `npm/` directory with platform-specific `package.json` files:
-  - `npm/win32-x64-msvc/package.json`
-  - `npm/darwin-arm64/package.json`
-  - `npm/linux-x64-gnu/package.json`
-- Regenerate `index.js` to only handle the 3 targets (instead of the current 700+ line file for all platforms)
+Instead of calling `git-workflow-service.executeWorkflow()`, the client will call `api.sendMessage()` with a prompt that uses Claude Code's built-in slash commands:
 
-## Step 3 — Remove committed `.node` binary from git
+- **For `commit` and `amend` actions** → Send `/commit` (Claude Code handles staging, hooks, retries)
+- **For `commit-push` and `commit-pr` and `commit-merge` actions** → Send `/commit-push-pr` (Claude Code handles commit + push + PR creation)
 
-- Add `*.node` to `packages/native-git/.gitignore`
-- Remove `native-git.win32-x64-msvc.node` from git tracking (file stays locally for dev)
+This is the same pattern used by `handleAskAgentResolve` (line 806 in ReviewPane.tsx).
 
-## Step 4 — Create GitHub Actions workflow
+The prompt will prefix the slash command with context about what files to stage and the desired commit message so the agent uses them instead of auto-generating.
 
-New file `.github/workflows/native-git.yml` with:
-- **Trigger**: on push tags `native-git-v*` or workflow_dispatch
-- **Build job**: matrix strategy for 3 platforms
-  - `windows-latest` → `win32-x64-msvc`
-  - `macos-latest` → `darwin-arm64` (Apple Silicon runners)
-  - `ubuntu-22.04` → `linux-x64-gnu`
-- Each job: install Rust stable, run `napi build --platform --release`, upload `.node` artifact
-- **Publish job** (depends on build):
-  - Download all artifacts
-  - Run `napi artifacts` to organize binaries into `npm/` dirs
-  - Run `napi prepublish -t npm` to prepare platform packages
-  - Publish each platform package + main package to npm with `NPM_TOKEN` secret
+## Changes
 
-## Step 5 — Add `npm/` directory structure to git
+### 1. Client: `packages/client/src/components/ReviewPane.tsx`
 
-Commit the `npm/` directory with `package.json` files (not binaries). These define the platform-specific packages that users' package managers resolve. The `.node` files get placed here only during CI.
+Modify `handleCommitAction` (line 656) — when `effectiveThreadId` is available:
 
-## Step 6 — Local dev workflow
+- Instead of calling `api.startWorkflow(effectiveThreadId, params)`, construct a prompt and call `api.sendMessage(effectiveThreadId, prompt)`.
+- Choose the appropriate slash command based on the selected action:
+  - `commit` or `amend` → `/commit`
+  - `commit-push`, `commit-pr`, `commit-merge` → `/commit-push-pr`
+- Include staging context and commit message in the prompt body.
+- When `effectiveThreadId` is NOT available (project-mode), keep the existing `api.projectStartWorkflow()` call unchanged.
 
-After this change:
-- Local dev: run `bun run build:native` as before — binary goes to `packages/native-git/` and loads via the local file path in `index.js`
-- CI publish: builds on 3 platforms → publishes platform packages to npm
-- End user: `bun install` resolves the correct platform package automatically via `optionalDependencies`
+Similarly modify `handlePushOnly`, `handleMergeOnly`, and `handleCreatePROnly` — when `effectiveThreadId` is available, send agent message instead (these don't use `/commit` but a plain prompt instructing the agent to push/merge/create-pr).
 
----
+### 2. Prompt Construction Helper
 
-## Files changed
-| File | Action |
+Add a `buildAgentCommitPrompt(params)` function that generates the agent message:
+
+**For `commit` / `amend`:**
+```
+First stage these files: src/foo.ts, src/bar.ts
+
+Then use /commit with this commit message:
+fix: resolve authentication bug
+
+Added proper token validation to the middleware
+```
+
+**For `commit-push` / `commit-pr` / `commit-merge`:**
+```
+First stage these files: src/foo.ts, src/bar.ts
+
+Then use /commit-push-pr with this commit message:
+fix: resolve authentication bug
+
+Added proper token validation to the middleware
+```
+
+**For `push` only:** "Push the current branch to the remote."
+**For `merge` only:** "Merge the current branch into {targetBranch} and clean up."
+**For `create-pr`:** "Push and create a PR with title: '...' body: '...'"
+
+The key advantage: Claude Code's `/commit` and `/commit-push-pr` skills automatically handle pre-commit hook failures — they fix issues, re-stage, and retry without user intervention.
+
+### 3. Progress Feedback
+
+Since the workflow is now handled by the agent's chat stream (not `git:workflow_progress` WS events), the commit progress modal won't apply for agent-delegated commits. Instead:
+
+- Show a toast saying the commit task was sent to the agent.
+- The user sees the agent working in the chat view (messages streaming with tool calls).
+- After the agent completes, git status auto-refreshes via existing `git:status` WS events.
+
+The existing workflow progress system remains for project-mode commits (no change).
+
+### 4. UI State
+
+- Clear `actionInProgress` immediately after `sendMessage` succeeds (the agent takes over).
+- Clear commit title/body draft on success (same as current behavior).
+- No need to change progress store — it simply won't be triggered for agent commits.
+
+## Summary of Files Changed
+
+| File | Change |
 |------|--------|
-| `packages/native-git/package.json` | Edit (triples, optionalDeps, scripts, remove private) |
-| `packages/native-git/index.js` | Regenerate via NAPI CLI (smaller, 3 targets only) |
-| `packages/native-git/.gitignore` | Add `*.node` |
-| `packages/native-git/npm/win32-x64-msvc/package.json` | Create |
-| `packages/native-git/npm/darwin-arm64/package.json` | Create |
-| `packages/native-git/npm/linux-x64-gnu/package.json` | Create |
-| `.github/workflows/native-git.yml` | Create |
-| git tracking | Remove `native-git.win32-x64-msvc.node` from index |
+| `packages/client/src/components/ReviewPane.tsx` | Modify `handleCommitAction`, `handlePushOnly`, `handleMergeOnly`, `handleCreatePROnly` to use `api.sendMessage()` when `effectiveThreadId` exists. Add `buildAgentCommitPrompt()` helper. |
+
+## What Stays the Same
+
+- Project-mode commits (no thread) — unchanged, still uses `git-workflow-service`
+- Server-side `git-workflow-service.ts` — unchanged
+- Server-side routes — unchanged
+- WebSocket workflow progress — unchanged (still used for project-mode)
+- Commit progress store/modal — unchanged (just won't be triggered for agent commits)
+- All other git operations (stage, unstage, revert, diff) — unchanged
+
+## Risks & Mitigations
+
+1. **Agent might not be running**: `sendMessage` will start a new agent session if needed. This works the same as typing a message in the chat.
+2. **Agent might be busy**: The message will either interrupt or queue based on project `followUpMode`. Same behavior as the existing `handleAskAgentResolve`.
+3. **Slash commands are reliable**: `/commit` and `/commit-push-pr` are built-in Claude Code skills, not freeform prompts — they follow a well-defined workflow internally.

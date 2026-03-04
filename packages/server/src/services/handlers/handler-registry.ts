@@ -26,6 +26,7 @@ import {
   gitResetSoftPersistenceHandler,
 } from './git-event-persistence-handler.js';
 import { gitStatusHandler } from './git-status-handler.js';
+import { gitWatcherStartHandler, gitWatcherStopHandler } from './git-watcher-lifecycle-handler.js';
 import { stageTransitionOnAgentStartHandler } from './stage-transition-on-agent-start-handler.js';
 import { threadDeletedWsHandler } from './thread-deleted-ws-handler.js';
 import { threadStageChangedWsHandler } from './thread-stage-changed-ws-handler.js';
@@ -51,6 +52,8 @@ const allHandlers: EventHandler<any>[] = [
   stageTransitionOnAgentStartHandler,
   threadDeletedWsHandler,
   threadStageChangedWsHandler,
+  gitWatcherStartHandler,
+  gitWatcherStopHandler,
 ];
 
 // ── Registration ────────────────────────────────────────────────
