@@ -458,6 +458,7 @@ function UserMessageContent({ content }: { content: string }) {
 /* ── Windowed rendering constants ─────────────────────────────────── */
 const INITIAL_WINDOW = 30;
 const EXPAND_BATCH = 20;
+const USER_PROMPT_TOP_OFFSET = 24;
 
 function estimateItemHeight(item: RenderItem): number {
   if (item.type === 'message') return item.msg.role === 'user' ? 80 : 120;
@@ -904,11 +905,15 @@ export function ThreadView() {
   const prevOldestIdRef = useRef<string | null>(null);
   const prevScrollHeightRef = useRef(0);
   const scrollDownRef = useRef<HTMLDivElement>(null);
+  const inputDockRef = useRef<HTMLDivElement>(null);
+  const contentStackRef = useRef<HTMLDivElement>(null);
   const messageListRef = useRef<MemoizedMessageListHandle>(null);
+  const pinnedPromptIdRef = useRef<string | null>(null);
   const [visibleMessageId, setVisibleMessageId] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<{ src: string; alt: string }[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [promptPinSpacerHeight, setPromptPinSpacerHeight] = useState(0);
   const prefersReducedMotion = useReducedMotion();
 
   // "Ask" follow-up mode: dialog state for when user sends while agent is running
@@ -958,36 +963,83 @@ export function ThreadView() {
     return map;
   }, [snapshots]);
 
-  // Scroll to bottom when opening or switching threads.
-  // useLayoutEffect fires before browser paint, preventing CLS from scroll jumps.
+  // Helper: schedule a non-critical state update during idle time
+  const scheduleIdle = useCallback((fn: () => void) => {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(fn);
+    else setTimeout(fn, 0);
+  }, []);
+
+  const pinUserMessageToTop = useCallback(
+    (messageId?: string | null) => {
+      const viewport = scrollViewportRef.current;
+      if (!viewport) return;
+
+      const targetId = messageId ?? lastUserMsgIdRef.current;
+      if (!targetId) {
+        pinnedPromptIdRef.current = null;
+        if (promptPinSpacerHeight !== 0) {
+          setPromptPinSpacerHeight(0);
+        }
+        return;
+      }
+
+      const target = viewport.querySelector<HTMLElement>(`[data-user-msg="${targetId}"]`);
+      if (!target) return;
+
+      pinnedPromptIdRef.current = targetId;
+      const inputDockHeight = inputDockRef.current?.offsetHeight ?? 0;
+      const contentStack = contentStackRef.current;
+      const targetRect = target.getBoundingClientRect();
+      const contentRect = contentStack?.getBoundingClientRect();
+      const renderedContentBelow = Math.max(
+        0,
+        (contentRect?.bottom ?? targetRect.bottom) - targetRect.bottom - promptPinSpacerHeight,
+      );
+      const availableBelow = Math.max(
+        0,
+        viewport.clientHeight - inputDockHeight - target.offsetHeight - USER_PROMPT_TOP_OFFSET,
+      );
+      const nextSpacerHeight = Math.max(0, availableBelow - renderedContentBelow);
+      if (Math.abs(promptPinSpacerHeight - nextSpacerHeight) > 1) {
+        flushSync(() => {
+          setPromptPinSpacerHeight(nextSpacerHeight);
+        });
+      }
+
+      const scrollPos =
+        viewport.scrollTop +
+        target.getBoundingClientRect().top -
+        viewport.getBoundingClientRect().top -
+        USER_PROMPT_TOP_OFFSET;
+      viewport.scrollTop = Math.max(0, scrollPos);
+      userHasScrolledUp.current = true;
+      if (scrollDownRef.current) {
+        scrollDownRef.current.style.display = 'none';
+      }
+      scheduleIdle(() => setVisibleMessageId(targetId));
+    },
+    [promptPinSpacerHeight, scheduleIdle],
+  );
+
+  // When opening or switching threads, keep the latest user prompt pinned near
+  // the top instead of jumping to the bottom.
   useLayoutEffect(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport || !activeThread) return;
 
-    // Reset the scroll-up flag and pagination refs, then scroll to bottom
-    userHasScrolledUp.current = false;
+    // Reset pagination refs, then pin the latest user prompt.
+    userHasScrolledUp.current = true;
     prevOldestIdRef.current = null;
     prevScrollHeightRef.current = 0;
-    // Mark that the fingerprint effect should also force-scroll for this thread,
-    // covering content that renders after the initial commit (e.g. deferred
-    // markdown rendering, syntax highlighting, lazy images).
+    pinnedPromptIdRef.current = null;
     scrolledThreadRef.current = null;
-    // Scroll immediately (before paint) to prevent layout shift
-    viewport.scrollTop = viewport.scrollHeight;
-    // Also scroll after the browser finishes layout/paint to catch any
-    // content that rendered asynchronously (e.g. images, animations).
     const rafId = requestAnimationFrame(() => {
-      viewport.scrollTop = viewport.scrollHeight;
-      // A second rAF covers deferred renders (syntax highlighting, lazy
-      // components) that only update the DOM in the frame *after* the first
-      // post-commit paint.
       requestAnimationFrame(() => {
-        viewport.scrollTop = viewport.scrollHeight;
+        pinUserMessageToTop();
       });
     });
     return () => cancelAnimationFrame(rafId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only scroll on thread switch; activeThread is used for null check but changes on every message
-  }, [activeThread?.id]);
+  }, [activeThread?.id, pinUserMessageToTop]);
 
   const openLightbox = useCallback((images: { src: string; alt: string }[], index: number) => {
     setLightboxImages(images);
@@ -1005,12 +1057,6 @@ export function ThreadView() {
     !!activeThread?.initInfo, // trigger scroll-to-bottom when initInfo arrives (prevents CLS)
   ].join(':');
 
-  // Helper: schedule a non-critical state update during idle time
-  const scheduleIdle = useCallback((fn: () => void) => {
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(fn);
-    else setTimeout(fn, 0);
-  }, []);
-
   // Ref tracking the last user message ID (avoids DOM queries in scroll handler)
   const lastUserMsgIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1027,11 +1073,12 @@ export function ThreadView() {
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = viewport;
       const hasOverflow = scrollHeight > clientHeight + 10;
+      const promptPinned = promptPinSpacerHeight > 0;
       const isAtBottom = scrollHeight - scrollTop - clientHeight <= 80;
-      userHasScrolledUp.current = !isAtBottom;
+      userHasScrolledUp.current = promptPinned || !isAtBottom;
 
       // Update scroll-to-bottom button visibility via DOM (fast path, no React state)
-      const shouldShow = hasOverflow && !isAtBottom;
+      const shouldShow = hasOverflow && !promptPinned && !isAtBottom;
       if (scrollDownRef.current) {
         scrollDownRef.current.style.display = shouldShow ? '' : 'none';
       }
@@ -1049,7 +1096,14 @@ export function ThreadView() {
 
     viewport.addEventListener('scroll', handleScroll, { passive: true });
     return () => viewport.removeEventListener('scroll', handleScroll);
-  }, [activeThread?.id, hasMore, loadingMore, loadOlderMessages, scheduleIdle]);
+  }, [
+    activeThread?.id,
+    hasMore,
+    loadingMore,
+    loadOlderMessages,
+    promptPinSpacerHeight,
+    scheduleIdle,
+  ]);
 
   // IntersectionObserver for visible user message tracking (replaces getBoundingClientRect loop).
   // Detects which user message section contains the ~40% viewport line.
@@ -1092,55 +1146,18 @@ export function ThreadView() {
     };
   }, [activeThread?.id, scheduleIdle]);
 
-  // Scroll to bottom whenever the fingerprint changes (new messages, status changes).
-  // Only scrolls if the user is already at the bottom (sticky behavior).
-  // useLayoutEffect prevents CLS by scrolling before the browser paints.
+  // Keep the latest user message pinned near the top whenever the thread
+  // content changes.
   useLayoutEffect(() => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-
-    // Force scroll when this is the first fingerprint change for a newly
-    // opened thread.  The thread-switch effect sets scrolledThreadRef to null;
-    // here we detect that the current thread hasn't been "claimed" yet and
-    // force-scroll regardless of the userHasScrolledUp flag.
     const isNewThread = activeThread?.id != null && scrolledThreadRef.current !== activeThread.id;
-    // Also force scroll when the agent is waiting for user input (question,
-    // permission, or plan approval).  The input UI renders inline in the
-    // message list, so the user must be scrolled to the bottom to see it.
-    const isWaitingForInput = activeThread?.status === 'waiting' && !!activeThread?.waitingReason;
-    const forceScroll = isNewThread || isWaitingForInput;
     if (isNewThread && activeThread?.id) {
       scrolledThreadRef.current = activeThread.id;
     }
-    if (forceScroll) {
-      userHasScrolledUp.current = false;
-    }
-
-    if (!userHasScrolledUp.current) {
-      if (smoothScrollPending.current) {
-        // User just sent a message — smooth scroll after paint
-        smoothScrollPending.current = false;
-        requestAnimationFrame(() => {
-          viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-        });
-      } else {
-        viewport.scrollTop = viewport.scrollHeight;
-      }
-      // When at bottom, sync visibleMessageId to the last user message.
-      // Setting scrollTop programmatically doesn't always fire a scroll event,
-      // so the scroll handler may never update visibleMessageId.
-      if (lastUserMsgIdRef.current) {
-        const id = lastUserMsgIdRef.current;
-        scheduleIdle(() => setVisibleMessageId(id));
-      }
-    }
-    // Hide scroll-to-bottom button via DOM if content doesn't overflow
-    const hasOverflow = viewport.scrollHeight > viewport.clientHeight + 10;
-    if (!hasOverflow && scrollDownRef.current) {
-      scrollDownRef.current.style.display = 'none';
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeThread.messages is already captured via scrollFingerprint; adding it directly would cause redundant scroll operations
-  }, [scrollFingerprint]);
+    smoothScrollPending.current = false;
+    requestAnimationFrame(() => {
+      pinUserMessageToTop();
+    });
+  }, [activeThread?.id, pinUserMessageToTop, scrollFingerprint]);
 
   // Preserve scroll position when older messages are prepended
   const firstMessageId = selectFirstMessage(activeThread)?.id ?? null;
@@ -1160,12 +1177,8 @@ export function ThreadView() {
   }, [firstMessageId]);
 
   const scrollToBottom = useCallback(() => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-    userHasScrolledUp.current = false;
-    if (scrollDownRef.current) scrollDownRef.current.style.display = 'none';
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
-  }, []);
+    pinUserMessageToTop();
+  }, [pinUserMessageToTop]);
 
   // Stable ref to avoid recreating handleSend on every render.
   // This prevents PromptInput and MemoizedMessageList from re-rendering
@@ -1519,7 +1532,10 @@ export function ThreadView() {
               as the margin shrank when messages arrived. A flex-grow spacer is inert
               and doesn't trigger CLS because the spacer itself is not painted. */}
             <div className="flex-grow" aria-hidden="true" />
-            <div className="mx-auto w-full min-w-[320px] max-w-3xl space-y-4 px-4 py-4">
+            <div
+              ref={contentStackRef}
+              className="mx-auto w-full min-w-[320px] max-w-3xl space-y-4 px-4 py-4"
+            >
               {loadingMore && (
                 <div className="flex items-center justify-center py-3">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -1691,11 +1707,14 @@ export function ThreadView() {
                   />
                 </motion.div>
               )}
+              {promptPinSpacerHeight > 0 && (
+                <div aria-hidden="true" style={{ height: promptPinSpacerHeight }} />
+              )}
             </div>
 
             {/* Input — sticky at bottom */}
             {!(activeThread.status === 'waiting' && activeThread.waitingReason === 'question') && (
-              <div className="sticky bottom-0 z-10 bg-background">
+              <div ref={inputDockRef} className="sticky bottom-0 z-10 bg-background">
                 {/* Scroll to bottom button — visibility managed via DOM ref to avoid re-renders */}
                 <div ref={scrollDownRef} className="relative" style={{ display: 'none' }}>
                   <button
