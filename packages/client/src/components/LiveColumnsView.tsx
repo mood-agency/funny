@@ -446,6 +446,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
         onStop={handleStop}
         loading={sending}
         running={isRunning}
+        threadId={thread.id}
         placeholder={t('thread.nextPrompt')}
       />
     </div>

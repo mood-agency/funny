@@ -97,6 +97,20 @@ describe('PromptInput', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  test('switching to a thread without an initial prompt clears the previous backlog prompt', async () => {
+    const onSubmit = vi.fn();
+    const view = renderWithProviders(
+      <PromptInput onSubmit={onSubmit} threadId="thread-1" initialPrompt="Saved backlog prompt" />,
+    );
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    await waitFor(() => expect(textarea.value).toBe('Saved backlog prompt'));
+
+    view.rerender(<PromptInput onSubmit={onSubmit} threadId="thread-2" />);
+
+    await waitFor(() => expect(textarea.value).toBe(''));
+  });
+
   test('stop button shown when running=true, send button when not', () => {
     const onStop = vi.fn();
 

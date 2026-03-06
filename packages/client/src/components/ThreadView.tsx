@@ -1494,6 +1494,7 @@ export function ThreadView() {
               loading={sending}
               isNewThread
               projectId={activeThread.projectId}
+              threadId={activeThread.id}
               initialPrompt={activeThread.initialPrompt}
               initialImages={(() => {
                 const draftMsg = activeThread.messages?.find((m) => m.role === 'user');
@@ -1732,6 +1733,7 @@ export function ThreadView() {
                   onStop={handleStop}
                   loading={sending}
                   running={isRunning && !isExternal}
+                  threadId={activeThread.id}
                   isQueueMode={isQueueMode}
                   queuedCount={(activeThread as any).queuedCount ?? 0}
                   queuedNextMessage={(activeThread as any).queuedNextMessage}

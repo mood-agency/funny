@@ -80,6 +80,7 @@ interface PromptInputProps {
   isNewThread?: boolean;
   showBacklog?: boolean;
   projectId?: string;
+  threadId?: string | null;
   initialPrompt?: string;
   initialImages?: ImageAttachment[];
   /** Imperative ref — PromptInput writes setPrompt into it so the parent can restore text */
@@ -98,6 +99,7 @@ export const PromptInput = memo(function PromptInput({
   isNewThread = false,
   showBacklog = false,
   projectId: propProjectId,
+  threadId: threadIdProp,
   initialPrompt: initialPromptProp,
   initialImages: initialImagesProp,
   setPromptRef,
@@ -213,6 +215,7 @@ export const PromptInput = memo(function PromptInput({
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
+  const effectiveThreadId = threadIdProp ?? selectedThreadId;
 
   // Draft persistence across thread switches
   const { setPromptDraft, clearPromptDraft } = useDraftStore();
@@ -223,36 +226,36 @@ export const PromptInput = memo(function PromptInput({
   const promptRef = useRef(prompt);
   const imagesRef = useRef(images);
   const selectedFilesRef = useRef(selectedFiles);
-  const selectedThreadIdRef = useRef(selectedThreadId);
+  const threadIdRef = useRef(effectiveThreadId);
   promptRef.current = prompt;
   imagesRef.current = images;
   selectedFilesRef.current = selectedFiles;
-  selectedThreadIdRef.current = selectedThreadId;
+  threadIdRef.current = effectiveThreadId;
 
   // Save draft when switching away from a thread, restore when switching to a new one
   useEffect(() => {
     const prevId = prevThreadIdRef.current;
-    prevThreadIdRef.current = selectedThreadId;
+    prevThreadIdRef.current = effectiveThreadId;
 
     // Save draft for the thread we're leaving
-    if (prevId && prevId !== selectedThreadId) {
-      const currentPrompt = textareaRef.current?.value ?? prompt;
-      setPromptDraft(prevId, currentPrompt, images, selectedFiles);
+    if (prevId && prevId !== effectiveThreadId) {
+      const currentPrompt = textareaRef.current?.value ?? promptRef.current;
+      setPromptDraft(prevId, currentPrompt, imagesRef.current, selectedFilesRef.current);
     }
 
     // Restore draft for the thread we're entering
-    if (selectedThreadId && selectedThreadId !== prevId) {
-      const draft = useDraftStore.getState().drafts[selectedThreadId];
+    if (effectiveThreadId && effectiveThreadId !== prevId) {
+      const draft = useDraftStore.getState().drafts[effectiveThreadId];
       setPrompt(draft?.prompt ?? initialPromptProp ?? '');
       setImages(draft?.images ?? initialImagesProp ?? []);
       setSelectedFiles(draft?.selectedFiles ?? []);
-    } else if (!selectedThreadId) {
+    } else if (!effectiveThreadId) {
       setPrompt('');
       setImages([]);
       setSelectedFiles([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only save/restore drafts on thread switch; prompt/images/selectedFiles are read via refs to avoid re-runs on every keystroke
-  }, [selectedThreadId]);
+  }, [effectiveThreadId]);
 
   // Save draft when the component unmounts (e.g. navigating to AllThreadsView)
   useEffect(() => {
@@ -261,7 +264,7 @@ export const PromptInput = memo(function PromptInput({
       // already cleared in handleSubmit and promptRef may still hold the
       // stale pre-submit value because React batches state updates.
       if (hasSubmittedRef.current) return;
-      const threadId = selectedThreadIdRef.current;
+      const threadId = threadIdRef.current;
       if (threadId) {
         const currentPrompt = textareaRef.current?.value ?? promptRef.current;
         setPromptDraft(threadId, currentPrompt, imagesRef.current, selectedFilesRef.current);
@@ -285,7 +288,7 @@ export const PromptInput = memo(function PromptInput({
   // Reset cwd override when thread or project changes
   useEffect(() => {
     setCwdOverride(null);
-  }, [selectedProjectId, selectedThreadId]);
+  }, [selectedProjectId, effectiveThreadId]);
 
   // Reset skills cache when project changes
   useEffect(() => {
@@ -524,7 +527,7 @@ export const PromptInput = memo(function PromptInput({
   // Focus when switching threads or when agent stops running
   useEffect(() => {
     textareaRef.current?.focus();
-  }, [selectedThreadId]);
+  }, [effectiveThreadId]);
 
   useEffect(() => {
     if (!running) textareaRef.current?.focus();
@@ -576,7 +579,7 @@ export const PromptInput = memo(function PromptInput({
     setSelectedFiles([]);
     setSelectedFileTypes({});
     hasSubmittedRef.current = true;
-    if (selectedThreadId) clearPromptDraft(selectedThreadId);
+    if (effectiveThreadId) clearPromptDraft(effectiveThreadId);
     textareaRef.current?.focus();
 
     const result = await onSubmit(

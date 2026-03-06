@@ -616,6 +616,7 @@ function ChatView({
             onStop={handleStop}
             loading={sending}
             running={isRunning}
+            threadId={activeThread.id}
             placeholder={t('thread.nextPrompt')}
           />
         </>
