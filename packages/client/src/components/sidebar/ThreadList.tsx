@@ -150,6 +150,14 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
     [navigate],
   );
 
+  const renameThread = useThreadStore((s) => s.renameThread);
+  const handleRename = useCallback(
+    (thread: EnrichedThread, newTitle: string) => {
+      renameThread(thread.id, thread.projectId, newTitle);
+    },
+    [renameThread],
+  );
+
   const handleArchive = useCallback(
     (thread: EnrichedThread) => {
       onArchiveThread(
@@ -188,6 +196,7 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
             isRunning={isRunning}
             gitStatus={gitStatusByThread[thread.id]}
             onSelect={handleSelect}
+            onRename={handleRename}
             onArchive={thread.status === 'running' ? undefined : handleArchive}
             onDelete={thread.status === 'running' ? undefined : handleDelete}
             t={t}
@@ -211,6 +220,7 @@ const ThreadListItem = memo(function ThreadListItem({
   isRunning,
   gitStatus,
   onSelect,
+  onRename,
   onArchive,
   onDelete,
   t,
@@ -220,6 +230,7 @@ const ThreadListItem = memo(function ThreadListItem({
   isRunning: boolean;
   gitStatus?: GitStatusInfo;
   onSelect: (threadId: string, projectId: string) => void;
+  onRename?: (thread: EnrichedThread, newTitle: string) => void;
   onArchive?: (thread: EnrichedThread) => void;
   onDelete?: (thread: EnrichedThread) => void;
   t: ReturnType<typeof useTranslation>['t'];
@@ -227,6 +238,10 @@ const ThreadListItem = memo(function ThreadListItem({
   const handleSelect = useCallback(
     () => onSelect(thread.id, thread.projectId),
     [onSelect, thread.id, thread.projectId],
+  );
+  const handleRename = useMemo(
+    () => (onRename ? (newTitle: string) => onRename(thread, newTitle) : undefined),
+    [onRename, thread],
   );
   const handleArchive = useMemo(
     () => (onArchive ? () => onArchive(thread) : undefined),
@@ -247,6 +262,7 @@ const ThreadListItem = memo(function ThreadListItem({
       timeValue={isRunning ? undefined : timeAgo(thread.completedAt ?? thread.createdAt, t)}
       gitStatus={gitStatus}
       onSelect={handleSelect}
+      onRename={handleRename}
       onArchive={handleArchive}
       onDelete={handleDelete}
     />

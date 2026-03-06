@@ -125,6 +125,7 @@ export const sendMessageSchema = z.object({
 });
 
 export const updateThreadSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
   archived: z.boolean().optional(),
   pinned: z.boolean().optional(),
   stage: threadStageSchema.optional(),

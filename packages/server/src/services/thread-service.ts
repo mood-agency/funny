@@ -805,6 +805,7 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
 export interface UpdateThreadParams {
   threadId: string;
   userId: string;
+  title?: string;
   archived?: boolean;
   pinned?: boolean;
   stage?: string;
@@ -815,6 +816,9 @@ export async function updateThread(params: UpdateThreadParams) {
   if (!thread) throw new ThreadServiceError('Thread not found', 404);
 
   const updates: Record<string, any> = {};
+  if (params.title !== undefined) {
+    updates.title = params.title;
+  }
   if (params.archived !== undefined) {
     updates.archived = params.archived ? 1 : 0;
   }

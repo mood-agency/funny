@@ -9,8 +9,9 @@ import {
   Pin,
   PinOff,
   Bot,
+  Pencil,
 } from 'lucide-react';
-import { useState, memo, useCallback } from 'react';
+import { useState, useRef, useEffect, memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -37,6 +38,7 @@ interface ThreadItemProps {
   subtitle?: string;
   projectColor?: string;
   timeValue?: string;
+  onRename?: (newTitle: string) => void;
   onArchive?: () => void;
   onPin?: () => void;
   onDelete?: () => void;
@@ -51,6 +53,7 @@ export const ThreadItem = memo(function ThreadItem({
   subtitle,
   projectColor,
   timeValue,
+  onRename,
   onArchive,
   onPin,
   onDelete,
@@ -58,7 +61,30 @@ export const ThreadItem = memo(function ThreadItem({
 }: ThreadItemProps) {
   const { t } = useTranslation();
   const [openDropdown, setOpenDropdown] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
   const handleDropdownChange = useCallback((open: boolean) => setOpenDropdown(open), []);
+
+  const startRename = useCallback(() => {
+    setRenameValue(thread.title);
+    setIsRenaming(true);
+  }, [thread.title]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== thread.title && onRename) {
+      onRename(trimmed);
+    }
+    setIsRenaming(false);
+  }, [renameValue, thread.title, onRename]);
+
+  useEffect(() => {
+    if (isRenaming && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [isRenaming]);
 
   // Thread status config
   const threadStatusCfg = statusConfig[thread.status as ThreadStatus] ?? statusConfig.pending;
@@ -145,7 +171,23 @@ export const ThreadItem = memo(function ThreadItem({
           {subtitle && (
             <ProjectChip name={subtitle} color={projectColor} className="flex-shrink-0" />
           )}
-          <span className="truncate text-sm leading-tight">{thread.title}</span>
+          {isRenaming ? (
+            <input
+              ref={renameInputRef}
+              data-testid={`thread-rename-input-${thread.id}`}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitRename();
+                if (e.key === 'Escape') setIsRenaming(false);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="h-5 w-full min-w-0 truncate rounded border border-border bg-background px-1 text-sm leading-tight text-foreground outline-none focus:ring-1 focus:ring-ring"
+            />
+          ) : (
+            <span className="truncate text-sm leading-tight">{thread.title}</span>
+          )}
           {/* Git status (worktree threads only) */}
           {showGitIcon &&
           (gitStatus.linesAdded > 0 ||
@@ -235,6 +277,18 @@ export const ThreadItem = memo(function ThreadItem({
                   <Terminal className="h-3.5 w-3.5" />
                   {t('sidebar.openTerminal')}
                 </DropdownMenuItem>
+                {onRename && (
+                  <DropdownMenuItem
+                    data-testid={`thread-rename-${thread.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startRename();
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    {t('sidebar.rename')}
+                  </DropdownMenuItem>
+                )}
                 {isRunning && (
                   <>
                     <DropdownMenuSeparator />

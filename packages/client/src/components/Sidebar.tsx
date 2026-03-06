@@ -64,6 +64,7 @@ export function AppSidebar() {
   const threadsByProject = useThreadStore((s) => s.threadsByProject);
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const archiveThread = useThreadStore((s) => s.archiveThread);
+  const renameThread = useThreadStore((s) => s.renameThread);
   const pinThread = useThreadStore((s) => s.pinThread);
   const deleteThread = useThreadStore((s) => s.deleteThread);
   // ui-store
@@ -293,6 +294,13 @@ export function AppSidebar() {
       isWorktree: th?.mode === 'worktree' && !!th?.branch && th?.provider !== 'external',
     });
   }, []);
+
+  const handleRenameThread = useCallback(
+    (projectId: string, threadId: string, newTitle: string) => {
+      renameThread(threadId, projectId, newTitle);
+    },
+    [renameThread],
+  );
 
   const handlePinThread = useCallback(
     (projectId: string, threadId: string, pinned: boolean) => {
@@ -533,6 +541,7 @@ export function AppSidebar() {
               onRenameProject={handleRenameProject}
               onDeleteProject={handleDeleteProject}
               onSelectThread={handleSelectThread}
+              onRenameThread={handleRenameThread}
               onArchiveThread={handleArchiveThread}
               onPinThread={handlePinThread}
               onDeleteThread={handleDeleteThread}

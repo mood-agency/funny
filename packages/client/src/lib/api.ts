@@ -306,6 +306,11 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ pinned }),
     }),
+  renameThread: (threadId: string, title: string) =>
+    request<Thread>(`/threads/${threadId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
   updateThreadStage: (threadId: string, stage: string) =>
     request<Thread>(`/threads/${threadId}`, {
       method: 'PATCH',

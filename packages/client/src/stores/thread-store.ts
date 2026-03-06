@@ -87,6 +87,7 @@ export interface ThreadState {
   selectThread: (threadId: string | null) => Promise<void>;
   archiveThread: (threadId: string, projectId: string) => Promise<void>;
   unarchiveThread: (threadId: string, projectId: string, stage: ThreadStage) => Promise<void>;
+  renameThread: (threadId: string, projectId: string, title: string) => Promise<void>;
   pinThread: (threadId: string, projectId: string, pinned: boolean) => Promise<void>;
   updateThreadStage: (threadId: string, projectId: string, stage: ThreadStage) => Promise<void>;
   deleteThread: (threadId: string, projectId: string) => Promise<void>;
@@ -456,6 +457,39 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 
+  renameThread: async (threadId, projectId, title) => {
+    const { threadsByProject, activeThread } = get();
+    const projectThreads = threadsByProject[projectId] ?? [];
+    const oldThread = projectThreads.find((t) => t.id === threadId);
+    const oldTitle = oldThread?.title ?? '';
+
+    set({
+      threadsByProject: {
+        ...threadsByProject,
+        [projectId]: projectThreads.map((t) => (t.id === threadId ? { ...t, title } : t)),
+      },
+      activeThread: activeThread?.id === threadId ? { ...activeThread, title } : activeThread,
+    });
+
+    const result = await api.renameThread(threadId, title);
+    if (result.isErr()) {
+      const currentState = get();
+      const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
+      set({
+        threadsByProject: {
+          ...currentState.threadsByProject,
+          [projectId]: currentProjectThreads.map((t) =>
+            t.id === threadId ? { ...t, title: oldTitle } : t,
+          ),
+        },
+        activeThread:
+          currentState.activeThread?.id === threadId
+            ? { ...currentState.activeThread, title: oldTitle }
+            : currentState.activeThread,
+      });
+    }
+  },
+
   pinThread: async (threadId, projectId, pinned) => {
     // Optimistic update: update UI immediately
     const { threadsByProject, activeThread } = get();
@@ -804,11 +838,26 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
 
   handleWSWorktreeSetup: (threadId, data) => {
     const { activeThread, setupProgressByThread } = get();
-    const step = { id: data.step, label: data.label, status: data.status, error: data.error };
+    const now = Date.now();
+    const prev = setupProgressByThread[threadId] ?? [];
+    const existing = prev.find((s) => s.id === data.step);
+
+    // Build step with timestamps that survive component remounts
+    const step: Partial<import('@/components/GitProgressModal').GitProgressStep> = {
+      id: data.step,
+      label: data.label,
+      status: data.status,
+      error: data.error,
+    };
+    if (data.status === 'running' && !existing?.startedAt) {
+      step.startedAt = now;
+    }
+    if ((data.status === 'completed' || data.status === 'failed') && !existing?.completedAt) {
+      step.completedAt = now;
+    }
 
     // Always persist to the map so it survives thread switches
-    const prev = setupProgressByThread[threadId] ?? [];
-    const idx = prev.findIndex((s) => s.id === data.step);
+    const idx = existing ? prev.indexOf(existing) : -1;
     const next =
       idx >= 0 ? prev.map((s, i) => (i === idx ? { ...s, ...step } : s)) : [...prev, step];
     const updates: Partial<ThreadState> = {

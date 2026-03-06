@@ -50,6 +50,7 @@ interface ProjectItemProps {
   onRenameProject: (projectId: string, currentName: string) => void;
   onDeleteProject: (projectId: string, name: string) => void;
   onSelectThread: (projectId: string, threadId: string) => void;
+  onRenameThread: (projectId: string, threadId: string, title: string) => void;
   onArchiveThread: (projectId: string, threadId: string, title: string) => void;
   onPinThread: (projectId: string, threadId: string, pinned: boolean) => void;
   onDeleteThread: (projectId: string, threadId: string, title: string) => void;
@@ -68,6 +69,7 @@ export const ProjectItem = memo(function ProjectItem({
   onRenameProject,
   onDeleteProject,
   onSelectThread,
+  onRenameThread,
   onArchiveThread,
   onPinThread,
   onDeleteThread,
@@ -336,6 +338,7 @@ export const ProjectItem = memo(function ProjectItem({
               projectPath={project.path}
               isSelected={selectedThreadId === th.id}
               onSelect={() => onSelectThread(project.id, th.id)}
+              onRename={(newTitle) => onRenameThread(project.id, th.id, newTitle)}
               onArchive={
                 th.status === 'running'
                   ? undefined

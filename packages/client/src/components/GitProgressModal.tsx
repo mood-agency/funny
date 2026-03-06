@@ -29,6 +29,10 @@ export interface GitProgressStep {
   url?: string;
   /** Optional sub-items with individual status tracking (e.g., individual hook scripts) */
   subItems?: GitProgressSubItem[];
+  /** Timestamp (ms) when this step started running — persisted in the store to survive navigation */
+  startedAt?: number;
+  /** Timestamp (ms) when this step completed/failed — persisted in the store to survive navigation */
+  completedAt?: number;
 }
 
 interface GitProgressModalProps {
@@ -64,20 +68,25 @@ export function useStepTimers(steps: GitProgressStep[], open: boolean) {
     }
   }, [open]);
 
-  // Track status transitions
+  // Track status transitions — seed from persisted timestamps when available
   useEffect(() => {
     const now = Date.now();
     for (const step of steps) {
       if (step.status === 'running' && !startTimes.current.has(step.id)) {
-        startTimes.current.set(step.id, now);
+        startTimes.current.set(step.id, step.startedAt ?? now);
         endTimes.current.delete(step.id);
       }
       if (
         (step.status === 'completed' || step.status === 'failed') &&
-        !endTimes.current.has(step.id) &&
-        startTimes.current.has(step.id)
+        !endTimes.current.has(step.id)
       ) {
-        endTimes.current.set(step.id, now);
+        // Seed both start and end from persisted timestamps if available
+        if (!startTimes.current.has(step.id) && step.startedAt) {
+          startTimes.current.set(step.id, step.startedAt);
+        }
+        if (startTimes.current.has(step.id)) {
+          endTimes.current.set(step.id, step.completedAt ?? now);
+        }
       }
       // If a step went back to pending (e.g. commit reset on hook failure), clear its timers
       if (step.status === 'pending') {

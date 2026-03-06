@@ -868,16 +868,9 @@ export function ReviewPane() {
     if (!hasGitContext || pushInProgress) return;
     setPushInProgress(true);
 
-    // When a thread is active, delegate to agent
-    if (effectiveThreadId) {
-      const ok = await sendAgentCommitMessage('Push the current branch to the remote origin.');
-      setPushInProgress(false);
-      if (!ok) return;
-      return;
-    }
-
-    // Project-mode — use existing workflow
-    const result = await api.projectStartWorkflow(projectModeId!, { action: 'push' });
+    const result = effectiveThreadId
+      ? await api.startWorkflow(effectiveThreadId, { action: 'push' })
+      : await api.projectStartWorkflow(projectModeId!, { action: 'push' });
 
     if (result.isErr()) {
       toast.error(result.error.message);

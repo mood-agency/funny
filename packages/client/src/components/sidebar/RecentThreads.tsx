@@ -39,6 +39,7 @@ export function RecentThreads({ onArchiveThread, onDeleteThread }: RecentThreads
   const navigate = useNavigate();
   const threadsByProject = useThreadStore((s) => s.threadsByProject);
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
+  const renameThread = useThreadStore((s) => s.renameThread);
   const projects = useProjectStore((s) => s.projects);
   const statusByBranch = useGitStatusStore((s) => s.statusByBranch);
   const [isExpanded, setIsExpanded] = useState(true);
@@ -122,6 +123,7 @@ export function RecentThreads({ onArchiveThread, onDeleteThread }: RecentThreads
                   }
                   navigate(`/projects/${thread.projectId}/threads/${thread.id}`);
                 }}
+                onRename={(newTitle) => renameThread(thread.id, thread.projectId, newTitle)}
                 onArchive={() =>
                   onArchiveThread(
                     thread.id,
