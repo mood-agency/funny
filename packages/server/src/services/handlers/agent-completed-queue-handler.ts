@@ -25,6 +25,7 @@ export const agentCompletedQueueHandler: EventHandler<'agent:completed'> = {
     if (!thread) return;
 
     const project = ctx.getProject(thread.projectId);
+    if (!project) return;
     const mode = project?.followUpMode ?? 'interrupt';
     if (mode !== 'queue' && mode !== 'ask') return;
 

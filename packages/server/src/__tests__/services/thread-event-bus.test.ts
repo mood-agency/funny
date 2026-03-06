@@ -139,7 +139,7 @@ describe('ThreadEventBus', () => {
       bus.emit('agent:completed', payload);
 
       expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler.mock.calls[0][0].status).toBe('failed');
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }));
     });
 
     test('handles stopped status', () => {
@@ -158,7 +158,7 @@ describe('ThreadEventBus', () => {
       bus.emit('agent:completed', payload);
 
       expect(handler).toHaveBeenCalledTimes(1);
-      expect(handler.mock.calls[0][0].status).toBe('stopped');
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ status: 'stopped' }));
     });
   });
 

@@ -102,6 +102,23 @@ export function cancel(messageId: string): boolean {
   return true;
 }
 
+/** Update a specific queued message by ID. */
+export function update(messageId: string, content: string): QueueEntry | null {
+  const row = db
+    .select()
+    .from(schema.messageQueue)
+    .where(eq(schema.messageQueue.id, messageId))
+    .get();
+  if (!row) return null;
+
+  db.update(schema.messageQueue)
+    .set({ content })
+    .where(eq(schema.messageQueue.id, messageId))
+    .run();
+  log.info('Queued message updated', { namespace: 'queue', messageId });
+  return { ...(row as QueueEntry), content };
+}
+
 /** List all queued messages for a thread. */
 export function listQueue(threadId: string): QueueEntry[] {
   return db

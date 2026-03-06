@@ -124,6 +124,10 @@ export const sendMessageSchema = z.object({
   forceQueue: z.boolean().optional(),
 });
 
+export const updateQueuedMessageSchema = z.object({
+  content: z.string().min(1, 'content is required'),
+});
+
 export const updateThreadSchema = z.object({
   title: z.string().min(1).max(500).optional(),
   archived: z.boolean().optional(),

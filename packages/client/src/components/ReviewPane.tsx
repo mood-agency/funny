@@ -336,7 +336,7 @@ export function ReviewPane() {
   const isWorktree = useThreadStore((s) => s.activeThread?.mode === 'worktree');
   const baseBranch = useThreadStore((s) => s.activeThread?.baseBranch);
   const threadBranch = useThreadStore((s) => s.activeThread?.branch);
-  const hasWorktreePath = useThreadStore((s) => !!s.activeThread?.worktreePath);
+  const _hasWorktreePath = useThreadStore((s) => !!s.activeThread?.worktreePath);
   const isAgentRunning = useThreadStore((s) => s.activeThread?.status === 'running');
   const gitStatus = useGitStatusForThread(effectiveThreadId);
   const [mergeInProgress, setMergeInProgress] = useState(false);
@@ -1439,7 +1439,7 @@ export function ReviewPane() {
                     return (
                       <div
                         key={`folder-${row.path}`}
-                        className="flex cursor-pointer select-none items-center gap-1 text-[11px] text-muted-foreground/80 hover:bg-sidebar-accent/30"
+                        className="flex cursor-pointer select-none items-center gap-1 text-sm text-muted-foreground/80 hover:bg-sidebar-accent/30"
                         style={{ ...baseStyle, paddingLeft: `${8 + row.depth * INDENT_PX}px` }}
                         onClick={() => toggleFolder(row.path)}
                         data-testid={`review-folder-${row.path}`}
@@ -1470,7 +1470,7 @@ export function ReviewPane() {
                       key={f.path}
                       style={{ ...baseStyle, paddingLeft: `${8 + row.depth * INDENT_PX}px` }}
                       className={cn(
-                        'group flex items-center gap-1.5 pr-4 text-xs cursor-pointer transition-colors',
+                        'group flex items-center gap-1.5 pr-4 text-sm cursor-pointer transition-colors',
                         selectedFile === f.path
                           ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                           : 'hover:bg-sidebar-accent/50 text-muted-foreground',
@@ -1501,7 +1501,7 @@ export function ReviewPane() {
                         filePath={f.path}
                         className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
                       />
-                      <span className="flex-1 truncate font-mono text-[11px]">
+                      <span className="flex-1 truncate font-mono text-sm">
                         {f.path.split('/').pop()}
                       </span>
                       <span

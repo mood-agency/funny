@@ -137,6 +137,7 @@ export function updateThread(
     branch: string | null;
     baseBranch: string | null;
     worktreePath: string | null;
+    mode: string;
     permissionMode: string;
     model: string;
     provider: string;

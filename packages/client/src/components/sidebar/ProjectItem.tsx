@@ -15,9 +15,8 @@ import {
   CircleDot,
   SquareTerminal,
 } from 'lucide-react';
-import { useState, useRef, useEffect, memo, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, memo, useCallback, useMemo, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -28,7 +27,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+// Tooltip imports available if needed
+import { useStableNavigate } from '@/hooks/use-stable-navigate';
 import { api } from '@/lib/api';
 import { openDirectoryInEditor } from '@/lib/editor-utils';
 import { cn } from '@/lib/utils';
@@ -38,6 +38,72 @@ import { useThreadStore } from '@/stores/thread-store';
 
 import { ThreadItem } from './ThreadItem';
 import { ViewAllButton } from './ViewAllButton';
+
+// ── Stable wrapper so ThreadItem callbacks don't break memo ──────────
+interface ProjectThreadItemProps {
+  thread: Thread;
+  projectId: string;
+  projectPath: string;
+  isSelected: boolean;
+  gitStatus?: import('@funny/shared').GitStatusInfo;
+  onSelectThread: (projectId: string, threadId: string) => void;
+  onRenameThread: (projectId: string, threadId: string, title: string) => void;
+  onArchiveThread: (projectId: string, threadId: string, title: string) => void;
+  onPinThread: (projectId: string, threadId: string, pinned: boolean) => void;
+  onDeleteThread: (projectId: string, threadId: string, title: string) => void;
+}
+
+const ProjectThreadItem: FC<ProjectThreadItemProps> = memo(function ProjectThreadItem({
+  thread,
+  projectId,
+  projectPath,
+  isSelected,
+  gitStatus,
+  onSelectThread,
+  onRenameThread,
+  onArchiveThread,
+  onPinThread,
+  onDeleteThread,
+}) {
+  const handleSelect = useCallback(
+    () => onSelectThread(projectId, thread.id),
+    [onSelectThread, projectId, thread.id],
+  );
+  const handleRename = useCallback(
+    (newTitle: string) => onRenameThread(projectId, thread.id, newTitle),
+    [onRenameThread, projectId, thread.id],
+  );
+  const handleArchive = useCallback(
+    () => onArchiveThread(projectId, thread.id, thread.title),
+    [onArchiveThread, projectId, thread.id, thread.title],
+  );
+  const handlePin = useCallback(
+    () => onPinThread(projectId, thread.id, !thread.pinned),
+    [onPinThread, projectId, thread.id, thread.pinned],
+  );
+  const handleDelete = useCallback(
+    () => onDeleteThread(projectId, thread.id, thread.title),
+    [onDeleteThread, projectId, thread.id, thread.title],
+  );
+
+  const isBusy = thread.status === 'running' || thread.status === 'setting_up';
+
+  return (
+    <ThreadItem
+      thread={thread}
+      projectPath={projectPath}
+      isSelected={isSelected}
+      onSelect={handleSelect}
+      onRename={handleRename}
+      onArchive={isBusy ? undefined : handleArchive}
+      onPin={handlePin}
+      onDelete={isBusy ? undefined : handleDelete}
+      gitStatus={gitStatus}
+    />
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────
 
 interface ProjectItemProps {
   project: Project;
@@ -58,6 +124,30 @@ interface ProjectItemProps {
   onShowIssues: (projectId: string) => void;
 }
 
+function projectItemAreEqual(prev: ProjectItemProps, next: ProjectItemProps): boolean {
+  if (prev.threads !== next.threads) return false;
+  if (prev.isExpanded !== next.isExpanded) return false;
+  if (prev.isSelected !== next.isSelected) return false;
+  if (prev.onToggle !== next.onToggle) return false;
+  if (prev.onSelectProject !== next.onSelectProject) return false;
+  if (prev.onNewThread !== next.onNewThread) return false;
+  if (prev.onRenameProject !== next.onRenameProject) return false;
+  if (prev.onDeleteProject !== next.onDeleteProject) return false;
+  if (prev.onSelectThread !== next.onSelectThread) return false;
+  if (prev.onRenameThread !== next.onRenameThread) return false;
+  if (prev.onArchiveThread !== next.onArchiveThread) return false;
+  if (prev.onPinThread !== next.onPinThread) return false;
+  if (prev.onDeleteThread !== next.onDeleteThread) return false;
+  if (prev.onShowAllThreads !== next.onShowAllThreads) return false;
+  if (prev.onShowIssues !== next.onShowIssues) return false;
+  // Compare project by relevant fields only (ignore sortOrder, createdAt changes)
+  const pp = prev.project;
+  const np = next.project;
+  if (pp.id !== np.id || pp.name !== np.name || pp.path !== np.path || pp.color !== np.color)
+    return false;
+  return true;
+}
+
 export const ProjectItem = memo(function ProjectItem({
   project,
   threads,
@@ -65,7 +155,7 @@ export const ProjectItem = memo(function ProjectItem({
   isSelected,
   onToggle,
   onSelectProject,
-  onNewThread,
+  onNewThread: _onNewThread,
   onRenameProject,
   onDeleteProject,
   onSelectThread,
@@ -76,7 +166,7 @@ export const ProjectItem = memo(function ProjectItem({
   onShowAllThreads,
   onShowIssues,
 }: ProjectItemProps) {
-  const navigate = useNavigate();
+  const navigate = useStableNavigate();
   const { t } = useTranslation();
   const [openDropdown, setOpenDropdown] = useState(false);
   // Pre-compute branchKeys from thread data so we don't depend on threadToBranchKey
@@ -116,6 +206,8 @@ export const ProjectItem = memo(function ProjectItem({
   // thread IDs. This avoids passing selectedThreadId as a prop from the parent,
   // which caused *every* ProjectItem to re-render on any thread selection.
   const threadIds = useMemo(() => threads.map((t) => t.id), [threads]);
+  // Derive selected thread ID scoped to this project. Also used to dim the
+  // project highlight when a child thread is active.
   const selectedThreadId = useThreadStore(
     useCallback(
       (s: { selectedThreadId: string | null }) =>
@@ -123,6 +215,8 @@ export const ProjectItem = memo(function ProjectItem({
       [threadIds],
     ),
   );
+  // Only highlight the project row when no child thread is selected
+  const isProjectHighlighted = isSelected && !selectedThreadId;
   const defaultEditor = useSettingsStore((s) => s.defaultEditor);
 
   // Memoize sorted & sliced threads to avoid O(n log n) sort on every render
@@ -174,7 +268,7 @@ export const ProjectItem = memo(function ProjectItem({
         data-testid={`project-item-${project.id}`}
         className={cn(
           'group/project flex items-center rounded-md select-none',
-          isSelected
+          isProjectHighlighted
             ? 'bg-accent text-foreground'
             : 'hover:bg-accent/50 text-muted-foreground hover:text-foreground',
           isDragging && 'opacity-50',
@@ -332,25 +426,18 @@ export const ProjectItem = memo(function ProjectItem({
             <p className="px-2 py-2 text-xs text-muted-foreground">{t('sidebar.noThreads')}</p>
           )}
           {visibleThreads.map((th) => (
-            <ThreadItem
+            <ProjectThreadItem
               key={th.id}
               thread={th}
+              projectId={project.id}
               projectPath={project.path}
               isSelected={selectedThreadId === th.id}
-              onSelect={() => onSelectThread(project.id, th.id)}
-              onRename={(newTitle) => onRenameThread(project.id, th.id, newTitle)}
-              onArchive={
-                th.status === 'running'
-                  ? undefined
-                  : () => onArchiveThread(project.id, th.id, th.title)
-              }
-              onPin={() => onPinThread(project.id, th.id, !th.pinned)}
-              onDelete={
-                th.status === 'running'
-                  ? undefined
-                  : () => onDeleteThread(project.id, th.id, th.title)
-              }
               gitStatus={gitStatusForThreads[th.id]}
+              onSelectThread={onSelectThread}
+              onRenameThread={onRenameThread}
+              onArchiveThread={onArchiveThread}
+              onPinThread={onPinThread}
+              onDeleteThread={onDeleteThread}
             />
           ))}
           {threads.length > 5 && (
@@ -363,4 +450,4 @@ export const ProjectItem = memo(function ProjectItem({
       </CollapsibleContent>
     </Collapsible>
   );
-});
+}, projectItemAreEqual);

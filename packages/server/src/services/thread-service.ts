@@ -15,11 +15,17 @@ import {
   git,
 } from '@funny/core/git';
 import { setupWorktree, type SetupProgressFn } from '@funny/core/ports';
-import type { WSEvent, AgentProvider, AgentModel, PermissionMode } from '@funny/shared';
+import type {
+  WSEvent,
+  AgentProvider,
+  AgentModel,
+  PermissionMode,
+  ImageAttachment,
+} from '@funny/shared';
 import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
-import { augmentPromptWithFiles } from '../utils/file-mentions.js';
+import { augmentPromptWithFiles, type FileRef } from '../utils/file-mentions.js';
 import { startAgent, stopAgent, isAgentRunning, cleanupThreadState } from './agent-runner.js';
 import { stopCommandsByCwd } from './command-runner.js';
 import { cleanupExternalThread } from './ingest-mapper.js';
@@ -102,7 +108,7 @@ function emitThreadUpdated(userId: string, threadId: string, data: Record<string
 }
 
 function emitAgentFailed(userId: string, threadId: string): void {
-  const event = {
+  const event: WSEvent = {
     type: 'agent:status' as const,
     threadId,
     data: { status: 'failed' },
@@ -124,7 +130,7 @@ export interface CreateIdleThreadParams {
   source?: string;
   baseBranch?: string;
   prompt?: string;
-  images?: string[];
+  images?: ImageAttachment[];
   stage?: 'backlog' | 'planning';
 }
 
@@ -207,10 +213,10 @@ export interface CreateAndStartThreadParams {
   source?: string;
   baseBranch?: string;
   prompt: string;
-  images?: string[];
+  images?: ImageAttachment[];
   allowedTools?: string[];
   disallowedTools?: string[];
-  fileReferences?: string[];
+  fileReferences?: FileRef[];
   worktreePath?: string;
   parentThreadId?: string;
 }
@@ -334,11 +340,13 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
           worktreePath: wtPath,
         });
 
-        // Start agent
+        // Start agent — use project.path (not wtPath) because file references
+        // were selected from the main repo; untracked/gitignored files won't
+        // exist in the freshly created worktree.
         const augmentedPrompt = await augmentPromptWithFiles(
           params.prompt,
           params.fileReferences,
-          wtPath,
+          project.path,
         );
         try {
           await startAgent(
@@ -542,10 +550,10 @@ export interface SendMessageParams {
   provider?: string;
   model?: string;
   permissionMode?: string;
-  images?: string[];
+  images?: ImageAttachment[];
   allowedTools?: string[];
   disallowedTools?: string[];
-  fileReferences?: string[];
+  fileReferences?: FileRef[];
   baseBranch?: string;
   forceQueue?: boolean;
 }
@@ -644,7 +652,14 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
   const project = pm.getProject(thread.projectId);
   const followUpMode = project?.followUpMode || 'interrupt';
 
-  if (agentRunning && (followUpMode === 'queue' || params.forceQueue)) {
+  // When the thread is waiting for user input (plan acceptance, question answer),
+  // always bypass the queue and deliver the response immediately. The agent process
+  // may still appear "running" due to a race condition (process hasn't fully exited
+  // after emitting the result), but agent:completed is never emitted for waiting
+  // threads, so queued messages would never be drained — causing a deadlock.
+  const isWaitingResponse = thread.status === 'waiting';
+
+  if (agentRunning && !isWaitingResponse && (followUpMode === 'queue' || params.forceQueue)) {
     const queued = mq.enqueue(params.threadId, {
       content: augmentedContent,
       provider: effectiveProvider,
@@ -1125,6 +1140,32 @@ export function cancelQueuedMessage(threadId: string, messageId: string): { queu
   }
 
   return { queuedCount: qCount };
+}
+
+export function updateQueuedMessage(
+  threadId: string,
+  messageId: string,
+  content: string,
+): { queuedCount: number; queuedMessage: mq.QueueEntry } {
+  const queuedMessage = mq.update(messageId, content);
+  if (!queuedMessage) throw new ThreadServiceError('Queued message not found', 404);
+
+  const thread = tm.getThread(threadId);
+  const qCount = mq.queueCount(threadId);
+  const nextMsg = mq.peek(threadId);
+
+  const queueEvent = {
+    type: 'thread:queue_update' as const,
+    threadId,
+    data: { threadId, queuedCount: qCount, nextMessage: nextMsg?.content?.slice(0, 100) },
+  } as WSEvent;
+  if (thread?.userId) {
+    wsBroker.emitToUser(thread.userId, queueEvent);
+  } else {
+    wsBroker.emit(queueEvent);
+  }
+
+  return { queuedCount: qCount, queuedMessage };
 }
 
 // ── Comment Operations ──────────────────────────────────────────

@@ -2,6 +2,32 @@
  * Thread store — Zustand store for thread state management.
  * Delegates WebSocket handling to thread-ws-handlers, state machine transitions
  * to thread-machine-bridge, and module-level coordination to thread-store-internals.
+ *
+ * ## Render Stability Rules
+ *
+ * Every `set()` call creates a new `activeThread` object reference, which
+ * causes ALL components using `useThreadStore(s => s.activeThread)` to
+ * re-render — even if they only read `status` or `initInfo`. To avoid
+ * cascading re-renders:
+ *
+ * 1. **Use granular selectors** — prefer `useActiveThreadStatus()`,
+ *    `useActiveInitInfo()` from `thread-selectors.ts` over subscribing to
+ *    the full `activeThread` object.
+ *
+ * 2. **Use `useStableNavigate()`** — never list `navigate` from
+ *    `useNavigate()` as a `useCallback` dependency. It changes on every
+ *    route transition. Use `useStableNavigate()` from
+ *    `hooks/use-stable-navigate.ts` instead.
+ *
+ * 3. **Always pass a custom comparator to `memo()`** when a component
+ *    receives objects from this store (Thread, Project). The default
+ *    `===` check always fails on store-created objects. Use
+ *    `threadsVisuallyEqual()` from `lib/shallow-compare.ts`.
+ *
+ * 4. **Never use conditional callback props** —
+ *    `onAction={disabled ? undefined : handler}` alternates between
+ *    `undefined` and a function, breaking `memo()`. Instead pass the
+ *    handler always and a boolean `disabled` prop.
  */
 
 import type {
@@ -233,6 +259,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   selectThread: async (threadId) => {
+    // Short-circuit when already deselected to avoid no-op state churn
+    if (!threadId && !get().selectedThreadId && !get().activeThread) return;
+
     const gen = nextSelectGeneration();
     // Keep stale activeThread visible during load to avoid layout shift.
     // Only clear it if switching to null (deselect) or to a different thread.
@@ -776,9 +805,30 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   refreshAllLoadedThreads: async () => {
-    const { threadsByProject, loadThreadsForProject, refreshActiveThread } = get();
+    const { threadsByProject, refreshActiveThread } = get();
     const projectIds = Object.keys(threadsByProject);
-    await Promise.all(projectIds.map((pid) => loadThreadsForProject(pid)));
+
+    // Fetch all projects in parallel, then batch into a single state update
+    // instead of N separate set() calls (one per project) to avoid cascading
+    // re-renders.
+    const results = await Promise.all(
+      projectIds.map(async (pid) => {
+        const result = await api.listThreads(pid, true);
+        return { pid, threads: result.isOk() ? result.value : null };
+      }),
+    );
+
+    const prev = get().threadsByProject;
+    let changed = false;
+    const next: Record<string, Thread[]> = { ...prev };
+    for (const { pid, threads } of results) {
+      if (threads && threads !== prev[pid]) {
+        next[pid] = threads;
+        changed = true;
+      }
+    }
+    if (changed) set({ threadsByProject: next });
+
     await refreshActiveThread();
   },
 
@@ -843,11 +893,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const existing = prev.find((s) => s.id === data.step);
 
     // Build step with timestamps that survive component remounts
-    const step: Partial<import('@/components/GitProgressModal').GitProgressStep> = {
+    const step: import('@/components/GitProgressModal').GitProgressStep = {
       id: data.step,
       label: data.label,
       status: data.status,
       error: data.error,
+      startedAt: existing?.startedAt,
+      completedAt: existing?.completedAt,
     };
     if (data.status === 'running' && !existing?.startedAt) {
       step.startedAt = now;

@@ -171,20 +171,20 @@ export function handleWSToolOutput(
     return;
   }
 
-  // Only rebuild the specific message containing the tool call, not the entire array
-  let changed = false;
-  const messages = activeThread.messages.map((msg) => {
-    if (!msg.toolCalls) return msg;
+  // Find and update only the specific message containing the tool call.
+  // Avoid .map() which creates a new array reference even when nothing changed.
+  for (let i = 0; i < activeThread.messages.length; i++) {
+    const msg = activeThread.messages[i];
+    if (!msg.toolCalls) continue;
     const tcIdx = msg.toolCalls.findIndex((tc: any) => tc.id === data.toolCallId);
-    if (tcIdx < 0) return msg; // unchanged — same reference
-    changed = true;
+    if (tcIdx < 0) continue;
+    // Found — create a shallow copy of the messages array with only this message replaced
+    const messages = activeThread.messages.slice();
     const updatedTCs = [...msg.toolCalls];
     updatedTCs[tcIdx] = { ...updatedTCs[tcIdx], output: data.output };
-    return { ...msg, toolCalls: updatedTCs };
-  });
-
-  if (changed) {
+    messages[i] = { ...msg, toolCalls: updatedTCs };
     set({ activeThread: { ...activeThread, messages } });
+    return;
   }
 }
 

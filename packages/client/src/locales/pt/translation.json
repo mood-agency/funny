@@ -644,7 +644,12 @@
     "queued": "enfileirado",
     "queuedOne": "1 mensagem na fila",
     "queuedMany": "{{count}} mensagens na fila",
-    "queueMessage": "Enfileirar mensagem"
+    "queueMessage": "Enfileirar mensagem",
+    "loadingQueuedMessages": "Carregando mensagens da fila...",
+    "editQueuedMessage": "Editar",
+    "deleteQueuedMessage": "Excluir",
+    "saveQueuedMessage": "Salvar",
+    "cancelQueuedEdit": "Cancelar"
   },
   "gitStatus": {
     "dirty": "Alterações não commitadas",

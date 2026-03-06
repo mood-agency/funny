@@ -292,6 +292,14 @@ export const api = {
 
   // Queue management
   listQueue: (threadId: string) => request<QueuedMessage[]>(`/threads/${threadId}/queue`),
+  updateQueuedMessage: (threadId: string, messageId: string, content: string) =>
+    request<{ ok: boolean; queuedCount: number; message: QueuedMessage }>(
+      `/threads/${threadId}/queue/${messageId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      },
+    ),
   cancelQueuedMessage: (threadId: string, messageId: string) =>
     request<{ ok: boolean; queuedCount: number }>(`/threads/${threadId}/queue/${messageId}`, {
       method: 'DELETE',

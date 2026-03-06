@@ -1,9 +1,18 @@
 import type { Thread, ThreadStatus, GitStatusInfo } from '@funny/shared';
-import { useEffect, useMemo, useCallback, useRef, memo, startTransition } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  memo,
+  startTransition,
+  type MutableRefObject,
+} from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 
 import { useMinuteTick } from '@/hooks/use-minute-tick';
+import { useStableNavigate } from '@/hooks/use-stable-navigate';
+import { threadsVisuallyEqual } from '@/lib/shallow-compare';
 import { timeAgo } from '@/lib/thread-utils';
 import { useGitStatusStore, branchKey as computeBranchKey } from '@/stores/git-status-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -32,21 +41,20 @@ interface ThreadListProps {
   onDeleteThread: (threadId: string, projectId: string, title: string, isWorktree: boolean) => void;
 }
 
-/** Shallow-compare two objects (same keys, same values by ===). */
-function shallowEqual(a: object, b: object): boolean {
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if ((a as never)[key] !== (b as never)[key]) return false;
-  }
-  return true;
+/** Compare only fields that affect the sidebar display of an enriched thread. */
+function enrichedThreadVisuallyEqual(a: EnrichedThread, b: EnrichedThread): boolean {
+  return (
+    threadsVisuallyEqual(a, b) &&
+    a.projectName === b.projectName &&
+    a.projectPath === b.projectPath &&
+    a.projectColor === b.projectColor
+  );
 }
 
 export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps) {
-  const { t } = useTranslation();
+  const { t: _t } = useTranslation();
   useMinuteTick(); // re-render every 60s so timeAgo stays fresh
-  const navigate = useNavigate();
+  const navigate = useStableNavigate();
   const threadsByProject = useThreadStore((s) => s.threadsByProject);
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const projects = useProjectStore((s) => s.projects);
@@ -73,9 +81,9 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
             projectColor: project?.color,
           };
 
-          // Reuse previous reference if data is identical
+          // Reuse previous reference if visual fields are identical
           const cached = enrichedCacheRef.current.get(thread.id);
-          result.push(cached && shallowEqual(cached, enriched) ? cached : enriched);
+          result.push(cached && enrichedThreadVisuallyEqual(cached, enriched) ? cached : enriched);
         }
       }
     }
@@ -103,20 +111,39 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
     return { threads: visible, totalCount: result.length };
   }, [threadsByProject, projects]);
 
-  // Read the branch-keyed status and resolve per-thread using client-side branchKey.
-  // This avoids depending on threadToBranchKey (which requires a prior fetch per thread)
-  // so all sibling threads on the same branch immediately share cached status.
-  const statusByBranch = useGitStatusStore((s) => s.statusByBranch);
+  // Compute branch keys for visible threads to scope git status selectors.
+  const threadBranchKeys = useMemo(
+    () => new Map(threads.map((t) => [t.id, computeBranchKey(t)])),
+    [threads],
+  );
+
+  // Subscribe to a fingerprint string so Zustand skips re-renders when
+  // unrelated threads' git statuses change.
+  const gitStatusFingerprint = useGitStatusStore(
+    useCallback(
+      (s: { statusByBranch: Record<string, GitStatusInfo> }) => {
+        let fp = '';
+        for (const [id, bk] of threadBranchKeys) {
+          const st = s.statusByBranch[bk];
+          if (st)
+            fp += `${id}:${st.state}:${st.dirtyFileCount}:${st.unpushedCommitCount}:${st.linesAdded}:${st.linesDeleted},`;
+        }
+        return fp;
+      },
+      [threadBranchKeys],
+    ),
+  );
+
+  // Derive the actual status objects only when the fingerprint changes
   const gitStatusByThread = useMemo(() => {
+    const { statusByBranch } = useGitStatusStore.getState();
     const result: Record<string, GitStatusInfo> = {};
-    for (const t of threads) {
-      const bk = computeBranchKey(t);
-      if (statusByBranch[bk]) {
-        result[t.id] = statusByBranch[bk];
-      }
+    for (const [id, bk] of threadBranchKeys) {
+      if (statusByBranch[bk]) result[id] = statusByBranch[bk];
     }
     return result;
-  }, [threads, statusByBranch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadBranchKeys, gitStatusFingerprint]);
 
   // Eagerly fetch git status for visible threads that don't have it yet.
   // This ensures icons and diff stats show up in the global thread list without requiring a click.
@@ -186,23 +213,19 @@ export function ThreadList({ onArchiveThread, onDeleteThread }: ThreadListProps)
 
   return (
     <div className="min-w-0 space-y-0.5">
-      {threads.map((thread) => {
-        const isRunning = RUNNING_STATUSES.has(thread.status);
-        return (
-          <ThreadListItem
-            key={thread.id}
-            thread={thread}
-            isSelected={selectedThreadId === thread.id}
-            isRunning={isRunning}
-            gitStatus={gitStatusByThread[thread.id]}
-            onSelect={handleSelect}
-            onRename={handleRename}
-            onArchive={thread.status === 'running' ? undefined : handleArchive}
-            onDelete={thread.status === 'running' ? undefined : handleDelete}
-            t={t}
-          />
-        );
-      })}
+      {threads.map((thread) => (
+        <ThreadListItem
+          key={thread.id}
+          thread={thread}
+          isSelected={selectedThreadId === thread.id}
+          isRunning={RUNNING_STATUSES.has(thread.status)}
+          gitStatus={gitStatusByThread[thread.id]}
+          onSelect={handleSelect}
+          onRename={handleRename}
+          onArchive={handleArchive}
+          onDelete={handleDelete}
+        />
+      ))}
       {totalCount > 5 && (
         <ViewAllButton
           onClick={() => navigate('/list?status=completed,failed,stopped,interrupted')}
@@ -223,34 +246,32 @@ const ThreadListItem = memo(function ThreadListItem({
   onRename,
   onArchive,
   onDelete,
-  t,
 }: {
   thread: EnrichedThread;
   isSelected: boolean;
   isRunning: boolean;
   gitStatus?: GitStatusInfo;
   onSelect: (threadId: string, projectId: string) => void;
-  onRename?: (thread: EnrichedThread, newTitle: string) => void;
-  onArchive?: (thread: EnrichedThread) => void;
-  onDelete?: (thread: EnrichedThread) => void;
-  t: ReturnType<typeof useTranslation>['t'];
+  onRename: (thread: EnrichedThread, newTitle: string) => void;
+  onArchive: (thread: EnrichedThread) => void;
+  onDelete: (thread: EnrichedThread) => void;
 }) {
+  const { t } = useTranslation();
+  // Use a ref for the thread so callbacks stay stable even when the
+  // thread object reference changes (e.g. cost/sessionId updates).
+  const threadRef = useRef(thread) as MutableRefObject<EnrichedThread>;
+  threadRef.current = thread;
+
   const handleSelect = useCallback(
     () => onSelect(thread.id, thread.projectId),
     [onSelect, thread.id, thread.projectId],
   );
-  const handleRename = useMemo(
-    () => (onRename ? (newTitle: string) => onRename(thread, newTitle) : undefined),
-    [onRename, thread],
+  const handleRename = useCallback(
+    (newTitle: string) => onRename(threadRef.current, newTitle),
+    [onRename, threadRef],
   );
-  const handleArchive = useMemo(
-    () => (onArchive ? () => onArchive(thread) : undefined),
-    [onArchive, thread],
-  );
-  const handleDelete = useMemo(
-    () => (onDelete ? () => onDelete(thread) : undefined),
-    [onDelete, thread],
-  );
+  const handleArchive = useCallback(() => onArchive(threadRef.current), [onArchive, threadRef]);
+  const handleDelete = useCallback(() => onDelete(threadRef.current), [onDelete, threadRef]);
 
   return (
     <ThreadItem
@@ -263,8 +284,8 @@ const ThreadListItem = memo(function ThreadListItem({
       gitStatus={gitStatus}
       onSelect={handleSelect}
       onRename={handleRename}
-      onArchive={handleArchive}
-      onDelete={handleDelete}
+      onArchive={isRunning ? undefined : handleArchive}
+      onDelete={isRunning ? undefined : handleDelete}
     />
   );
 });

@@ -75,7 +75,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
 
     // Resolve Gemini binary
     const geminiBin = this.resolveGeminiBinary();
-    console.log(
+    this.logger?.debug(
       `[gemini-acp] resolved binary: ${geminiBin}, platform: ${process.platform}, shell: ${process.platform === 'win32'}`,
     );
 
@@ -135,7 +135,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
 
     // Convert Node streams to Web streams for ACP SDK
     const outputStream = Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>;
-    const inputStream = Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>;
+    const inputStream = Readable.toWeb(child.stdout!) as unknown as ReadableStream<Uint8Array>;
 
     // Create ACP NDJSON stream
     const stream = ndJsonStream(outputStream, inputStream);

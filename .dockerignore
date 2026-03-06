@@ -1,0 +1,10 @@
+.git
+.cursor
+.funny-worktrees
+node_modules
+packages/*/node_modules
+packages/*/dist
+packages/*/coverage
+packages/*/.turbo
+**/.DS_Store
+**/*.log

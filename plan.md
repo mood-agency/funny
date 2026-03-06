@@ -1,105 +1,78 @@
-# Plan: Delegate Commit Operations to Claude Code Agent via `/commit`
+# Plan: Improve Client Code Quality — Render Stability Patterns
 
-## Problem
+## Problem Summary
 
-Currently, when the user clicks Commit in the review pane (right sidebar), the server's `git-workflow-service.ts` executes the git workflow directly (stage, run hooks, commit, push, PR, merge). If pre-commit hooks fail, the workflow stops and the user has to manually fix the issue and retry.
+The render instability we fixed came from 4 recurring anti-patterns:
 
-The goal is to instead **delegate the entire workflow to the Claude Code agent** by sending it a follow-up message with a commit instruction. The agent (Claude Code) has built-in skills `/commit` and `/commit-push-pr` that automatically handle pre-commit hook failures, re-stages, and retries — removing this burden from the user.
+1. **Monolithic store objects** — Every WS event does `set({ activeThread: { ...activeThread, <field> } })`, creating a new `activeThread` reference. Components using `useThreadStore(s => s.activeThread)` re-render on every single update (cost, context_usage, messages, tool outputs, etc.) even if they only care about `status` or `initInfo`.
 
-## Scope
+2. **Unstable `useNavigate()`** — React Router returns a new function on every route change, invalidating all `useCallback`s that depend on it.
 
-- **Full workflow**: The agent handles everything the user selected (stage, hooks, commit, push, PR, merge).
-- **Threads only**: Only delegate to the agent when a thread is active. Project-mode commits (no thread) keep the existing `git-workflow-service` workflow unchanged.
+3. **Bare `memo()` with object props** — Default `memo()` uses `===` which always fails when store objects are recreated.
 
-## Approach: Send a `/commit` or `/commit-push-pr` command to the agent via `sendMessage`
+4. **Conditional callback props** — `onAction={isDisabled ? undefined : handler}` alternates between `undefined` and a function reference.
 
-Instead of calling `git-workflow-service.executeWorkflow()`, the client will call `api.sendMessage()` with a prompt that uses Claude Code's built-in slash commands:
+## Planned Changes
 
-- **For `commit` and `amend` actions** → Send `/commit` (Claude Code handles staging, hooks, retries)
-- **For `commit-push` and `commit-pr` and `commit-merge` actions** → Send `/commit-push-pr` (Claude Code handles commit + push + PR creation)
+### Step 1: Create `useStableNavigate()` hook
 
-This is the same pattern used by `handleAskAgentResolve` (line 806 in ReviewPane.tsx).
+**File:** `packages/client/src/hooks/use-stable-navigate.ts` (new)
 
-The prompt will prefix the slash command with context about what files to stage and the desired commit message so the agent uses them instead of auto-generating.
+A reusable hook that wraps `useNavigate()` in a ref and returns a stable function. This eliminates the `navigateRef` boilerplate we manually added to Sidebar, ThreadList, and ProjectItem, and prevents the pattern from being forgotten in future components.
 
-## Changes
+Then replace all `navigateRef` patterns in Sidebar.tsx, ThreadList.tsx, and ProjectItem.tsx with this hook.
 
-### 1. Client: `packages/client/src/components/ReviewPane.tsx`
+### Step 2: Create `useStableCallback()` utility
 
-Modify `handleCommitAction` (line 656) — when `effectiveThreadId` is available:
+**File:** `packages/client/src/hooks/use-stable-callback.ts` (new)
 
-- Instead of calling `api.startWorkflow(effectiveThreadId, params)`, construct a prompt and call `api.sendMessage(effectiveThreadId, prompt)`.
-- Choose the appropriate slash command based on the selected action:
-  - `commit` or `amend` → `/commit`
-  - `commit-push`, `commit-pr`, `commit-merge` → `/commit-push-pr`
-- Include staging context and commit message in the prompt body.
-- When `effectiveThreadId` is NOT available (project-mode), keep the existing `api.projectStartWorkflow()` call unchanged.
+A generic hook for the "ref + useCallback" pattern. Useful for any callback that needs to be referentially stable while always calling the latest closure.
 
-Similarly modify `handlePushOnly`, `handleMergeOnly`, and `handleCreatePROnly` — when `effectiveThreadId` is available, send agent message instead (these don't use `/commit` but a plain prompt instructing the agent to push/merge/create-pr).
+### Step 3: Refactor Sidebar.tsx, ThreadList.tsx, ProjectItem.tsx to use `useStableNavigate()`
 
-### 2. Prompt Construction Helper
+Replace the manual `navigateRef` pattern in all three files with the new hook. This reduces boilerplate and makes the intent clearer.
 
-Add a `buildAgentCommitPrompt(params)` function that generates the agent message:
+### Step 4: Consolidate thread visual-equality helpers
 
-**For `commit` / `amend`:**
-```
-First stage these files: src/foo.ts, src/bar.ts
+**File:** `packages/client/src/lib/shallow-compare.ts` (new)
 
-Then use /commit with this commit message:
-fix: resolve authentication bug
+We have duplicate "visual fields only" comparison logic in ThreadList.tsx, ThreadItem.tsx, and Sidebar.tsx. Consolidate into a single utility with:
+- `threadsVisuallyEqual(a, b)` — compares only render-relevant Thread fields
+- `arraysEqual(a, b, eq)` — shallow array comparison with custom element comparator
 
-Added proper token validation to the middleware
-```
+Then update ThreadList.tsx, ThreadItem.tsx, Sidebar.tsx, and ProjectItem.tsx to import from this shared module.
 
-**For `commit-push` / `commit-pr` / `commit-merge`:**
-```
-First stage these files: src/foo.ts, src/bar.ts
+### Step 5: Add granular selector hooks for `activeThread`
 
-Then use /commit-push-pr with this commit message:
-fix: resolve authentication bug
+Instead of restructuring the store (high risk), add targeted selector hooks in `thread-selectors.ts` using `zustand/shallow`:
+- `useActiveInitInfo()`
+- `useActiveThreadStatus()`
+- `useActiveThreadMessages()`
 
-Added proper token validation to the middleware
-```
+Then update ThreadView.tsx to use `useActiveInitInfo()` instead of `activeThread.initInfo`.
 
-**For `push` only:** "Push the current branch to the remote."
-**For `merge` only:** "Merge the current branch into {targetBranch} and clean up."
-**For `create-pr`:** "Push and create a PR with title: '...' body: '...'"
+### Step 6: Add render stability documentation
 
-The key advantage: Claude Code's `/commit` and `/commit-push-pr` skills automatically handle pre-commit hook failures — they fix issues, re-stage, and retry without user intervention.
+Add a comment block to `thread-store.ts` documenting the 4 rules to follow.
 
-### 3. Progress Feedback
+## Files Changed
 
-Since the workflow is now handled by the agent's chat stream (not `git:workflow_progress` WS events), the commit progress modal won't apply for agent-delegated commits. Instead:
+| File | Change Type |
+|------|------------|
+| `packages/client/src/hooks/use-stable-navigate.ts` | New |
+| `packages/client/src/hooks/use-stable-callback.ts` | New |
+| `packages/client/src/lib/shallow-compare.ts` | New |
+| `packages/client/src/components/Sidebar.tsx` | Refactor |
+| `packages/client/src/components/sidebar/ThreadList.tsx` | Refactor |
+| `packages/client/src/components/sidebar/ProjectItem.tsx` | Refactor |
+| `packages/client/src/components/sidebar/ThreadItem.tsx` | Refactor |
+| `packages/client/src/stores/thread-selectors.ts` | Add selector hooks |
+| `packages/client/src/components/ThreadView.tsx` | Use granular selectors |
+| `packages/client/src/stores/thread-store.ts` | Add doc comments |
 
-- Show a toast saying the commit task was sent to the agent.
-- The user sees the agent working in the chat view (messages streaming with tool calls).
-- After the agent completes, git status auto-refreshes via existing `git:status` WS events.
+## What This Does NOT Change
 
-The existing workflow progress system remains for project-mode commits (no change).
-
-### 4. UI State
-
-- Clear `actionInProgress` immediately after `sendMessage` succeeds (the agent takes over).
-- Clear commit title/body draft on success (same as current behavior).
-- No need to change progress store — it simply won't be triggered for agent commits.
-
-## Summary of Files Changed
-
-| File | Change |
-|------|--------|
-| `packages/client/src/components/ReviewPane.tsx` | Modify `handleCommitAction`, `handlePushOnly`, `handleMergeOnly`, `handleCreatePROnly` to use `api.sendMessage()` when `effectiveThreadId` exists. Add `buildAgentCommitPrompt()` helper. |
-
-## What Stays the Same
-
-- Project-mode commits (no thread) — unchanged, still uses `git-workflow-service`
-- Server-side `git-workflow-service.ts` — unchanged
-- Server-side routes — unchanged
-- WebSocket workflow progress — unchanged (still used for project-mode)
-- Commit progress store/modal — unchanged (just won't be triggered for agent commits)
-- All other git operations (stage, unstage, revert, diff) — unchanged
-
-## Risks & Mitigations
-
-1. **Agent might not be running**: `sendMessage` will start a new agent session if needed. This works the same as typing a message in the chat.
-2. **Agent might be busy**: The message will either interrupt or queue based on project `followUpMode`. Same behavior as the existing `handleAskAgentResolve`.
-3. **Slash commands are reliable**: `/commit` and `/commit-push-pr` are built-in Claude Code skills, not freeform prompts — they follow a well-defined workflow internally.
+- Store structure (no normalization) — too risky for one PR
+- WS handler logic — unchanged
+- Server code — unchanged
+- Test files — behavior is unchanged

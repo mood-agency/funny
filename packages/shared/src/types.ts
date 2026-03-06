@@ -292,6 +292,8 @@ export interface WSResultData {
   cost?: number;
   duration?: number;
   result?: string;
+  stage?: ThreadStage;
+  errorReason?: string;
 }
 
 export interface WSErrorData {

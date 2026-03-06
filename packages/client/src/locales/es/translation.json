@@ -654,7 +654,12 @@
     "queued": "en cola",
     "queuedOne": "1 mensaje en cola",
     "queuedMany": "{{count}} mensajes en cola",
-    "queueMessage": "Encolar mensaje"
+    "queueMessage": "Encolar mensaje",
+    "loadingQueuedMessages": "Cargando mensajes en cola...",
+    "editQueuedMessage": "Editar",
+    "deleteQueuedMessage": "Eliminar",
+    "saveQueuedMessage": "Guardar",
+    "cancelQueuedEdit": "Cancelar"
   },
   "gitStatus": {
     "dirty": "Cambios sin commitear",

@@ -21,6 +21,7 @@ import {
   updateThread as updateThreadService,
   deleteThread as deleteThreadService,
   cancelQueuedMessage,
+  updateQueuedMessage as updateQueuedMessageService,
   deleteComment as deleteCommentService,
   ThreadServiceError,
 } from '../services/thread-service.js';
@@ -31,6 +32,7 @@ import {
   createThreadSchema,
   createIdleThreadSchema,
   sendMessageSchema,
+  updateQueuedMessageSchema,
   updateThreadSchema,
   approveToolSchema,
   validate,
@@ -272,6 +274,30 @@ threadRoutes.delete('/:id/queue/:messageId', (c) => {
   try {
     const { queuedCount } = cancelQueuedMessage(id, messageId);
     return c.json({ ok: true, queuedCount });
+  } catch (error) {
+    return handleServiceError(c, error);
+  }
+});
+
+// PATCH /api/threads/:id/queue/:messageId
+threadRoutes.patch('/:id/queue/:messageId', async (c) => {
+  const id = c.req.param('id');
+  const messageId = c.req.param('messageId');
+  const userId = c.get('userId') as string;
+  const raw = await c.req.json().catch(() => ({}));
+  const parsed = validate(updateQueuedMessageSchema, raw);
+  if (parsed.isErr()) return resultToResponse(c, parsed);
+
+  const threadResult = requireThread(id, userId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+
+  try {
+    const { queuedCount, queuedMessage } = updateQueuedMessageService(
+      id,
+      messageId,
+      parsed.value.content,
+    );
+    return c.json({ ok: true, queuedCount, message: queuedMessage });
   } catch (error) {
     return handleServiceError(c, error);
   }

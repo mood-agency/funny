@@ -1,10 +1,17 @@
-# @funny/server
+# @ironmussa/funny-server
 
 Hono HTTP server that orchestrates Claude Code agents, manages git worktrees, and streams real-time events over WebSocket.
 
 ## Quick Start
 
 ```bash
+# Run directly from npm
+bunx @ironmussa/funny-server
+
+# Or install globally
+bun install -g @ironmussa/funny-server
+funny-server
+
 # From monorepo root
 bun run dev:server
 
@@ -13,6 +20,23 @@ bun --watch src/index.ts
 ```
 
 Server runs on **http://localhost:3001** by default.
+
+## Publishing
+
+This package is built as a self-contained Bun runtime bundle in `dist/`.
+
+```bash
+cd packages/server
+bun run build
+npm publish
+```
+
+Published package contents:
+
+- `dist/index.js`
+- `dist/index.js.map`
+- `dist/pty-helper.mjs`
+- `bin/funny-server.js`
 
 ## Architecture
 

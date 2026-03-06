@@ -379,7 +379,7 @@ describe('Agent Runner State Machine Edge Cases', () => {
 
   test('error_max_turns result sets thread to failed', () => {
     // Simulate: result.subtype !== 'success' → status = 'failed'
-    const finalStatus = 'error_max_turns' === 'success' ? 'completed' : 'failed';
+    const finalStatus = 'failed';
 
     testDb.db
       .update(testDb.schema.threads)
@@ -398,7 +398,7 @@ describe('Agent Runner State Machine Edge Cases', () => {
   });
 
   test('error_during_execution result sets thread to failed', () => {
-    const finalStatus = 'error_during_execution' === 'success' ? 'completed' : 'failed';
+    const finalStatus = 'failed';
 
     testDb.db
       .update(testDb.schema.threads)

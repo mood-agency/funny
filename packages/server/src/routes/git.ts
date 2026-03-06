@@ -30,6 +30,7 @@ import {
   stashList,
   resetSoft,
   git,
+  type GitStatusSummary,
 } from '@funny/core/git';
 import { badRequest, internal } from '@funny/shared/errors';
 import { Hono } from 'hono';
@@ -147,9 +148,12 @@ gitRoutes.get('/status', async (c) => {
   const mergedThreads = threads.filter((t) => !t.worktreePath && !t.branch && t.baseBranch);
   const localThreads = threads.filter((t) => !t.worktreePath && !(!t.branch && t.baseBranch));
 
-  const localStatusPromise =
+  const localStatusPromise: Promise<GitStatusSummary | null> =
     localThreads.length > 0
-      ? getStatusSummary(project.path).then((r) => (r.isOk() ? r.value : null))
+      ? (async (): Promise<GitStatusSummary | null> => {
+          const result = await getStatusSummary(project.path);
+          return result.isOk() ? result.value : null;
+        })()
       : Promise.resolve(null);
 
   const [worktreeResults, localSummary] = await Promise.all([

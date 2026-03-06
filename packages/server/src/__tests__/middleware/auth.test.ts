@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
+import type { HonoEnv } from '../../types/hono-env.js';
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before importing the module under test
 // ---------------------------------------------------------------------------
@@ -17,7 +19,7 @@ vi.mock('../../services/auth-service.js', () => ({
 }));
 
 // Mock Better Auth — only used in multi mode tests
-const mockGetSession = vi.fn(() => Promise.resolve(null));
+const mockGetSession = vi.fn<() => Promise<any | null>>(() => Promise.resolve(null));
 vi.mock('../../lib/auth.js', () => ({
   auth: {
     api: {
@@ -38,7 +40,7 @@ const { authMiddleware, requireAdmin } = await import('../../middleware/auth.js'
 
 /** Build a fresh Hono app with authMiddleware applied to all routes. */
 function createApp() {
-  const app = new Hono();
+  const app = new Hono<HonoEnv>();
   app.use('*', authMiddleware);
   app.get('/api/health', (c) => c.json({ ok: true }));
   app.get('/api/auth/mode', (c) => c.json({ mode: 'local' }));
@@ -52,7 +54,7 @@ function createApp() {
 
 /** Build a Hono app with authMiddleware + requireAdmin chained. */
 function createAdminApp() {
-  const app = new Hono();
+  const app = new Hono<HonoEnv>();
   app.use('*', authMiddleware);
   app.use('/api/admin/*', requireAdmin);
   app.get('/api/admin/users', (c) => c.json({ userId: c.get('userId'), role: c.get('userRole') }));

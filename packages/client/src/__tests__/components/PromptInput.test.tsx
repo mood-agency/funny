@@ -1,7 +1,9 @@
 import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { okAsync } from 'neverthrow';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 import { PromptInput } from '@/components/PromptInput';
+import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/app-store';
 
 import { renderWithProviders } from '../helpers/render';
@@ -26,6 +28,17 @@ vi.mock('@/lib/api', async () => {
       listSkills: vi.fn().mockReturnValue(okAsync({ skills: [] })),
       remoteUrl: vi.fn().mockReturnValue(okAsync({ url: '' })),
       browseFiles: vi.fn().mockReturnValue(okAsync({ entries: [] })),
+      listQueue: vi.fn().mockReturnValue(okAsync([])),
+      updateQueuedMessage: vi
+        .fn()
+        .mockImplementation((_threadId: string, messageId: string, content: string) =>
+          okAsync({
+            ok: true,
+            queuedCount: 1,
+            message: { id: messageId, threadId: 't1', content },
+          }),
+        ),
+      cancelQueuedMessage: vi.fn().mockReturnValue(okAsync({ ok: true, queuedCount: 0 })),
     },
     getAuthToken: vi.fn(() => null),
     getAuthMode: vi.fn(() => 'local'),
@@ -154,5 +167,81 @@ describe('PromptInput', () => {
   test('textarea is disabled when loading=true', () => {
     renderWithProviders(<PromptInput onSubmit={vi.fn()} loading={true} />);
     expect(screen.getByRole('textbox')).toBeDisabled();
+  });
+
+  test('shows all queued messages above the prompt', async () => {
+    vi.mocked(api.listQueue).mockReturnValueOnce(
+      okAsync([
+        {
+          id: 'q1',
+          threadId: 'thread-1',
+          content: 'Primer follow-up',
+          sortOrder: 0,
+          createdAt: '',
+        },
+        {
+          id: 'q2',
+          threadId: 'thread-1',
+          content: 'Segundo follow-up',
+          sortOrder: 1,
+          createdAt: '',
+        },
+      ]),
+    );
+
+    renderWithProviders(<PromptInput onSubmit={vi.fn()} threadId="thread-1" queuedCount={2} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Primer follow-up')).toBeInTheDocument();
+      expect(screen.getByText('Segundo follow-up')).toBeInTheDocument();
+    });
+  });
+
+  test('can edit a queued message', async () => {
+    vi.mocked(api.listQueue).mockReturnValueOnce(
+      okAsync([
+        { id: 'q1', threadId: 'thread-1', content: 'Texto original', sortOrder: 0, createdAt: '' },
+      ]),
+    );
+
+    renderWithProviders(<PromptInput onSubmit={vi.fn()} threadId="thread-1" queuedCount={1} />);
+
+    await waitFor(() => expect(screen.getByText('Texto original')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('queue-edit-q1'));
+    fireEvent.change(screen.getByTestId('queue-edit-textarea-q1'), {
+      target: { value: 'Texto actualizado' },
+    });
+    fireEvent.click(screen.getByTestId('queue-save-q1'));
+
+    await waitFor(() => {
+      expect(api.updateQueuedMessage).toHaveBeenCalledWith('thread-1', 'q1', 'Texto actualizado');
+      expect(screen.getByText('Texto actualizado')).toBeInTheDocument();
+    });
+  });
+
+  test('can delete a queued message', async () => {
+    vi.mocked(api.listQueue).mockReturnValueOnce(
+      okAsync([
+        {
+          id: 'q1',
+          threadId: 'thread-1',
+          content: 'Borrar este mensaje',
+          sortOrder: 0,
+          createdAt: '',
+        },
+      ]),
+    );
+
+    renderWithProviders(<PromptInput onSubmit={vi.fn()} threadId="thread-1" queuedCount={1} />);
+
+    await waitFor(() => expect(screen.getByText('Borrar este mensaje')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('queue-delete-q1'));
+
+    await waitFor(() => {
+      expect(api.cancelQueuedMessage).toHaveBeenCalledWith('thread-1', 'q1');
+      expect(screen.queryByText('Borrar este mensaje')).toBeNull();
+    });
   });
 });

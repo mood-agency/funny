@@ -656,7 +656,12 @@
     "queued": "queued",
     "queuedOne": "1 message in queue",
     "queuedMany": "{{count}} messages in queue",
-    "queueMessage": "Queue message"
+    "queueMessage": "Queue message",
+    "loadingQueuedMessages": "Loading queued messages...",
+    "editQueuedMessage": "Edit",
+    "deleteQueuedMessage": "Delete",
+    "saveQueuedMessage": "Save",
+    "cancelQueuedEdit": "Cancel"
   },
   "gitStatus": {
     "dirty": "Uncommitted changes",

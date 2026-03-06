@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef, useMemo, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -33,6 +32,8 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useStableNavigate } from '@/hooks/use-stable-navigate';
+import { threadsVisuallyEqual } from '@/lib/shallow-compare';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -49,7 +50,7 @@ import { ThreadList } from './sidebar/ThreadList';
 const EMPTY_THREADS: Thread[] = [];
 
 export function AppSidebar() {
-  const navigate = useNavigate();
+  const navigate = useStableNavigate();
   const { t } = useTranslation();
   // project-store
   const projects = useProjectStore((s) => s.projects);
@@ -62,7 +63,6 @@ export function AppSidebar() {
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   // thread-store
   const threadsByProject = useThreadStore((s) => s.threadsByProject);
-  const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const archiveThread = useThreadStore((s) => s.archiveThread);
   const renameThread = useThreadStore((s) => s.renameThread);
   const pinThread = useThreadStore((s) => s.pinThread);
@@ -180,25 +180,25 @@ export function AppSidebar() {
     if (!archiveConfirm) return;
     setActionLoading(true);
     const { threadId, projectId } = archiveConfirm;
-    const wasSelected = selectedThreadId === threadId;
+    const wasSelected = useThreadStore.getState().selectedThreadId === threadId;
     await archiveThread(threadId, projectId);
     setActionLoading(false);
     setArchiveConfirm(null);
     toast.success(t('toast.threadArchived'));
     if (wasSelected) navigate(`/projects/${projectId}`);
-  }, [archiveConfirm, selectedThreadId, archiveThread, navigate, t]);
+  }, [archiveConfirm, archiveThread, t, navigate]);
 
   const handleDeleteThreadConfirm = useCallback(async () => {
     if (!deleteThreadConfirm) return;
     setActionLoading(true);
     const { threadId, projectId, title } = deleteThreadConfirm;
-    const wasSelected = selectedThreadId === threadId;
+    const wasSelected = useThreadStore.getState().selectedThreadId === threadId;
     await deleteThread(threadId, projectId);
     setActionLoading(false);
     setDeleteThreadConfirm(null);
     toast.success(t('toast.threadDeleted', { title }));
     if (wasSelected) navigate(`/projects/${projectId}`);
-  }, [deleteThreadConfirm, selectedThreadId, deleteThread, navigate, t]);
+  }, [deleteThreadConfirm, deleteThread, t, navigate]);
 
   const handleRenameProjectConfirm = useCallback(async () => {
     if (!renameProjectState) return;
@@ -226,7 +226,7 @@ export function AppSidebar() {
     await deleteProject(projectId);
     toast.success(t('toast.projectDeleted', { name }));
     navigate('/');
-  }, [deleteProjectConfirm, deleteProject, navigate, t]);
+  }, [deleteProjectConfirm, deleteProject, t]);
 
   // ── Stable callbacks for ProjectItem (avoids breaking memo) ──────────
   const handleToggleProject = useCallback(
@@ -236,19 +236,16 @@ export function AppSidebar() {
     [toggleProject],
   );
 
-  const handleSelectProject = useCallback(
-    (projectId: string) => {
-      startTransition(() => {
-        useProjectStore.getState().selectProject(projectId);
-        navigate(`/projects/${projectId}`);
-      });
-      requestAnimationFrame(() => {
-        const ta = document.querySelector<HTMLTextAreaElement>('[data-testid="prompt-textarea"]');
-        ta?.focus();
-      });
-    },
-    [navigate],
-  );
+  const handleSelectProject = useCallback((projectId: string) => {
+    startTransition(() => {
+      useProjectStore.getState().selectProject(projectId);
+      navigate(`/projects/${projectId}`);
+    });
+    requestAnimationFrame(() => {
+      const ta = document.querySelector<HTMLTextAreaElement>('[data-testid="prompt-textarea"]');
+      ta?.focus();
+    });
+  }, []);
 
   const handleNewThread = useCallback(
     (projectId: string) => {
@@ -257,7 +254,7 @@ export function AppSidebar() {
         navigate(`/projects/${projectId}`);
       });
     },
-    [startNewThread, navigate],
+    [startNewThread],
   );
 
   const handleRenameProject = useCallback((projectId: string, currentName: string) => {
@@ -268,21 +265,18 @@ export function AppSidebar() {
     setDeleteProjectConfirm({ projectId, name });
   }, []);
 
-  const handleSelectThread = useCallback(
-    (projectId: string, threadId: string) => {
-      startTransition(() => {
-        const store = useThreadStore.getState();
-        if (
-          store.selectedThreadId === threadId &&
-          (!store.activeThread || store.activeThread.id !== threadId)
-        ) {
-          store.selectThread(threadId);
-        }
-        navigate(`/projects/${projectId}/threads/${threadId}`);
-      });
-    },
-    [navigate],
-  );
+  const handleSelectThread = useCallback((projectId: string, threadId: string) => {
+    startTransition(() => {
+      const store = useThreadStore.getState();
+      if (
+        store.selectedThreadId === threadId &&
+        (!store.activeThread || store.activeThread.id !== threadId)
+      ) {
+        store.selectThread(threadId);
+      }
+      navigate(`/projects/${projectId}/threads/${threadId}`);
+    });
+  }, []);
 
   const handleArchiveThread = useCallback((projectId: string, threadId: string, title: string) => {
     const threads = useThreadStore.getState().threadsByProject[projectId] ?? [];
@@ -340,7 +334,7 @@ export function AppSidebar() {
       showGlobalSearch();
       navigate(`/list?project=${projectId}`);
     },
-    [showGlobalSearch, navigate],
+    [showGlobalSearch],
   );
 
   const handleShowIssues = useCallback((projectId: string) => {
@@ -348,32 +342,27 @@ export function AppSidebar() {
   }, []);
 
   // Memoize per-project thread lists, preserving referential identity for
-  // projects whose source threads array didn't change. This prevents
-  // unrelated ProjectItem components from re-rendering when only one
-  // project's threadsByProject entry was updated.
-  const prevSourceRef = useRef<Record<string, (typeof threadsByProject)[string]>>({});
-  const prevFilteredRef = useRef<Record<string, (typeof threadsByProject)[string]>>({});
+  // projects whose threads didn't change visually. This prevents unrelated
+  // ProjectItem components from re-rendering when only non-visual thread
+  // fields (cost, sessionId, etc.) were updated via WebSocket.
+  const prevFilteredRef = useRef<Record<string, Thread[]>>({});
   const filteredThreadsByProject = useMemo(() => {
-    const prevSrc = prevSourceRef.current;
     const prevFiltered = prevFilteredRef.current;
-    const result: Record<string, (typeof threadsByProject)[string]> = {};
+    const result: Record<string, Thread[]> = {};
     for (const project of projects) {
       const src = threadsByProject[project.id];
-      if (src === prevSrc[project.id] && prevFiltered[project.id]) {
-        // Source array unchanged — reuse previous filtered result
-        result[project.id] = prevFiltered[project.id];
+      const filtered = (src ?? []).filter((t) => !t.archived);
+      const prev = prevFiltered[project.id];
+      if (
+        prev &&
+        prev.length === filtered.length &&
+        prev.every((prevT, i) => threadsVisuallyEqual(prevT, filtered[i]))
+      ) {
+        result[project.id] = prev;
       } else {
-        const filtered = (src ?? []).filter((t) => !t.archived);
-        const prev = prevFiltered[project.id];
-        // Reuse previous reference if filtered result has the same thread refs
-        if (prev && prev.length === filtered.length && prev.every((t, i) => t === filtered[i])) {
-          result[project.id] = prev;
-        } else {
-          result[project.id] = filtered;
-        }
+        result[project.id] = filtered;
       }
     }
-    prevSourceRef.current = threadsByProject;
     prevFilteredRef.current = result;
     return result;
   }, [threadsByProject, projects]);
@@ -534,7 +523,7 @@ export function AppSidebar() {
               project={project}
               threads={filteredThreadsByProject[project.id] ?? EMPTY_THREADS}
               isExpanded={expandedProjects.has(project.id)}
-              isSelected={selectedProjectId === project.id && !selectedThreadId}
+              isSelected={selectedProjectId === project.id}
               onToggle={handleToggleProject}
               onSelectProject={handleSelectProject}
               onNewThread={handleNewThread}

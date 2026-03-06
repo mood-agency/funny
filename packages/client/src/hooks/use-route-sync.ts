@@ -315,9 +315,9 @@ export function useRouteSync() {
         projectStore.selectProject(projectId);
       }
     } else {
-      // Root path — clear selection
-      if (threadStore.selectedThreadId) threadStore.selectThread(null);
-      if (projectStore.selectedProjectId) projectStore.selectProject(null);
+      // Root path — clear selection (only if something is selected to avoid no-op state updates)
+      if (threadStore.selectedThreadId != null) threadStore.selectThread(null);
+      if (projectStore.selectedProjectId != null) projectStore.selectProject(null);
     }
   }, [location.pathname, location.search, initialized]);
 }

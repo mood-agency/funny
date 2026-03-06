@@ -111,11 +111,19 @@ export class AgentRunner {
           this.orchestrator.adoptProcess(threadId, proc);
           adopted++;
         } else {
-          // Process exited during the transition — mark thread status
-          log.info('Surviving agent already exited, skipping adoption', {
+          // Process exited during the transition — mark thread as interrupted
+          // so it doesn't stay stuck in 'running' without an active process
+          log.info('Surviving agent already exited, marking thread interrupted', {
             namespace: 'agent',
             threadId,
           });
+          const t = this.threadManager.getThread(threadId);
+          if (t && (t.status === 'running' || t.status === 'waiting')) {
+            this.threadManager.updateThread(threadId, {
+              status: 'interrupted',
+              completedAt: new Date().toISOString(),
+            });
+          }
         }
       }
       if (adopted > 0) {
@@ -151,10 +159,11 @@ export class AgentRunner {
     threadEventBus.emit('agent:completed', {
       threadId,
       projectId: thread.projectId,
-      userId: thread.userId ?? undefined,
+      userId: thread.userId,
       cwd: thread.worktreePath ?? project?.path ?? '',
       worktreePath: thread.worktreePath ?? null,
       status,
+      cost: thread.cost ?? 0,
     });
   }
 

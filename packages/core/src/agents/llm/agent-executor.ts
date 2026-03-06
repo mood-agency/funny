@@ -115,7 +115,7 @@ export class AgentExecutor {
       function: {
         name,
         description: def.description,
-        parameters: zodToJsonSchema(def.parameters),
+        parameters: zodToJsonSchema(def.parameters as any),
       },
     }));
 

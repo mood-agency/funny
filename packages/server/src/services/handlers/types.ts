@@ -6,7 +6,32 @@
  * Generic interface for self-describing, declarative event handlers.
  */
 
+import type { GitStatusSummary } from '@funny/core/git';
+import type { GitSyncState, ImageAttachment } from '@funny/shared';
+import type { DomainError } from '@funny/shared/errors';
+import type { ResultAsync } from 'neverthrow';
+
+import type { QueueEntry } from '../message-queue.js';
 import type { ThreadEventMap } from '../thread-event-bus.js';
+
+interface HandlerThread {
+  id: string;
+  projectId: string;
+  userId: string;
+  stage?: string | null;
+  model?: string | null;
+  provider?: string | null;
+  permissionMode?: string | null;
+  branch?: string | null;
+  baseBranch?: string | null;
+  worktreePath?: string | null;
+}
+
+interface HandlerProject {
+  id: string;
+  path: string;
+  followUpMode?: string;
+}
 
 // ── Service Context ─────────────────────────────────────────────
 
@@ -17,12 +42,12 @@ import type { ThreadEventMap } from '../thread-event-bus.js';
  */
 export interface HandlerServiceContext {
   // Thread operations
-  getThread(id: string): Record<string, any> | undefined;
+  getThread(id: string): HandlerThread | undefined;
   updateThread(id: string, updates: Record<string, any>): void;
   insertComment(data: { threadId: string; userId: string; source: string; content: string }): any;
 
   // Project operations
-  getProject(id: string): Record<string, any> | undefined;
+  getProject(id: string): HandlerProject | undefined;
 
   // WebSocket
   emitToUser(userId: string, event: any): void;
@@ -35,24 +60,28 @@ export interface HandlerServiceContext {
     cwd: string,
     model?: string,
     permissionMode?: string,
-    images?: any[],
+    images?: ImageAttachment[],
     disallowedTools?: string[],
     allowedTools?: string[],
     provider?: string,
   ): Promise<void>;
 
   // Git
-  getGitStatusSummary(cwd: string, baseBranch?: string, mainRepoPath?: string): Promise<any>;
-  deriveGitSyncState(summary: any): string;
+  getGitStatusSummary(
+    cwd: string,
+    baseBranch?: string,
+    mainRepoPath?: string,
+  ): ResultAsync<GitStatusSummary, DomainError>;
+  deriveGitSyncState(summary: GitStatusSummary): GitSyncState;
   invalidateGitStatusCache(projectId: string): void;
 
   // Thread events
   saveThreadEvent(threadId: string, type: string, data: Record<string, unknown>): Promise<void>;
 
   // Message queue
-  dequeueMessage(threadId: string): Record<string, any> | undefined;
+  dequeueMessage(threadId: string): QueueEntry | null;
   queueCount(threadId: string): number;
-  peekMessage(threadId: string): Record<string, any> | undefined;
+  peekMessage(threadId: string): QueueEntry | null;
 
   // Logging
   log(message: string): void;

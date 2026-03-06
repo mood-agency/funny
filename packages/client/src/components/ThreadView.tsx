@@ -338,6 +338,22 @@ function groupTools(tools: string[]) {
   return { builtIn, mcpGroups };
 }
 
+function initInfoAreEqual(
+  prev: { initInfo: { tools: string[]; cwd: string; model: string } },
+  next: { initInfo: { tools: string[]; cwd: string; model: string } },
+) {
+  const a = prev.initInfo;
+  const b = next.initInfo;
+  if (a === b) return true;
+  if (a.cwd !== b.cwd || a.model !== b.model) return false;
+  if (a.tools === b.tools) return true;
+  if (a.tools.length !== b.tools.length) return false;
+  for (let i = 0; i < a.tools.length; i++) {
+    if (a.tools[i] !== b.tools[i]) return false;
+  }
+  return true;
+}
+
 const InitInfoCard = memo(function InitInfoCard({
   initInfo,
 }: {
@@ -374,7 +390,20 @@ const InitInfoCard = memo(function InitInfoCard({
       </div>
     </div>
   );
-});
+}, initInfoAreEqual);
+
+function mcpToolGroupAreEqual(
+  prev: { serverName: string; toolNames: string[] },
+  next: { serverName: string; toolNames: string[] },
+) {
+  if (prev.serverName !== next.serverName) return false;
+  if (prev.toolNames === next.toolNames) return true;
+  if (prev.toolNames.length !== next.toolNames.length) return false;
+  for (let i = 0; i < prev.toolNames.length; i++) {
+    if (prev.toolNames[i] !== next.toolNames[i]) return false;
+  }
+  return true;
+}
 
 const McpToolGroup = memo(function McpToolGroup({
   serverName,
@@ -400,7 +429,7 @@ const McpToolGroup = memo(function McpToolGroup({
       </CollapsibleContent>
     </Collapsible>
   );
-});
+}, mcpToolGroupAreEqual);
 
 const COLLAPSED_MAX_H = 128; // px – roughly 8 lines of text
 
@@ -459,6 +488,7 @@ function UserMessageContent({ content }: { content: string }) {
 const INITIAL_WINDOW = 30;
 const EXPAND_BATCH = 20;
 const USER_PROMPT_TOP_OFFSET = 24;
+const EMPTY_MESSAGES: any[] = [];
 
 function estimateItemHeight(item: RenderItem): number {
   if (item.type === 'message') return item.msg.role === 'user' ? 80 : 120;
@@ -472,6 +502,35 @@ function estimateItemHeight(item: RenderItem): number {
 
 interface MemoizedMessageListHandle {
   expandToItem: (id: string) => void;
+}
+
+/** Custom comparator for MemoizedMessageList — avoids re-renders when only
+ *  unrelated activeThread properties changed (status, cost, contextUsage, etc.). */
+function messageListAreEqual(
+  prev: {
+    messages: any[];
+    threadEvents?: any[];
+    compactionEvents?: any[];
+    threadId: string;
+    knownIds: Set<string>;
+    prefersReducedMotion: boolean | null;
+    snapshotMap: Map<string, number>;
+    onSend: any;
+    onOpenLightbox: any;
+    scrollRef: any;
+  },
+  next: typeof prev,
+) {
+  return (
+    prev.messages === next.messages &&
+    prev.threadEvents === next.threadEvents &&
+    prev.compactionEvents === next.compactionEvents &&
+    prev.threadId === next.threadId &&
+    prev.snapshotMap === next.snapshotMap &&
+    prev.onSend === next.onSend &&
+    prev.onOpenLightbox === next.onOpenLightbox &&
+    prev.scrollRef === next.scrollRef
+  );
 }
 
 /** Memoized message list with windowed rendering — only mounts the last
@@ -709,177 +768,247 @@ const MemoizedMessageList = memo(
       [snapshotMap, threadId, onSend],
     );
 
+    // Group items into sections: each section starts with a user message
+    // and contains all following items until the next user message.
+    // Items before the first user message go into a "preamble" section (no sticky header).
+    type MessageItem = Extract<RenderItem, { type: 'message' }>;
+    const sections = useMemo(() => {
+      const result: { userItem: MessageItem | null; items: RenderItem[] }[] = [];
+      let current: { userItem: MessageItem | null; items: RenderItem[] } = {
+        userItem: null,
+        items: [],
+      };
+
+      for (const item of visibleItems) {
+        if (item.type === 'message' && item.msg.role === 'user') {
+          // Push previous section if it has content
+          if (current.userItem || current.items.length > 0) {
+            result.push(current);
+          }
+          current = { userItem: item as MessageItem, items: [] };
+        } else {
+          current.items.push(item);
+        }
+      }
+      // Push the last section
+      if (current.userItem || current.items.length > 0) {
+        result.push(current);
+      }
+      return result;
+    }, [visibleItems]);
+
+    const renderNonUserItem = useCallback(
+      (item: RenderItem) => {
+        const key = getItemKey(item);
+
+        if (item.type === 'message') {
+          const msg = item.msg;
+          return (
+            <div
+              key={key}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' }}
+              className="group relative w-full text-sm text-foreground"
+            >
+              <div className="overflow-x-auto break-words text-sm leading-relaxed">
+                <div className="flex items-start gap-2">
+                  {msg.author && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Avatar className="mt-0.5">
+                          <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+                            {msg.author.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">{msg.author}</TooltipContent>
+                    </Tooltip>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <MessageContent content={msg.content.trim()} />
+                  </div>
+                  <CopyButton content={msg.content} />
+                </div>
+                <div className="mt-1">
+                  <span className="select-none text-xs text-muted-foreground/60">
+                    {timeAgo(msg.timestamp, t)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (item.type === 'toolcall' || item.type === 'toolcall-group') {
+          return (
+            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' }}>
+              {renderToolItem(item)}
+            </div>
+          );
+        }
+
+        if (item.type === 'toolcall-run') {
+          return (
+            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' }}>
+              <div className="space-y-1">{item.items.map(renderToolItem)}</div>
+            </div>
+          );
+        }
+
+        if (item.type === 'thread-event') {
+          return (
+            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}>
+              <GitEventCard event={item.event} />
+            </div>
+          );
+        }
+
+        if (item.type === 'compaction-event') {
+          return (
+            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}>
+              <CompactionEventCard event={item.event} />
+            </div>
+          );
+        }
+
+        return null;
+      },
+      [renderToolItem, t],
+    );
+
+    const renderUserMessage = useCallback(
+      (item: Extract<RenderItem, { type: 'message' }>) => {
+        const msg = item.msg;
+        const key = getItemKey(item);
+        return (
+          <div key={key} className="sticky top-0 z-20 pb-3 pt-3">
+            <div
+              className={cn(
+                'relative group text-sm',
+                'w-full rounded-lg px-3 py-2 bg-foreground text-background cursor-pointer',
+                'shadow-md',
+              )}
+              data-user-msg={msg.id}
+              onClick={() => {
+                const section = scrollRef.current?.querySelector(
+                  `[data-section-msg-id="${msg.id}"]`,
+                );
+                if (section) {
+                  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+            >
+              {msg.images &&
+                msg.images.length > 0 &&
+                (() => {
+                  const allImages = msg.images!.map((i: any, j: number) => ({
+                    src: `data:${i.source.media_type};base64,${i.source.data}`,
+                    alt: `Attachment ${j + 1}`,
+                  }));
+                  return (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {msg.images!.map((img: any, idx: number) => (
+                        <img
+                          key={`attachment-${idx}`}
+                          src={`data:${img.source.media_type};base64,${img.source.data}`}
+                          alt={`Attachment ${idx + 1}`}
+                          width={160}
+                          height={160}
+                          loading="lazy"
+                          className="max-h-40 cursor-pointer rounded border border-border transition-opacity hover:opacity-80"
+                          onClick={() => onOpenLightbox(allImages, idx)}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
+              {(() => {
+                const { files, cleanContent } = parseReferencedFiles(msg.content);
+                return (
+                  <>
+                    {files.length > 0 && (
+                      <div className="mb-1.5 flex flex-wrap gap-1">
+                        {files.map((fileItem) => (
+                          <span
+                            key={`${fileItem.type}:${fileItem.path}`}
+                            className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-mono text-xs text-background/70"
+                            title={fileItem.path}
+                          >
+                            {fileItem.type === 'folder' ? (
+                              <FolderOpen className="h-3 w-3 shrink-0" />
+                            ) : (
+                              <FileText className="h-3 w-3 shrink-0" />
+                            )}
+                            {fileItem.path.split('/').pop()}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="line-clamp-2 pr-16">
+                      <UserMessageContent content={cleanContent.trim()} />
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <div className="flex gap-1">
+                        {msg.model && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 border-background/20 bg-background/10 px-1.5 py-0 text-[10px] font-medium text-background/60"
+                          >
+                            {resolveModelLabel(msg.model, t)}
+                          </Badge>
+                        )}
+                        {msg.permissionMode && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 border-background/20 bg-background/10 px-1.5 py-0 text-[10px] font-medium text-background/60"
+                          >
+                            {t(`prompt.${msg.permissionMode}`)}
+                          </Badge>
+                        )}
+                      </div>
+                      {msg.timestamp && (
+                        <span className="text-[10px] text-background/50">
+                          {timeAgo(msg.timestamp, t)}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        );
+      },
+      [onOpenLightbox, scrollRef, t],
+    );
+
     return (
       <>
         {hasHiddenItems && <div style={{ height: spacerHeight }} aria-hidden="true" />}
-        {visibleItems.map((item) => {
-          const key = getItemKey(item);
+        {sections.map((section, sIdx) => {
+          const sectionKey = section.userItem ? getItemKey(section.userItem) : `preamble-${sIdx}`;
 
-          if (item.type === 'message') {
-            const msg = item.msg;
+          // Preamble section (items before first user message) — no sticky header
+          if (!section.userItem) {
             return (
-              <div
-                key={key}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' }}
-                className={cn(
-                  'relative group text-sm',
-                  msg.role === 'user'
-                    ? 'max-w-[80%] ml-auto rounded-lg px-3 py-2 bg-foreground text-background'
-                    : 'w-full text-foreground',
-                )}
-                {...(msg.role === 'user' ? { 'data-user-msg': msg.id } : {})}
-              >
-                {msg.images &&
-                  msg.images.length > 0 &&
-                  (() => {
-                    const allImages = msg.images!.map((i: any, j: number) => ({
-                      src: `data:${i.source.media_type};base64,${i.source.data}`,
-                      alt: `Attachment ${j + 1}`,
-                    }));
-                    return (
-                      <div className="mb-2 flex flex-wrap gap-2">
-                        {msg.images!.map((img: any, idx: number) => (
-                          <img
-                            key={`attachment-${idx}`}
-                            src={`data:${img.source.media_type};base64,${img.source.data}`}
-                            alt={`Attachment ${idx + 1}`}
-                            width={160}
-                            height={160}
-                            loading="lazy"
-                            className="max-h-40 cursor-pointer rounded border border-border transition-opacity hover:opacity-80"
-                            onClick={() => onOpenLightbox(allImages, idx)}
-                          />
-                        ))}
-                      </div>
-                    );
-                  })()}
-                {msg.role === 'user' ? (
-                  (() => {
-                    const { files, cleanContent } = parseReferencedFiles(msg.content);
-                    return (
-                      <>
-                        {files.length > 0 && (
-                          <div className="mb-1.5 flex flex-wrap gap-1">
-                            {files.map((item) => (
-                              <span
-                                key={`${item.type}:${item.path}`}
-                                className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-mono text-xs text-background/70"
-                                title={item.path}
-                              >
-                                {item.type === 'folder' ? (
-                                  <FolderOpen className="h-3 w-3 shrink-0" />
-                                ) : (
-                                  <FileText className="h-3 w-3 shrink-0" />
-                                )}
-                                {item.path.split('/').pop()}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <UserMessageContent content={cleanContent.trim()} />
-                        {(msg.model || msg.permissionMode) && (
-                          <div className="mt-1.5 flex gap-1">
-                            {msg.model && (
-                              <Badge
-                                variant="outline"
-                                className="h-4 border-background/20 bg-background/10 px-1.5 py-0 text-[10px] font-medium text-background/60"
-                              >
-                                {resolveModelLabel(msg.model, t)}
-                              </Badge>
-                            )}
-                            {msg.permissionMode && (
-                              <Badge
-                                variant="outline"
-                                className="h-4 border-background/20 bg-background/10 px-1.5 py-0 text-[10px] font-medium text-background/60"
-                              >
-                                {t(`prompt.${msg.permissionMode}`)}
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()
-                ) : (
-                  <div className="overflow-x-auto break-words text-sm leading-relaxed">
-                    <div className="flex items-start gap-2">
-                      {msg.author && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Avatar className="mt-0.5">
-                              <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-                                {msg.author.slice(0, 2).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">{msg.author}</TooltipContent>
-                        </Tooltip>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <MessageContent content={msg.content.trim()} />
-                      </div>
-                      <CopyButton content={msg.content} />
-                    </div>
-                    <div className="mt-1">
-                      <span className="select-none text-xs text-muted-foreground/60">
-                        {timeAgo(msg.timestamp, t)}
-                      </span>
-                    </div>
-                  </div>
-                )}
+              <div key={sectionKey} className="space-y-4">
+                {section.items.map(renderNonUserItem)}
               </div>
             );
           }
 
-          if (item.type === 'toolcall' || item.type === 'toolcall-group') {
-            return (
-              <div
-                key={key}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' }}
-              >
-                {renderToolItem(item)}
-              </div>
-            );
-          }
-
-          if (item.type === 'toolcall-run') {
-            return (
-              <div
-                key={key}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' }}
-              >
-                <div className="space-y-1">{item.items.map(renderToolItem)}</div>
-              </div>
-            );
-          }
-
-          if (item.type === 'thread-event') {
-            return (
-              <div
-                key={key}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}
-              >
-                <GitEventCard event={item.event} />
-              </div>
-            );
-          }
-
-          if (item.type === 'compaction-event') {
-            return (
-              <div
-                key={key}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}
-              >
-                <CompactionEventCard event={item.event} />
-              </div>
-            );
-          }
-
-          return null;
+          return (
+            <div key={sectionKey} data-section-msg-id={section.userItem.msg.id}>
+              {renderUserMessage(section.userItem)}
+              {section.items.length > 0 && (
+                <div className="space-y-4">{section.items.map(renderNonUserItem)}</div>
+              )}
+            </div>
+          );
         })}
       </>
     );
   }),
+  messageListAreEqual,
 );
 
 export function ThreadView() {
@@ -914,6 +1043,10 @@ export function ThreadView() {
   const [lightboxImages, setLightboxImages] = useState<{ src: string; alt: string }[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [promptPinSpacerHeight, setPromptPinSpacerHeight] = useState(0);
+  // Ref mirror so pinUserMessageToTop can read the current value without
+  // being a dependency of useCallback (avoids cascading layout effects).
+  const promptPinSpacerHeightRef = useRef(0);
+  promptPinSpacerHeightRef.current = promptPinSpacerHeight;
   const prefersReducedMotion = useReducedMotion();
 
   // "Ask" follow-up mode: dialog state for when user sends while agent is running
@@ -956,11 +1089,19 @@ export function ThreadView() {
 
   const snapshots = useTodoSnapshots();
 
-  // Map tool call IDs to snapshot indices for data-attribute lookup
+  // Map tool call IDs to snapshot indices for data-attribute lookup.
+  // Use a ref to keep the same Map reference when the content hasn't changed,
+  // preventing MemoizedMessageList from re-rendering on every WS update.
+  const snapshotMapRef = useRef(new Map<string, number>());
   const snapshotMap = useMemo(() => {
-    const map = new Map<string, number>();
-    snapshots.forEach((s, i) => map.set(s.toolCallId, i));
-    return map;
+    const next = new Map<string, number>();
+    snapshots.forEach((s, i) => next.set(s.toolCallId, i));
+    const prev = snapshotMapRef.current;
+    if (prev.size === next.size && [...next].every(([k, v]) => prev.get(k) === v)) {
+      return prev; // content unchanged — reuse old reference
+    }
+    snapshotMapRef.current = next;
+    return next;
   }, [snapshots]);
 
   // Helper: schedule a non-critical state update during idle time
@@ -977,7 +1118,7 @@ export function ThreadView() {
       const targetId = messageId ?? lastUserMsgIdRef.current;
       if (!targetId) {
         pinnedPromptIdRef.current = null;
-        if (promptPinSpacerHeight !== 0) {
+        if (promptPinSpacerHeightRef.current !== 0) {
           setPromptPinSpacerHeight(0);
         }
         return;
@@ -987,20 +1128,21 @@ export function ThreadView() {
       if (!target) return;
 
       pinnedPromptIdRef.current = targetId;
+      const currentSpacerHeight = promptPinSpacerHeightRef.current;
       const inputDockHeight = inputDockRef.current?.offsetHeight ?? 0;
       const contentStack = contentStackRef.current;
       const targetRect = target.getBoundingClientRect();
       const contentRect = contentStack?.getBoundingClientRect();
       const renderedContentBelow = Math.max(
         0,
-        (contentRect?.bottom ?? targetRect.bottom) - targetRect.bottom - promptPinSpacerHeight,
+        (contentRect?.bottom ?? targetRect.bottom) - targetRect.bottom - currentSpacerHeight,
       );
       const availableBelow = Math.max(
         0,
         viewport.clientHeight - inputDockHeight - target.offsetHeight - USER_PROMPT_TOP_OFFSET,
       );
       const nextSpacerHeight = Math.max(0, availableBelow - renderedContentBelow);
-      if (Math.abs(promptPinSpacerHeight - nextSpacerHeight) > 1) {
+      if (Math.abs(currentSpacerHeight - nextSpacerHeight) > 1) {
         flushSync(() => {
           setPromptPinSpacerHeight(nextSpacerHeight);
         });
@@ -1018,7 +1160,7 @@ export function ThreadView() {
       }
       scheduleIdle(() => setVisibleMessageId(targetId));
     },
-    [promptPinSpacerHeight, scheduleIdle],
+    [scheduleIdle],
   );
 
   // When opening or switching threads, keep the latest user prompt pinned near
@@ -1048,6 +1190,15 @@ export function ThreadView() {
   }, []);
 
   const lastMessage = selectLastMessage(activeThread);
+
+  // Count user messages to detect when the *user* sends a new prompt
+  // (as opposed to agent streaming updates which shouldn't reposition scroll).
+  const userMessageCount = useMemo(
+    () => activeThread?.messages?.filter((m: any) => m.role === 'user').length ?? 0,
+    [activeThread?.messages],
+  );
+  const prevUserMessageCountRef = useRef(userMessageCount);
+
   const scrollFingerprint = [
     activeThread?.messages?.length,
     lastMessage?.content?.length,
@@ -1073,7 +1224,7 @@ export function ThreadView() {
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = viewport;
       const hasOverflow = scrollHeight > clientHeight + 10;
-      const promptPinned = promptPinSpacerHeight > 0;
+      const promptPinned = promptPinSpacerHeightRef.current > 0;
       const isAtBottom = scrollHeight - scrollTop - clientHeight <= 80;
       userHasScrolledUp.current = promptPinned || !isAtBottom;
 
@@ -1096,14 +1247,7 @@ export function ThreadView() {
 
     viewport.addEventListener('scroll', handleScroll, { passive: true });
     return () => viewport.removeEventListener('scroll', handleScroll);
-  }, [
-    activeThread?.id,
-    hasMore,
-    loadingMore,
-    loadOlderMessages,
-    promptPinSpacerHeight,
-    scheduleIdle,
-  ]);
+  }, [activeThread?.id, hasMore, loadingMore, loadOlderMessages, scheduleIdle]);
 
   // IntersectionObserver for visible user message tracking (replaces getBoundingClientRect loop).
   // Detects which user message section contains the ~40% viewport line.
@@ -1146,18 +1290,28 @@ export function ThreadView() {
     };
   }, [activeThread?.id, scheduleIdle]);
 
-  // Keep the latest user message pinned near the top whenever the thread
-  // content changes.
+  // Only re-pin the user prompt when a *new user message* appears (the user
+  // sent a prompt) or on thread switch.  Agent-side updates (tool calls,
+  // streaming content, status changes) should NOT reposition the scroll when
+  // the user is freely scrolling through the conversation.
   useLayoutEffect(() => {
     const isNewThread = activeThread?.id != null && scrolledThreadRef.current !== activeThread.id;
     if (isNewThread && activeThread?.id) {
       scrolledThreadRef.current = activeThread.id;
     }
     smoothScrollPending.current = false;
-    requestAnimationFrame(() => {
-      pinUserMessageToTop();
-    });
-  }, [activeThread?.id, pinUserMessageToTop, scrollFingerprint]);
+
+    const hasNewUserMessage = userMessageCount > prevUserMessageCountRef.current;
+    prevUserMessageCountRef.current = userMessageCount;
+
+    // Re-pin only when switching threads or when the user sent a new prompt.
+    // Otherwise leave scroll position alone so the user can browse freely.
+    if (isNewThread || hasNewUserMessage) {
+      requestAnimationFrame(() => {
+        pinUserMessageToTop();
+      });
+    }
+  }, [activeThread?.id, pinUserMessageToTop, scrollFingerprint, userMessageCount]);
 
   // Preserve scroll position when older messages are prepended
   const firstMessageId = selectFirstMessage(activeThread)?.id ?? null;
@@ -1260,22 +1414,22 @@ export function ThreadView() {
       smoothScrollPending.current = true;
       if (scrollDownRef.current) scrollDownRef.current.style.display = 'none';
 
-      // Don't show optimistic message for queued messages — it will appear when processed
-      const willQueue = threadIsRunning && followUpMode === 'queue';
-      if (!willQueue) {
-        startTransition(() => {
-          useThreadStore
-            .getState()
-            .appendOptimisticMessage(
-              thread.id,
-              prompt,
-              images,
-              opts.model as any,
-              opts.mode as any,
-              opts.fileReferences,
-            );
-        });
-      }
+      // Always show optimistic message — the server decides whether to queue or run.
+      // Previously we skipped it for queue mode, but client and server can disagree
+      // on whether the agent is running (e.g. after server restart), leading to a
+      // state where the message appears queued in the UI but actually started running.
+      startTransition(() => {
+        useThreadStore
+          .getState()
+          .appendOptimisticMessage(
+            thread.id,
+            prompt,
+            images,
+            opts.model as any,
+            opts.mode as any,
+            opts.fileReferences,
+          );
+      });
 
       const { allowedTools, disallowedTools } = deriveToolLists(
         useSettingsStore.getState().toolPermissions,
@@ -1301,7 +1455,7 @@ export function ThreadView() {
         } else {
           toast.error(t('thread.sendFailedGeneric', { error: err.message }));
         }
-      } else if (willQueue) {
+      } else if (result.value && (result.value as any).queued) {
         toast.success(t('thread.messageQueued'));
       }
       setSending(false);
@@ -1330,21 +1484,19 @@ export function ThreadView() {
       smoothScrollPending.current = true;
       if (scrollDownRef.current) scrollDownRef.current.style.display = 'none';
 
-      // Don't show optimistic message for queued messages — it will appear when processed
-      if (action !== 'queue') {
-        startTransition(() => {
-          useThreadStore
-            .getState()
-            .appendOptimisticMessage(
-              thread.id,
-              pending.prompt,
-              pending.images,
-              pending.opts.model as any,
-              pending.opts.permissionMode as any,
-              pending.opts.fileReferences as any,
-            );
-        });
-      }
+      // Always show optimistic message — server decides whether to queue or run
+      startTransition(() => {
+        useThreadStore
+          .getState()
+          .appendOptimisticMessage(
+            thread.id,
+            pending.prompt,
+            pending.images,
+            pending.opts.model as any,
+            pending.opts.permissionMode as any,
+            pending.opts.fileReferences as any,
+          );
+      });
 
       const result = await api.sendMessage(
         thread.id,
@@ -1362,7 +1514,7 @@ export function ThreadView() {
         } else {
           toast.error(t('thread.sendFailedGeneric', { error: err.message }));
         }
-      } else if (action === 'queue') {
+      } else if (result.value && (result.value as any).queued) {
         toast.success(t('thread.messageQueued'));
       }
       setSending(false);
@@ -1557,7 +1709,7 @@ export function ThreadView() {
 
               <MemoizedMessageList
                 ref={messageListRef}
-                messages={activeThread.messages ?? []}
+                messages={activeThread.messages ?? EMPTY_MESSAGES}
                 threadEvents={activeThread.threadEvents}
                 compactionEvents={activeThread.compactionEvents}
                 threadId={activeThread.id}
@@ -1715,7 +1867,7 @@ export function ThreadView() {
 
             {/* Input — sticky at bottom */}
             {!(activeThread.status === 'waiting' && activeThread.waitingReason === 'question') && (
-              <div ref={inputDockRef} className="sticky bottom-0 z-10 bg-background">
+              <div ref={inputDockRef} className="sticky bottom-0 z-30 bg-background">
                 {/* Scroll to bottom button — visibility managed via DOM ref to avoid re-renders */}
                 <div ref={scrollDownRef} className="relative" style={{ display: 'none' }}>
                   <button

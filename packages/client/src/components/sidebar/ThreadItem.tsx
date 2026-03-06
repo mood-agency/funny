@@ -27,6 +27,7 @@ import {
 import { ProjectChip } from '@/components/ui/project-chip';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
+import { threadsVisuallyEqual } from '@/lib/shallow-compare';
 import { statusConfig, gitSyncStateConfig, timeAgo } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +44,24 @@ interface ThreadItemProps {
   onPin?: () => void;
   onDelete?: () => void;
   gitStatus?: GitStatusInfo;
+}
+
+// Custom comparator: only re-render when visually-relevant props change.
+// Uses shared `threadsVisuallyEqual` for the thread object comparison,
+// preventing re-renders from high-churn fields (cost, sessionId, etc.).
+function threadItemAreEqual(prev: ThreadItemProps, next: ThreadItemProps): boolean {
+  if (prev.isSelected !== next.isSelected) return false;
+  if (prev.onSelect !== next.onSelect) return false;
+  if (prev.onRename !== next.onRename) return false;
+  if (prev.onArchive !== next.onArchive) return false;
+  if (prev.onPin !== next.onPin) return false;
+  if (prev.onDelete !== next.onDelete) return false;
+  if (prev.subtitle !== next.subtitle) return false;
+  if (prev.projectColor !== next.projectColor) return false;
+  if (prev.timeValue !== next.timeValue) return false;
+  if (prev.projectPath !== next.projectPath) return false;
+  if (prev.gitStatus !== next.gitStatus) return false;
+  return threadsVisuallyEqual(prev.thread, next.thread);
 }
 
 export const ThreadItem = memo(function ThreadItem({
@@ -340,4 +359,4 @@ export const ThreadItem = memo(function ThreadItem({
       </div>
     </div>
   );
-});
+}, threadItemAreEqual);

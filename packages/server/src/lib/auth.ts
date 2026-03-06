@@ -68,7 +68,7 @@ export async function initBetterAuth(): Promise<void> {
           username: 'admin',
           role: 'admin',
         },
-      });
+      } as any);
       log.info('Created default admin account', {
         namespace: 'auth',
         username: 'admin',

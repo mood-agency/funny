@@ -294,22 +294,19 @@ function handleMessage(e: MessageEvent) {
       break;
     }
     case 'thread:event': {
-      import('@/stores/thread-store').then(({ useThreadStore }) => {
-        startTransition(() => {
-          const active = useThreadStore.getState().activeThread;
-          if (active && active.id === threadId) {
-            const existing = active.threadEvents ?? [];
-            // Deduplicate by event ID to prevent double-rendering
-            if (data.event?.id && existing.some((e: any) => e.id === data.event.id)) return;
-            useThreadStore.setState({
-              activeThread: {
-                ...active,
-                messages: active.messages,
-                threadEvents: [...existing, data.event],
-              },
-            });
-          }
-        });
+      startTransition(() => {
+        const active = useThreadStore.getState().activeThread;
+        if (active && active.id === threadId) {
+          const existing = active.threadEvents ?? [];
+          // Deduplicate by event ID to prevent double-rendering
+          if (data.event?.id && existing.some((e: any) => e.id === data.event.id)) return;
+          useThreadStore.setState({
+            activeThread: {
+              ...active,
+              threadEvents: [...existing, data.event],
+            },
+          });
+        }
       });
       break;
     }

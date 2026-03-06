@@ -49,6 +49,7 @@ export {
   stashPop,
   stashList,
   resetSoft,
+  cloneRepo,
   type GitIdentityOptions,
   type GitStatusSummary,
   type GitLogEntry,

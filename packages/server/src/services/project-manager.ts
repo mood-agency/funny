@@ -134,7 +134,16 @@ export function createProject(
     createdAt: new Date().toISOString(),
   };
 
-  db.insert(schema.projects).values(project).run();
+  const projectRow: typeof schema.projects.$inferInsert = {
+    id: project.id,
+    name: project.name,
+    path: project.path,
+    userId: project.userId,
+    sortOrder: project.sortOrder,
+    createdAt: project.createdAt,
+  };
+
+  db.insert(schema.projects).values(projectRow).run();
   return ok(project);
 }
 

@@ -2,9 +2,21 @@
  * Reusable selectors for thread state.
  * Eliminates deep property chain access (Law of Demeter violations)
  * and provides a stable API for common derived values.
+ *
+ * ## Zustand selector hooks
+ *
+ * The `useActive*` hooks below subscribe to individual slices of
+ * `activeThread` so components only re-render when that specific slice
+ * changes — not on every WebSocket update.
+ *
+ * Prefer these hooks over `useThreadStore(s => s.activeThread)` when a
+ * component only needs a narrow piece of the active thread.
  */
 
-import type { ThreadWithMessages } from './thread-store';
+import { useRef } from 'react';
+
+import type { AgentInitInfo, ThreadWithMessages } from './thread-store';
+import { useThreadStore } from './thread-store';
 
 /** Get the last message of a thread, or undefined. */
 export function selectLastMessage(thread: ThreadWithMessages | null) {
@@ -28,4 +40,50 @@ export function selectLastMessageToolCallCount(thread: ThreadWithMessages | null
 export function selectIsTerminal(thread: ThreadWithMessages | null): boolean {
   if (!thread) return true;
   return ['completed', 'failed', 'stopped', 'interrupted'].includes(thread.status);
+}
+
+// ── Granular Zustand selector hooks ───────────────────────────────────
+//
+// These subscribe to narrow slices of `activeThread` so components only
+// re-render when the specific slice changes — not on every WS update.
+
+/** Subscribe to the active thread's status only. */
+export function useActiveThreadStatus() {
+  return useThreadStore((s) => s.activeThread?.status ?? null);
+}
+
+/** Subscribe to the active thread's ID only. */
+export function useActiveThreadId() {
+  return useThreadStore((s) => s.activeThread?.id ?? null);
+}
+
+/**
+ * Subscribe to the active thread's `initInfo`.
+ *
+ * Returns a stable reference: the previous value is kept unless the
+ * underlying tools/cwd/model actually changed, avoiding re-renders from
+ * unrelated `activeThread` updates.
+ */
+export function useActiveInitInfo(): AgentInitInfo | undefined {
+  const prevRef = useRef<AgentInitInfo | undefined>(undefined);
+
+  return useThreadStore((s) => {
+    const next = s.activeThread?.initInfo;
+    if (!next) {
+      prevRef.current = undefined;
+      return undefined;
+    }
+    const prev = prevRef.current;
+    if (
+      prev &&
+      prev.cwd === next.cwd &&
+      prev.model === next.model &&
+      prev.tools.length === next.tools.length &&
+      prev.tools.every((t, i) => t === next.tools[i])
+    ) {
+      return prev; // same value — reuse old reference
+    }
+    prevRef.current = next;
+    return next;
+  });
 }

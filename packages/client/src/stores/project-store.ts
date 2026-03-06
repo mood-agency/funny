@@ -69,14 +69,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           }),
         )
           .then((results) => {
-            // Batch all thread data into a single store update
-            const threadsByProject: Record<string, any[]> = {
-              ...useThreadStore.getState().threadsByProject,
-            };
+            // Batch all thread data into a single store update, but only
+            // replace entries that actually changed to preserve referential
+            // identity for untouched projects (avoids cascading re-renders).
+            const prev = useThreadStore.getState().threadsByProject;
+            let changed = false;
+            const next: Record<string, any[]> = { ...prev };
             for (const { projectId, threads } of results) {
-              if (threads) threadsByProject[projectId] = threads;
+              if (threads && threads !== prev[projectId]) {
+                next[projectId] = threads;
+                changed = true;
+              }
             }
-            useThreadStore.setState({ threadsByProject });
+            if (changed) useThreadStore.setState({ threadsByProject: next });
 
             // Defer git status and branch fetch for expanded projects
             const gitStore = useGitStatusStore.getState();
@@ -126,7 +131,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   selectProject: (projectId) => {
     if (!projectId) {
-      set({ selectedProjectId: null });
+      if (get().selectedProjectId != null) set({ selectedProjectId: null });
       return;
     }
     const { selectedProjectId } = get();

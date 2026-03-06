@@ -10,6 +10,7 @@ import { resolve } from 'path';
 import 'winston-daily-rotate-file';
 import { emitLog } from '@funny/observability';
 import winston from 'winston';
+import Transport from 'winston-transport';
 
 import { DATA_DIR } from './data-dir.js';
 
@@ -20,7 +21,7 @@ const logDir = resolve(DATA_DIR, 'logs');
 mkdirSync(logDir, { recursive: true });
 
 /** Winston transport that forwards logs to OTLP via the observability package. */
-class OtelTransport extends winston.Transport {
+class OtelTransport extends Transport {
   log(info: any, callback: () => void) {
     const { level, message, namespace, service, timestamp: _timestamp, ...rest } = info;
     const otelLevel =

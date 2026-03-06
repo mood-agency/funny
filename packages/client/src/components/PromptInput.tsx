@@ -1,4 +1,4 @@
-import type { ImageAttachment, Skill } from '@funny/shared';
+import type { ImageAttachment, QueuedMessage, Skill } from '@funny/shared';
 import {
   ArrowUp,
   ArrowLeft,
@@ -15,12 +15,16 @@ import {
   FolderOpen,
   Copy,
   ListOrdered,
+  Pencil,
+  Trash2,
+  Check,
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -29,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+// Textarea import available if needed
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { getContextWindow, getUnifiedModelOptions, parseUnifiedModel } from '@/lib/providers';
@@ -93,7 +98,6 @@ export const PromptInput = memo(function PromptInput({
   loading = false,
   running = false,
   queuedCount = 0,
-  queuedNextMessage,
   isQueueMode = false,
   placeholder,
   isNewThread = false,
@@ -107,11 +111,11 @@ export const PromptInput = memo(function PromptInput({
   const { t } = useTranslation();
 
   // Resolve effective defaults from project settings (hardcoded fallbacks)
-  const projectsForDefaults = useProjectStore((s) => s.projects);
+  const projects = useProjectStore((s) => s.projects);
   const selectedProjectIdForDefaults = useProjectStore((s) => s.selectedProjectId);
   const effectiveProject =
     propProjectId || selectedProjectIdForDefaults
-      ? projectsForDefaults.find((p) => p.id === (propProjectId || selectedProjectIdForDefaults))
+      ? projects.find((p) => p.id === (propProjectId || selectedProjectIdForDefaults))
       : undefined;
   const defaultProvider = effectiveProject?.defaultProvider ?? 'claude';
   const defaultModel = effectiveProject?.defaultModel ?? 'sonnet';
@@ -156,7 +160,12 @@ export const PromptInput = memo(function PromptInput({
   const activeThreadMode = useThreadStore((s) => s.activeThread?.mode);
   const activeThreadBranch = useThreadStore((s) => s.activeThread?.branch);
   const activeThreadBaseBranch = useThreadStore((s) => s.activeThread?.baseBranch);
-  const contextUsage = useThreadStore((s) => s.activeThread?.contextUsage);
+  // Select primitive values instead of the contextUsage object to avoid
+  // re-renders when the object reference changes but values stay the same.
+  const contextTokenOffset = useThreadStore((s) => s.activeThread?.contextUsage?.tokenOffset ?? 0);
+  const contextCumulativeTokens = useThreadStore(
+    (s) => s.activeThread?.contextUsage?.cumulativeInputTokens ?? 0,
+  );
   const [newThreadBranches, setNewThreadBranches] = useState<string[]>([]);
   const [newThreadBranchesLoading, setNewThreadBranchesLoading] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
@@ -169,6 +178,11 @@ export const PromptInput = memo(function PromptInput({
   const [createWorktreeForFollowUp, _setCreateWorktreeForFollowUp] = useState(false);
   const [followUpBranches, setFollowUpBranches] = useState<string[]>([]);
   const [followUpSelectedBranch, setFollowUpSelectedBranch] = useState<string>('');
+  const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueActionMessageId, setQueueActionMessageId] = useState<string | null>(null);
+  const [editingQueuedMessageId, setEditingQueuedMessageId] = useState<string | null>(null);
+  const [editingQueuedMessageContent, setEditingQueuedMessageContent] = useState('');
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const textareaCallbackRef = useCallback((node: HTMLTextAreaElement | null) => {
@@ -212,7 +226,6 @@ export const PromptInput = memo(function PromptInput({
   const mentionStartPosRef = useRef<number>(-1);
   const loadFilesTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const projects = useProjectStore((s) => s.projects);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const effectiveThreadId = threadIdProp ?? selectedThreadId;
@@ -316,6 +329,9 @@ export const PromptInput = memo(function PromptInput({
 
   // Fetch branches for new thread mode
   const effectiveProjectId = propProjectId || selectedProjectId;
+  const projectDefaultBranch = effectiveProjectId
+    ? projects.find((p) => p.id === effectiveProjectId)?.defaultBranch
+    : undefined;
   useEffect(() => {
     if (isNewThread && effectiveProjectId) {
       setNewThreadBranchesLoading(true);
@@ -324,7 +340,10 @@ export const PromptInput = memo(function PromptInput({
         if (result.isOk()) {
           const data = result.value;
           setNewThreadBranches(data.branches);
-          if (data.defaultBranch) {
+          // Priority: project defaultBranch > git defaultBranch > first branch
+          if (projectDefaultBranch && data.branches.includes(projectDefaultBranch)) {
+            setSelectedBranch(projectDefaultBranch);
+          } else if (data.defaultBranch) {
             setSelectedBranch(data.defaultBranch);
           } else if (data.branches.length > 0) {
             setSelectedBranch(data.branches[0]);
@@ -335,7 +354,7 @@ export const PromptInput = memo(function PromptInput({
         setNewThreadBranchesLoading(false);
       })();
     }
-  }, [isNewThread, effectiveProjectId]);
+  }, [isNewThread, effectiveProjectId, projectDefaultBranch]);
 
   // Fetch current branch for local mode threads without a saved branch
   useEffect(() => {
@@ -429,19 +448,27 @@ export const PromptInput = memo(function PromptInput({
     s.name.toLowerCase().includes(slashFilter.toLowerCase()),
   );
 
-  // Detect slash command trigger from prompt text
-  useEffect(() => {
-    // Show menu when prompt starts with / and has no spaces yet (typing command name)
-    const match = prompt.match(/^\/(\S*)$/);
-    if (match) {
-      setSlashFilter(match[1]);
-      setShowSlashMenu(true);
-      setSlashIndex(0);
-      loadSkills();
-    } else {
-      setShowSlashMenu(false);
-    }
-  }, [prompt, loadSkills]);
+  // Slash-command start position ref (like mentionStartPosRef)
+  const slashStartPosRef = useRef<number>(-1);
+
+  // Detect slash command trigger at cursor position
+  const handleSlashDetection = useCallback(
+    (value: string, cursorPos: number) => {
+      const textBeforeCursor = value.slice(0, cursorPos);
+      // Match a `/` preceded by start-of-string or whitespace, followed by non-space chars
+      const match = textBeforeCursor.match(/(^|[\s])\/(\S*)$/);
+      if (match) {
+        setSlashFilter(match[2]);
+        setShowSlashMenu(true);
+        setSlashIndex(0);
+        slashStartPosRef.current = cursorPos - match[2].length - 1; // -1 for the `/`
+        loadSkills();
+      } else {
+        setShowSlashMenu(false);
+      }
+    },
+    [loadSkills],
+  );
 
   // Scroll selected item into view
   useEffect(() => {
@@ -450,11 +477,20 @@ export const PromptInput = memo(function PromptInput({
     activeItem?.scrollIntoView({ block: 'nearest' });
   }, [slashIndex, showSlashMenu]);
 
-  const selectSkill = useCallback((skill: Skill) => {
-    setPrompt(`/${skill.name} `);
-    setShowSlashMenu(false);
-    textareaRef.current?.focus();
-  }, []);
+  const selectSkill = useCallback(
+    (skill: Skill) => {
+      const startPos = slashStartPosRef.current;
+      setPrompt((prev) => {
+        const before = prev.slice(0, startPos);
+        // Skip past the `/` + whatever the user typed as filter
+        const afterSlash = prev.slice(startPos + 1 + slashFilter.length);
+        return `${before}/${skill.name} ${afterSlash}`;
+      });
+      setShowSlashMenu(false);
+      textareaRef.current?.focus();
+    },
+    [slashFilter],
+  );
 
   // Load files for @ mention with debounce
   const loadFiles = useCallback(
@@ -530,12 +566,117 @@ export const PromptInput = memo(function PromptInput({
   }, [effectiveThreadId]);
 
   useEffect(() => {
+    if (!effectiveThreadId) {
+      setQueuedMessages([]);
+      setQueueLoading(false);
+      setQueueActionMessageId(null);
+      setEditingQueuedMessageId(null);
+      setEditingQueuedMessageContent('');
+      return;
+    }
+
+    let cancelled = false;
+    setQueueLoading(true);
+
+    void (async () => {
+      const result = await api.listQueue(effectiveThreadId);
+      if (cancelled) return;
+
+      if (result.isOk()) {
+        setQueuedMessages(result.value);
+        setEditingQueuedMessageId((current) => {
+          if (!current) return current;
+          const stillExists = result.value.some((message) => message.id === current);
+          if (!stillExists) setEditingQueuedMessageContent('');
+          return stillExists ? current : null;
+        });
+      } else {
+        setQueuedMessages([]);
+      }
+
+      setQueueLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveThreadId, queuedCount]);
+
+  useEffect(() => {
     if (!running) textareaRef.current?.focus();
   }, [running]);
 
   useEffect(() => {
     if (!loading) textareaRef.current?.focus();
   }, [loading]);
+
+  const handleQueueEditStart = useCallback((message: QueuedMessage) => {
+    setEditingQueuedMessageId(message.id);
+    setEditingQueuedMessageContent(message.content);
+  }, []);
+
+  const handleQueueEditCancel = useCallback(() => {
+    setEditingQueuedMessageId(null);
+    setEditingQueuedMessageContent('');
+  }, []);
+
+  const handleQueueEditSave = useCallback(
+    async (messageId: string) => {
+      if (!effectiveThreadId) return;
+
+      const nextContent = editingQueuedMessageContent.trim();
+      if (!nextContent) {
+        toast.warning(t('prompt.emptyPrompt', 'Please enter a prompt before sending'));
+        return;
+      }
+
+      setQueueActionMessageId(messageId);
+      const result = await api.updateQueuedMessage(
+        effectiveThreadId,
+        messageId,
+        editingQueuedMessageContent,
+      );
+
+      if (result.isOk()) {
+        setQueuedMessages((prev) =>
+          prev.map((message) =>
+            message.id === messageId
+              ? { ...message, content: editingQueuedMessageContent }
+              : message,
+          ),
+        );
+        setEditingQueuedMessageId(null);
+        setEditingQueuedMessageContent('');
+      } else {
+        toast.error(result.error.message);
+      }
+
+      setQueueActionMessageId((current) => (current === messageId ? null : current));
+    },
+    [editingQueuedMessageContent, effectiveThreadId, t],
+  );
+
+  const handleQueueDelete = useCallback(
+    async (messageId: string) => {
+      if (!effectiveThreadId) return;
+
+      setQueueActionMessageId(messageId);
+      const result = await api.cancelQueuedMessage(effectiveThreadId, messageId);
+
+      if (result.isOk()) {
+        setQueuedMessages((prev) => prev.filter((message) => message.id !== messageId));
+        if (editingQueuedMessageId === messageId) {
+          setEditingQueuedMessageId(null);
+          setEditingQueuedMessageContent('');
+        }
+      } else {
+        toast.error(result.error.message);
+      }
+
+      setQueueActionMessageId((current) => (current === messageId ? null : current));
+    },
+    [editingQueuedMessageId, effectiveThreadId],
+  );
 
   // Auto-resize textarea up to 35vh.  Wrapped in rAF so multiple keystrokes
   // within a single frame batch into one resize (avoids repeated forced reflows).
@@ -770,7 +911,15 @@ export const PromptInput = memo(function PromptInput({
     if (!files) return;
 
     for (const file of Array.from(files)) {
-      await addImageFile(file);
+      if (file.type.startsWith('image/')) {
+        await addImageFile(file);
+      } else {
+        // Non-image files go as chips (same as drag-and-drop)
+        const filePath = (file as any).path || file.name;
+        if (!selectedFiles.includes(filePath)) {
+          setSelectedFiles((prev) => [...prev, filePath]);
+        }
+      }
     }
 
     // Reset input
@@ -852,21 +1001,132 @@ export const PromptInput = memo(function PromptInput({
         />
 
         {/* Queue indicator */}
-        {queuedCount > 0 && (
+        {(queuedCount > 0 || queuedMessages.length > 0) && (
           <div
             data-testid="queue-indicator"
-            className="group flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2.5 py-1.5"
+            className="space-y-2 rounded-md border border-border/40 px-2.5 py-2"
           >
-            <ListOrdered className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">
-              {queuedCount === 1
-                ? t('prompt.queuedOne', '1 message in queue')
-                : t('prompt.queuedMany', '{{count}} messages in queue', { count: queuedCount })}
-            </span>
-            {queuedNextMessage && (
-              <span className="ml-auto max-w-[50%] truncate text-xs text-muted-foreground/70">
-                {queuedNextMessage}
+            <div className="flex items-center gap-1.5">
+              <ListOrdered className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">
+                {(queuedMessages.length > 0 ? queuedMessages.length : queuedCount) === 1
+                  ? t('prompt.queuedOne', '1 message in queue')
+                  : t('prompt.queuedMany', '{{count}} messages in queue', {
+                      count: queuedMessages.length > 0 ? queuedMessages.length : queuedCount,
+                    })}
               </span>
+            </div>
+
+            {queueLoading ? (
+              <div className="flex items-center gap-2 rounded-md border border-dashed border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t('prompt.loadingQueuedMessages', 'Loading queued messages...')}
+              </div>
+            ) : (
+              <div className="divide-y divide-border [&>*]:bg-transparent">
+                {queuedMessages.map((message, index) => {
+                  const isEditing = editingQueuedMessageId === message.id;
+                  const isBusy = queueActionMessageId === message.id;
+
+                  return (
+                    <div
+                      key={message.id}
+                      data-testid={`queue-item-${message.id}`}
+                      className="bg-transparent px-1 py-1 first:pt-0 last:pb-0"
+                    >
+                      {isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            #{index + 1}
+                          </span>
+                          <Input
+                            data-testid={`queue-edit-textarea-${message.id}`}
+                            value={editingQueuedMessageContent}
+                            onChange={(event) => setEditingQueuedMessageContent(event.target.value)}
+                            disabled={isBusy}
+                            className="h-7 flex-1 bg-background text-xs"
+                          />
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            <Button
+                              data-testid={`queue-save-${message.id}`}
+                              type="button"
+                              size="icon-xs"
+                              onClick={() => handleQueueEditSave(message.id)}
+                              disabled={isBusy}
+                              aria-label={t('prompt.saveQueuedMessage', 'Save')}
+                              title={t('prompt.saveQueuedMessage', 'Save')}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              {isBusy ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Check className="h-3 w-3" />
+                              )}
+                            </Button>
+                            <Button
+                              data-testid={`queue-cancel-edit-${message.id}`}
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={handleQueueEditCancel}
+                              disabled={isBusy}
+                              aria-label={t('prompt.cancelQueuedEdit', 'Cancel')}
+                              title={t('prompt.cancelQueuedEdit', 'Cancel')}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                            #{index + 1}
+                          </span>
+                          <p
+                            className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                            title={message.content}
+                          >
+                            {message.content}
+                          </p>
+                          <div className="flex shrink-0 items-center gap-0.5">
+                            <Button
+                              data-testid={`queue-edit-${message.id}`}
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => handleQueueEditStart(message)}
+                              disabled={isBusy}
+                              aria-label={t('prompt.editQueuedMessage', 'Edit')}
+                              title={t('prompt.editQueuedMessage', 'Edit')}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              data-testid={`queue-delete-${message.id}`}
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => handleQueueDelete(message.id)}
+                              disabled={isBusy}
+                              aria-label={t('prompt.deleteQueuedMessage', 'Delete')}
+                              title={t('prompt.deleteQueuedMessage', 'Delete')}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              {isBusy ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -969,47 +1229,48 @@ export const PromptInput = memo(function PromptInput({
               )}
             </div>
           )}
-          {/* Inline chips + textarea in a single flow */}
+          {/* File chips above textarea */}
           {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-          <div
-            className="flex flex-wrap items-end gap-1 px-3 pt-2"
-            onClick={() => textareaRef.current?.focus()}
-          >
-            {selectedFiles.map((file) => (
-              <span
-                key={file}
-                data-testid={`selected-file-${file}`}
-                className="mb-0.5 inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-muted/60 px-2 py-0.5 font-mono text-xs text-foreground/80"
-                title={file}
-              >
-                {selectedFileTypes[file] === 'folder' ? (
-                  <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
-                ) : (
-                  <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
-                )}
-                {file.split('/').pop()}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedFiles((prev) => prev.filter((f) => f !== file));
-                    setSelectedFileTypes((prev) => {
-                      const next = { ...prev };
-                      delete next[file];
-                      return next;
-                    });
-                  }}
-                  aria-label={t('prompt.removeFile', 'Remove file')}
-                  className="ml-0.5 rounded-sm hover:text-destructive"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            ))}
+          <div className="px-3 pt-2" onClick={() => textareaRef.current?.focus()}>
+            {selectedFiles.length > 0 && (
+              <div className="mb-1 flex flex-wrap gap-1">
+                {selectedFiles.map((file) => (
+                  <span
+                    key={file}
+                    data-testid={`selected-file-${file}`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-muted/60 px-2 py-0.5 font-mono text-xs text-foreground/80"
+                    title={file}
+                  >
+                    {selectedFileTypes[file] === 'folder' ? (
+                      <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    )}
+                    {file.split('/').pop()}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedFiles((prev) => prev.filter((f) => f !== file));
+                        setSelectedFileTypes((prev) => {
+                          const next = { ...prev };
+                          delete next[file];
+                          return next;
+                        });
+                      }}
+                      aria-label={t('prompt.removeFile', 'Remove file')}
+                      className="ml-0.5 rounded-sm hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaCallbackRef}
               data-testid="prompt-textarea"
               aria-label={t('prompt.messageLabel', 'Message')}
-              className="min-w-0 flex-1 resize-none bg-transparent py-0.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+              className="w-full resize-none bg-transparent py-0.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
               style={{ minHeight: selectedFiles.length > 0 ? '1.5rem' : '4.5rem' }}
               placeholder={
                 running
@@ -1021,9 +1282,11 @@ export const PromptInput = memo(function PromptInput({
               value={prompt}
               onChange={(e) => {
                 const value = e.target.value;
+                const cursorPos = e.target.selectionStart ?? value.length;
                 setPrompt(value);
                 resizeTextarea();
-                handleMentionDetection(value, e.target.selectionStart ?? value.length);
+                handleMentionDetection(value, cursorPos);
+                handleSlashDetection(value, cursorPos);
               }}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
@@ -1036,7 +1299,6 @@ export const PromptInput = memo(function PromptInput({
             ref={fileInputRef}
             data-testid="prompt-file-input"
             type="file"
-            accept="image/*"
             multiple
             className="hidden"
             onChange={handleFileSelect}
@@ -1081,8 +1343,7 @@ export const PromptInput = memo(function PromptInput({
                       activeThreadProvider ?? provider ?? 'claude',
                       activeThreadModel ?? model ?? 'sonnet',
                     );
-                    const cumulative =
-                      (contextUsage?.tokenOffset ?? 0) + (contextUsage?.cumulativeInputTokens ?? 0);
+                    const cumulative = contextTokenOffset + contextCumulativeTokens;
                     const pct = maxTokens > 0 ? Math.min(100, (cumulative / maxTokens) * 100) : 0;
                     const tokenK = Math.round(cumulative / 1000);
                     const colorClass =

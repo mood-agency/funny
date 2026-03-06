@@ -306,7 +306,7 @@ async function onAccepted(event: IngestEvent): Promise<string | undefined> {
   }
 
   // Resolve project — prefer top-level data.projectId, then metadata, then auto-detect by path or repo
-  let projectId =
+  let projectId: string | null =
     (data.projectId as string) ??
     (metadata?.projectId as string) ??
     (data.worktree_path ? resolveProjectId(data.worktree_path as string) : null);

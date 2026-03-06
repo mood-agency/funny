@@ -219,8 +219,8 @@ app.route('/api/logs', logRoutes);
 if (existsSync(clientDistDir)) {
   app.use('/*', serveStatic({ root: clientDistDir }));
   // SPA fallback: serve index.html for all non-API routes
-  app.get('*', (c) => {
-    return c.html(Bun.file(join(clientDistDir, 'index.html')));
+  app.get('*', async (c) => {
+    return c.html(await Bun.file(join(clientDistDir, 'index.html')).text());
   });
   log.info('Serving static files', { namespace: 'server', dir: clientDistDir });
 } else {

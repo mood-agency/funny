@@ -20,6 +20,16 @@ interface ToolCallGroupProps {
   onRespond?: (answer: string) => void;
 }
 
+function toolCallGroupAreEqual(prev: ToolCallGroupProps, next: ToolCallGroupProps) {
+  if (prev.name !== next.name || prev.onRespond !== next.onRespond) return false;
+  if (prev.calls === next.calls) return true;
+  if (prev.calls.length !== next.calls.length) return false;
+  for (let i = 0; i < prev.calls.length; i++) {
+    if (prev.calls[i] !== next.calls[i]) return false;
+  }
+  return true;
+}
+
 export const ToolCallGroup = memo(function ToolCallGroup({
   name,
   calls,
@@ -68,4 +78,4 @@ export const ToolCallGroup = memo(function ToolCallGroup({
       )}
     </div>
   );
-});
+}, toolCallGroupAreEqual);

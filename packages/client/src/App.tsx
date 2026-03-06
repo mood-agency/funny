@@ -106,7 +106,6 @@ const MonacoEditorDialog = lazy(() =>
 export function App() {
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
-  const _setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
   const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
   const setReviewPaneWidth = useUIStore((s) => s.setReviewPaneWidth);
   const settingsOpen = useUIStore((s) => s.settingsOpen);
@@ -126,18 +125,15 @@ export function App() {
   const rpStartWidth = useRef(0);
   const [rpResizing, setRpResizing] = useState(false);
 
-  const handleRpPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      rpDragging.current = true;
-      rpStartX.current = e.clientX;
-      rpStartWidth.current = reviewPaneWidth;
-      setRpResizing(true);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    },
-    [reviewPaneWidth],
-  );
+  const handleRpPointerDown = useCallback((e: React.PointerEvent) => {
+    rpDragging.current = true;
+    rpStartX.current = e.clientX;
+    rpStartWidth.current = useUIStore.getState().reviewPaneWidth;
+    setRpResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
 
   const handleRpPointerMove = useCallback(
     (e: React.PointerEvent) => {
