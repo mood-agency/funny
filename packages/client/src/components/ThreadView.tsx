@@ -1331,8 +1331,17 @@ export function ThreadView() {
   }, [firstMessageId]);
 
   const scrollToBottom = useCallback(() => {
-    pinUserMessageToTop();
-  }, [pinUserMessageToTop]);
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    // Reset prompt-pin spacer so content isn't artificially padded
+    if (promptPinSpacerHeightRef.current !== 0) {
+      pinnedPromptIdRef.current = null;
+      flushSync(() => setPromptPinSpacerHeight(0));
+    }
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+    userHasScrolledUp.current = false;
+    if (scrollDownRef.current) scrollDownRef.current.style.display = 'none';
+  }, []);
 
   // Stable ref to avoid recreating handleSend on every render.
   // This prevents PromptInput and MemoizedMessageList from re-rendering
