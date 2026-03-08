@@ -111,6 +111,8 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
   const hasMessages = useThreadStore((s) => (s.activeThread?.messages?.length ?? 0) > 0);
   const pinThread = useThreadStore((s) => s.pinThread);
   const deleteThread = useThreadStore((s) => s.deleteThread);
+  const timelineVisible = useUIStore((s) => s.timelineVisible);
+  const setTimelineVisible = useUIStore((s) => s.setTimelineVisible);
   const [copiedText, setCopiedText] = useState(false);
   const [copiedTools, setCopiedTools] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -168,6 +170,16 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
             <PanelLeftClose className="mr-2 h-4 w-4" />
             {t('sidebar.collapse', 'Toggle sidebar')}
           </DropdownMenuItem>
+          {threadId && (
+            <DropdownMenuItem
+              data-testid="header-menu-toggle-timeline"
+              onClick={() => setTimelineVisible(!timelineVisible)}
+              className="cursor-pointer"
+            >
+              <Milestone className={`mr-2 h-4 w-4 ${timelineVisible ? 'text-primary' : ''}`} />
+              {t('thread.toggleTimeline', 'Toggle Timeline')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             data-testid="header-menu-copy-text"
@@ -675,22 +687,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
               </TooltipTrigger>
               <TooltipContent>{t('terminal.toggle', 'Toggle Terminal')}</TooltipContent>
             </Tooltip>
-            {activeThreadId && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    data-testid="header-toggle-timeline"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setTimelineVisible(!timelineVisible)}
-                    className={timelineVisible ? 'text-primary' : 'text-muted-foreground'}
-                  >
-                    <Milestone className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('thread.toggleTimeline', 'Toggle Timeline')}</TooltipContent>
-              </Tooltip>
-            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

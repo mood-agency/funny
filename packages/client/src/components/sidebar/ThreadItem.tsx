@@ -265,7 +265,7 @@ export const ThreadItem = memo(function ThreadItem({
             ) : null}
             {/* 3. Last agent message snippet */}
             {hasSnippet && (
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/50">
                 {thread.lastAssistantMessage}
               </span>
             )}
