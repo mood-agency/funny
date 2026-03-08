@@ -22,6 +22,12 @@ import type {
   PermissionMode,
   ImageAttachment,
 } from '@funny/shared';
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_FOLLOW_UP_MODE,
+} from '@funny/shared/models';
 import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
@@ -242,7 +248,7 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
   const resolvedProvider = (params.provider ||
     project.defaultProvider ||
     'claude') as AgentProvider;
-  const resolvedModel = (params.model || project.defaultModel || 'sonnet') as AgentModel;
+  const resolvedModel = (params.model || project.defaultModel || DEFAULT_MODEL) as AgentModel;
   const resolvedPermissionMode = (params.permissionMode ||
     project.defaultPermissionMode ||
     'autoEdit') as PermissionMode;
@@ -583,8 +589,10 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
   const cwd = thread.worktreePath ?? pm.getProject(thread.projectId)?.path;
   if (!cwd) throw new ThreadServiceError('Project path not found', 404);
 
-  const effectiveProvider = (params.provider || thread.provider || 'claude') as AgentProvider;
-  const effectiveModel = (params.model || thread.model || 'sonnet') as AgentModel;
+  const effectiveProvider = (params.provider ||
+    thread.provider ||
+    DEFAULT_PROVIDER) as AgentProvider;
+  const effectiveModel = (params.model || thread.model || DEFAULT_MODEL) as AgentModel;
   const effectivePermission = (params.permissionMode ||
     thread.permissionMode ||
     'autoEdit') as PermissionMode;
@@ -650,7 +658,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
   // Check if the agent is running and the project uses queue mode
   const agentRunning = isAgentRunning(params.threadId);
   const project = pm.getProject(thread.projectId);
-  const followUpMode = project?.followUpMode || 'interrupt';
+  const followUpMode = project?.followUpMode || DEFAULT_FOLLOW_UP_MODE;
 
   // When the thread is waiting for user input (plan acceptance, question answer),
   // always bypass the queue and deliver the response immediately. The agent process
@@ -780,7 +788,7 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
         'NotebookEdit',
       ];
 
-  const threadProvider = (thread.provider || 'claude') as AgentProvider;
+  const threadProvider = (thread.provider || DEFAULT_PROVIDER) as AgentProvider;
 
   if (params.approved) {
     if (!tools.includes(params.toolName)) {
@@ -792,8 +800,8 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
       params.threadId,
       message,
       cwd,
-      (thread.model as AgentModel) || 'sonnet',
-      (thread.permissionMode as PermissionMode) || 'autoEdit',
+      (thread.model as AgentModel) || DEFAULT_MODEL,
+      (thread.permissionMode as PermissionMode) || DEFAULT_PERMISSION_MODE,
       undefined,
       disallowed,
       tools,
@@ -805,8 +813,8 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
       params.threadId,
       message,
       cwd,
-      (thread.model as AgentModel) || 'sonnet',
-      (thread.permissionMode as PermissionMode) || 'autoEdit',
+      (thread.model as AgentModel) || DEFAULT_MODEL,
+      (thread.permissionMode as PermissionMode) || DEFAULT_PERMISSION_MODE,
       undefined,
       params.disallowedTools,
       params.allowedTools,
@@ -969,12 +977,12 @@ async function autoStartIdleThread(
           threadId,
           thread.initialPrompt!,
           wtPath,
-          (thread.model || project.defaultModel || 'sonnet') as AgentModel,
-          (thread.permissionMode || 'autoEdit') as PermissionMode,
+          (thread.model || project.defaultModel || DEFAULT_MODEL) as AgentModel,
+          (thread.permissionMode || DEFAULT_PERMISSION_MODE) as PermissionMode,
           draftImages,
           undefined,
           undefined,
-          (thread.provider || project.defaultProvider || 'claude') as AgentProvider,
+          (thread.provider || project.defaultProvider || DEFAULT_PROVIDER) as AgentProvider,
           undefined,
           !!draftMsg,
         );
@@ -1026,12 +1034,12 @@ async function autoStartIdleThread(
             threadId,
             thread.initialPrompt!,
             project.path,
-            (thread.model || project.defaultModel || 'sonnet') as AgentModel,
-            (thread.permissionMode || 'autoEdit') as PermissionMode,
+            (thread.model || project.defaultModel || DEFAULT_MODEL) as AgentModel,
+            (thread.permissionMode || DEFAULT_PERMISSION_MODE) as PermissionMode,
             draftImages,
             undefined,
             undefined,
-            (thread.provider || project.defaultProvider || 'claude') as AgentProvider,
+            (thread.provider || project.defaultProvider || DEFAULT_PROVIDER) as AgentProvider,
             undefined,
             !!draftMsg,
           );
@@ -1055,12 +1063,12 @@ async function autoStartIdleThread(
       threadId,
       thread.initialPrompt!,
       cwd,
-      (thread.model || project.defaultModel || 'sonnet') as AgentModel,
-      (thread.permissionMode || 'autoEdit') as PermissionMode,
+      (thread.model || project.defaultModel || DEFAULT_MODEL) as AgentModel,
+      (thread.permissionMode || DEFAULT_PERMISSION_MODE) as PermissionMode,
       draftImages,
       undefined,
       undefined,
-      (thread.provider || project.defaultProvider || 'claude') as AgentProvider,
+      (thread.provider || project.defaultProvider || DEFAULT_PROVIDER) as AgentProvider,
       undefined,
       !!draftMsg,
     ).catch((err) => {

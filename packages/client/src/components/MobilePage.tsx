@@ -1,4 +1,5 @@
 import type { Project } from '@funny/shared';
+import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
 import { ArrowLeft, Plus, Folder, Loader2, ShieldQuestion } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -239,7 +240,7 @@ function NewThreadView({
   const loadThreadsForProject = useAppStore((s) => s.loadThreadsForProject);
   const projects = useAppStore((s) => s.projects);
   const project = projects.find((p) => p.id === projectId);
-  const defaultThreadMode = project?.defaultMode ?? 'worktree';
+  const defaultThreadMode = project?.defaultMode ?? DEFAULT_THREAD_MODE;
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async (

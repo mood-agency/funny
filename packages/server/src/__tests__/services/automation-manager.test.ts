@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL, DEFAULT_THREAD_MODE, DEFAULT_PERMISSION_MODE } from '@funny/shared/models';
 import { eq, and, desc } from 'drizzle-orm';
 import { describe, test, expect, beforeEach } from 'vitest';
 
@@ -68,9 +69,9 @@ describe('AutomationManager', () => {
         name: data.name,
         prompt: data.prompt,
         schedule: data.schedule,
-        model: data.model || 'sonnet',
-        mode: 'local',
-        permissionMode: data.permissionMode || 'autoEdit',
+        model: data.model || DEFAULT_MODEL,
+        mode: DEFAULT_THREAD_MODE,
+        permissionMode: data.permissionMode || DEFAULT_PERMISSION_MODE,
         baseBranch: null,
         enabled: 1,
         maxRunHistory: 20,

@@ -95,15 +95,23 @@ export function getCurrentBranch(cwd: string): ResultAsync<string, DomainError> 
   const native = getNativeGit();
   if (native) {
     return ResultAsync.fromPromise(
-      native.getCurrentBranch(cwd).then((b) => b ?? ''),
+      native.getCurrentBranch(cwd).then(async (b) => {
+        if (b) return b;
+        // Fallback for repos with no commits: native module may return null
+        const symRef = await gitRead(['symbolic-ref', '--short', 'HEAD'], { cwd, reject: false });
+        return symRef.exitCode === 0 ? symRef.stdout.trim() : '';
+      }),
       (error) => processError(String(error), 1, ''),
     );
   }
   // CLI fallback
   return ResultAsync.fromPromise(
-    gitRead(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, reject: false }).then((r) =>
-      r.exitCode === 0 ? r.stdout.trim() : '',
-    ),
+    gitRead(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd, reject: false }).then(async (r) => {
+      if (r.exitCode === 0) return r.stdout.trim();
+      // Fallback for repos with no commits: symbolic-ref still works
+      const symRef = await gitRead(['symbolic-ref', '--short', 'HEAD'], { cwd, reject: false });
+      return symRef.exitCode === 0 ? symRef.stdout.trim() : '';
+    }),
     (error) => processError(String(error), 1, ''),
   );
 }

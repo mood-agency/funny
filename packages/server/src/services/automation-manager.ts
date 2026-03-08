@@ -7,6 +7,7 @@
  * @domain depends: Database, AutomationScheduler
  */
 
+import { DEFAULT_MODEL, DEFAULT_THREAD_MODE, DEFAULT_PERMISSION_MODE } from '@funny/shared/models';
 import { eq, and, or, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
@@ -77,9 +78,9 @@ export async function createAutomation(data: {
       name: data.name,
       prompt: data.prompt,
       schedule: data.schedule,
-      model: data.model || 'sonnet',
-      mode: 'local',
-      permissionMode: data.permissionMode || 'autoEdit',
+      model: data.model || DEFAULT_MODEL,
+      mode: DEFAULT_THREAD_MODE,
+      permissionMode: data.permissionMode || DEFAULT_PERMISSION_MODE,
       baseBranch: null,
       enabled: 1,
       maxRunHistory: 20,

@@ -49,7 +49,6 @@ import filesRoutes from './routes/files.js';
 import { gitRoutes, invalidateGitStatusCacheByProject } from './routes/git.js';
 import { githubRoutes } from './routes/github.js';
 import { ingestRoutes } from './routes/ingest.js';
-import { logRoutes } from './routes/logs.js';
 import mcpRoutes from './routes/mcp.js';
 import pluginRoutes from './routes/plugins.js';
 import { profileRoutes } from './routes/profile.js';
@@ -211,7 +210,6 @@ app.route('/api/automations', automationRoutes);
 app.route('/api/profile', profileRoutes);
 app.route('/api/github', githubRoutes);
 app.route('/api/analytics', analyticsRoutes);
-app.route('/api/logs', logRoutes);
 
 // Serve static files from client build (only if dist exists)
 if (existsSync(clientDistDir)) {

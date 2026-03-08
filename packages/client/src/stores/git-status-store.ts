@@ -84,7 +84,9 @@ function statusEqual(a: GitStatusInfo, b: GitStatusInfo): boolean {
   );
 }
 
-/** Only spread statusByBranch when at least one entry actually changed */
+/** Only spread statusByBranch when at least one entry actually changed.
+ *  Preserves existing object references for entries that haven't changed
+ *  so downstream selectors and memo comparators can use `===`. */
 function mergeStatuses(
   state: Pick<GitStatusState, 'statusByBranch'>,
   updates: Record<string, GitStatusInfo>,
@@ -98,7 +100,16 @@ function mergeStatuses(
     }
   }
   if (!changed) return {};
-  return { statusByBranch: { ...state.statusByBranch, ...updates } };
+  // Build merged result, keeping old references for entries that didn't change
+  const merged = { ...state.statusByBranch };
+  for (const [bk, next] of Object.entries(updates)) {
+    const prev = merged[bk];
+    if (!prev || !statusEqual(prev, next)) {
+      merged[bk] = next;
+    }
+    // else: keep prev reference (statusEqual was true)
+  }
+  return { statusByBranch: merged };
 }
 
 export const useGitStatusStore = create<GitStatusState>((set, get) => ({
@@ -126,10 +137,23 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         updates[s.branchKey] = s;
         keyMap[s.threadId] = s.branchKey;
       }
-      set((state) => ({
-        ...mergeStatuses(state, updates),
-        threadToBranchKey: { ...state.threadToBranchKey, ...keyMap },
-      }));
+      set((state) => {
+        const statusPatch = mergeStatuses(state, updates);
+        let keyMapChanged = false;
+        for (const [tid, bk] of Object.entries(keyMap)) {
+          if (state.threadToBranchKey[tid] !== bk) {
+            keyMapChanged = true;
+            break;
+          }
+        }
+        if (!Object.keys(statusPatch).length && !keyMapChanged) return {};
+        return {
+          ...statusPatch,
+          ...(keyMapChanged
+            ? { threadToBranchKey: { ...state.threadToBranchKey, ...keyMap } }
+            : {}),
+        };
+      });
     }
     // Silently ignore errors — git status is best-effort
     set((s) => {
@@ -162,10 +186,17 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         const key = status.branchKey;
         // Update cooldown with the real branchKey
         _lastFetchByBranch.set(key, now);
-        set((state) => ({
-          ...mergeStatuses(state, { [key]: status }),
-          threadToBranchKey: { ...state.threadToBranchKey, [threadId]: key },
-        }));
+        set((state) => {
+          const statusPatch = mergeStatuses(state, { [key]: status });
+          const keyChanged = state.threadToBranchKey[threadId] !== key;
+          if (!Object.keys(statusPatch).length && !keyChanged) return {};
+          return {
+            ...statusPatch,
+            ...(keyChanged
+              ? { threadToBranchKey: { ...state.threadToBranchKey, [threadId]: key } }
+              : {}),
+          };
+        });
       }
     } finally {
       if (bk) {
@@ -206,10 +237,22 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
       updates[s.branchKey] = s;
       keyMap[s.threadId] = s.branchKey;
     }
-    set((state) => ({
-      ...mergeStatuses(state, updates),
-      threadToBranchKey: { ...state.threadToBranchKey, ...keyMap },
-    }));
+    set((state) => {
+      const statusPatch = mergeStatuses(state, updates);
+      // Only spread threadToBranchKey if new mappings differ from existing ones
+      let keyMapChanged = false;
+      for (const [tid, bk] of Object.entries(keyMap)) {
+        if (state.threadToBranchKey[tid] !== bk) {
+          keyMapChanged = true;
+          break;
+        }
+      }
+      if (!Object.keys(statusPatch).length && !keyMapChanged) return {};
+      return {
+        ...statusPatch,
+        ...(keyMapChanged ? { threadToBranchKey: { ...state.threadToBranchKey, ...keyMap } } : {}),
+      };
+    });
   },
 
   clearForBranch: (bk) => {

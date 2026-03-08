@@ -10,6 +10,7 @@
 
 import { getCurrentBranch, getRemoteUrl } from '@funny/core/git';
 import type { WSEvent, WSWorkflowStepData, WSWorkflowStatusData } from '@funny/shared';
+import { DEFAULT_MODEL } from '@funny/shared/models';
 import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
@@ -351,7 +352,7 @@ async function onAccepted(event: IngestEvent): Promise<string | undefined> {
     permissionMode: 'autoEdit',
     status: 'pending',
     stage: 'in_progress',
-    model: (data.model as string) ?? 'sonnet',
+    model: (data.model as string) ?? DEFAULT_MODEL,
     branch,
     baseBranch,
     worktreePath,

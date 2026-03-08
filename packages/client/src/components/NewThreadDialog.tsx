@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_THREAD_MODE } from '@funny/shared/models';
 import { GitBranch } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -39,9 +40,9 @@ export function NewThreadDialog() {
   const project = newThreadProjectId
     ? projects.find((p) => p.id === newThreadProjectId)
     : undefined;
-  const defaultThreadMode = project?.defaultMode ?? 'worktree';
-  const defaultProvider = project?.defaultProvider ?? 'claude';
-  const defaultModel = project?.defaultModel ?? 'sonnet';
+  const defaultThreadMode = project?.defaultMode ?? DEFAULT_THREAD_MODE;
+  const defaultProvider = project?.defaultProvider ?? DEFAULT_PROVIDER;
+  const defaultModel = project?.defaultModel ?? DEFAULT_MODEL;
   const [createWorktree, setCreateWorktree] = useState(defaultThreadMode === 'worktree');
   const [provider, setProvider] = useState<string>(defaultProvider);
   const [model, setModel] = useState<string>(defaultModel);

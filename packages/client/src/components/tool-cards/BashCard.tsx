@@ -68,8 +68,8 @@ export function BashCard({
         )}
       </button>
       {expanded && command && (
-        <div className="space-y-2 overflow-hidden border-t border-border/40 px-3 py-2">
-          <div>
+        <div className="max-h-[50vh] space-y-2 overflow-y-auto border-t border-border/40 py-2">
+          <div className="px-3">
             <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
               {t('tools.input')}
             </div>
@@ -87,12 +87,12 @@ export function BashCard({
             </div>
           </div>
 
-          <div>
+          <div className="px-3">
             <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
               {t('tools.output')}
             </div>
             {output ? (
-              <div className="max-h-60 overflow-hidden rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
+              <div className="rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
                 {highlightedOutput ? (
                   <div
                     className="whitespace-pre-wrap break-all font-mono text-sm leading-relaxed [&_.shiki]:!bg-transparent [&_code]:!p-0 [&_pre]:!m-0"

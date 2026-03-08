@@ -1,14 +1,6 @@
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import type { Thread } from '@funny/shared';
-import {
-  Columns3,
-  BarChart3,
-  FolderPlus,
-  PanelLeftClose,
-  Settings,
-  LayoutGrid,
-  Search,
-} from 'lucide-react';
+import { Columns3, BarChart3, FolderPlus, Settings, LayoutGrid, Search } from 'lucide-react';
 import { useState, useCallback, useEffect, useRef, useMemo, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -29,7 +21,6 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarRail,
-  useSidebar,
 } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStableNavigate } from '@/hooks/use-stable-navigate';
@@ -74,7 +65,6 @@ export function AppSidebar() {
   const authMode = useAuthStore((s) => s.mode);
   const authUser = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const { toggleSidebar } = useSidebar();
 
   const [archiveConfirm, setArchiveConfirm] = useState<{
     threadId: string;
@@ -438,22 +428,6 @@ export function AppSidebar() {
               <TooltipContent side="bottom">{t('sidebar.analytics')}</TooltipContent>
             </Tooltip>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                data-testid="sidebar-collapse"
-                onClick={toggleSidebar}
-                className="h-7 w-7 text-muted-foreground"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t('sidebar.collapse', 'Collapse sidebar')}
-            </TooltipContent>
-          </Tooltip>
         </div>
       </SidebarHeader>
 

@@ -181,11 +181,13 @@ export const ToolCallCard = memo(
           )}
         </button>
         {expanded && (
-          <div className="overflow-hidden border-t border-border/40 px-3 pb-2 pt-0">
+          <div className="max-h-[50vh] overflow-y-auto border-t border-border/40 pb-2">
             {isTodo && todos ? (
-              <TodoList todos={todos} />
+              <div className="px-3">
+                <TodoList todos={todos} />
+              </div>
             ) : (
-              <>
+              <div className="px-3">
                 <div className="mt-1.5 space-y-1.5">
                   {Object.entries(parsed).map(([key, value]) => (
                     <div key={key}>
@@ -205,7 +207,7 @@ export const ToolCallCard = memo(
                     <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
                       {t('tools.output')}
                     </div>
-                    <div className="max-h-60 overflow-hidden rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
+                    <div className="rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
                       <pre
                         className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground"
                         dangerouslySetInnerHTML={{ __html: htmlOutput! }}
@@ -224,7 +226,7 @@ export const ToolCallCard = memo(
                     </button>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
         )}

@@ -1,3 +1,4 @@
+import { DEFAULT_FOLLOW_UP_MODE } from '@funny/shared/models';
 import {
   Loader2,
   Clock,
@@ -53,7 +54,13 @@ import { timeAgo, resolveModelLabel } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
-import { selectLastMessage, selectFirstMessage } from '@/stores/thread-selectors';
+import {
+  selectLastMessage,
+  selectFirstMessage,
+  useActiveMessages,
+  useActiveThreadEvents,
+  useActiveCompactionEvents,
+} from '@/stores/thread-selectors';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
 
@@ -453,6 +460,7 @@ function UserMessageContent({ content }: { content: string }) {
         className={cn(
           'whitespace-pre-wrap font-mono text-xs leading-relaxed break-words overflow-x-auto',
           !expanded && isOverflowing && 'overflow-hidden',
+          expanded && 'max-h-[50vh] overflow-y-auto',
         )}
         style={!expanded && isOverflowing ? { maxHeight: COLLAPSED_MAX_H } : undefined}
       >
@@ -809,7 +817,7 @@ const MemoizedMessageList = memo(
               style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' }}
               className="group relative w-full text-sm text-foreground"
             >
-              <div className="overflow-x-auto break-words text-sm leading-relaxed">
+              <div className="max-h-[50vh] overflow-x-auto overflow-y-auto break-words text-sm leading-relaxed">
                 <div className="flex items-start gap-2">
                   {msg.author && (
                     <Tooltip>
@@ -943,7 +951,7 @@ const MemoizedMessageList = memo(
                         ))}
                       </div>
                     )}
-                    <div className="line-clamp-2 pr-16">
+                    <div className="line-clamp-2">
                       <UserMessageContent content={cleanContent.trim()} />
                     </div>
                     <div className="mt-1.5 flex items-center justify-between">
@@ -1015,6 +1023,11 @@ export function ThreadView() {
   const { t } = useTranslation();
   useMinuteTick(); // re-render every 60s so timeAgo stays fresh
   const activeThread = useThreadStore((s) => s.activeThread);
+  // Granular selectors: these return the same reference when only status/cost
+  // changed, preventing MemoizedMessageList from re-rendering on status-only updates.
+  const stableMessages = useActiveMessages();
+  const stableThreadEvents = useActiveThreadEvents();
+  const stableCompactionEvents = useActiveCompactionEvents();
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const newThreadProjectId = useUIStore((s) => s.newThreadProjectId);
@@ -1111,7 +1124,7 @@ export function ThreadView() {
   }, []);
 
   const pinUserMessageToTop = useCallback(
-    (messageId?: string | null) => {
+    (messageId?: string | null, smooth = false) => {
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
 
@@ -1153,7 +1166,12 @@ export function ThreadView() {
         target.getBoundingClientRect().top -
         viewport.getBoundingClientRect().top -
         USER_PROMPT_TOP_OFFSET;
-      viewport.scrollTop = Math.max(0, scrollPos);
+      const finalPos = Math.max(0, scrollPos);
+      if (smooth) {
+        viewport.scrollTo({ top: finalPos, behavior: 'smooth' });
+      } else {
+        viewport.scrollTop = finalPos;
+      }
       userHasScrolledUp.current = true;
       if (scrollDownRef.current) {
         scrollDownRef.current.style.display = 'none';
@@ -1308,8 +1326,17 @@ export function ThreadView() {
     // Otherwise leave scroll position alone so the user can browse freely.
     if (isNewThread || hasNewUserMessage) {
       requestAnimationFrame(() => {
-        pinUserMessageToTop();
+        pinUserMessageToTop(null, hasNewUserMessage && !isNewThread);
       });
+    } else if (!userHasScrolledUp.current) {
+      // Sticky bottom: if the user is at the bottom and new agent content arrives,
+      // keep them at the bottom so they can follow along in real time.
+      const viewport = scrollViewportRef.current;
+      if (viewport) {
+        requestAnimationFrame(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+        });
+      }
     }
   }, [activeThread?.id, pinUserMessageToTop, scrollFingerprint, userMessageCount]);
 
@@ -1386,7 +1413,7 @@ export function ThreadView() {
       const currentProject = useProjectStore
         .getState()
         .projects.find((p) => p.id === thread.projectId);
-      const followUpMode = currentProject?.followUpMode || 'interrupt';
+      const followUpMode = currentProject?.followUpMode || DEFAULT_FOLLOW_UP_MODE;
 
       // "Ask" mode: show dialog when agent is running — prompt clears immediately,
       // restored on cancel via setPromptRef
@@ -1628,7 +1655,7 @@ export function ThreadView() {
   const currentProject = useProjectStore
     .getState()
     .projects.find((p) => p.id === activeThread.projectId);
-  const followUpMode = currentProject?.followUpMode || 'interrupt';
+  const followUpMode = currentProject?.followUpMode || DEFAULT_FOLLOW_UP_MODE;
   const isQueueMode = followUpMode === 'queue' || followUpMode === 'ask';
 
   // Setting up: worktree is being created in the background
@@ -1718,9 +1745,9 @@ export function ThreadView() {
 
               <MemoizedMessageList
                 ref={messageListRef}
-                messages={activeThread.messages ?? EMPTY_MESSAGES}
-                threadEvents={activeThread.threadEvents}
-                compactionEvents={activeThread.compactionEvents}
+                messages={stableMessages ?? EMPTY_MESSAGES}
+                threadEvents={stableThreadEvents}
+                compactionEvents={stableCompactionEvents}
                 threadId={activeThread.id}
                 knownIds={knownIdsRef.current}
                 prefersReducedMotion={prefersReducedMotion}

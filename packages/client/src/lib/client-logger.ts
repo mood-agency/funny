@@ -1,16 +1,15 @@
-import { getAuthToken, getAuthMode } from '@/lib/api';
-import { BrowserLogger } from '@/lib/browser-logger';
+import { createLogger, type Logger } from '@abbacchio/browser-transport';
 
-let shared: BrowserLogger | null = null;
+const endpoint = import.meta.env.VITE_OTLP_ENDPOINT as string | undefined;
 
-function getLogger(): BrowserLogger {
+let shared: Logger | null = null;
+
+function getLogger(): Logger {
   if (!shared) {
-    const token = getAuthToken();
-    const mode = getAuthMode();
-    shared = new BrowserLogger({
-      endpoint: '/api/logs',
-      authToken: mode !== 'multi' && token ? token : undefined,
-      credentials: mode === 'multi' ? 'include' : 'same-origin',
+    shared = createLogger({
+      endpoint: endpoint || 'http://localhost:4000',
+      serviceName: 'funny-client',
+      enabled: !!endpoint,
     });
   }
   return shared;

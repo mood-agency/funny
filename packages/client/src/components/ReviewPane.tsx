@@ -457,6 +457,11 @@ export function ReviewPane() {
   const refresh = async () => {
     if (!hasGitContext) return;
     setLoading(true);
+
+    // Fire git status refresh in parallel (don't await — it updates its own store)
+    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId);
+    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId);
+
     const result = effectiveThreadId
       ? await api.getDiffSummary(effectiveThreadId)
       : await api.projectDiffSummary(projectModeId!);
@@ -464,7 +469,15 @@ export function ReviewPane() {
       const data = result.value;
       setSummaries(data.files);
       setTruncatedInfo({ total: data.total, truncated: data.truncated });
-      setDiffCache(new Map());
+      // Invalidate only stale cache entries instead of clearing the whole map
+      const newPaths = new Set(data.files.map((d) => d.path));
+      setDiffCache((prev) => {
+        const next = new Map<string, string>();
+        for (const [k, v] of prev) {
+          if (newPaths.has(k)) next.set(k, v);
+        }
+        return next;
+      });
       // Check all files by default, preserving existing selections
       setCheckedFiles((prev) => {
         const next = new Set(prev);
@@ -484,28 +497,29 @@ export function ReviewPane() {
       if (data.files.length > 0 && !selectedFile) {
         setSelectedFile(data.files[0].path);
       }
-      // Re-load diff for the currently selected file after cache was cleared
+      // Load diff for the currently selected file (uses cache if still valid)
       const fileToLoad = selectedFile ?? (data.files.length > 0 ? data.files[0].path : null);
       if (fileToLoad) {
         const summary = data.files.find((s) => s.path === fileToLoad);
         if (summary) {
-          setLoadingDiff(fileToLoad);
-          const diffResult = effectiveThreadId
-            ? await api.getFileDiff(effectiveThreadId, fileToLoad, summary.staged)
-            : await api.projectFileDiff(projectModeId!, fileToLoad, summary.staged);
-          if (diffResult.isOk()) {
-            setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
+          // Skip fetch if cached content is still valid (file still in summary)
+          const cachedDiff = diffCache.get(fileToLoad);
+          if (!cachedDiff) {
+            setLoadingDiff(fileToLoad);
+            const diffResult = effectiveThreadId
+              ? await api.getFileDiff(effectiveThreadId, fileToLoad, summary.staged)
+              : await api.projectFileDiff(projectModeId!, fileToLoad, summary.staged);
+            if (diffResult.isOk()) {
+              setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
+            }
+            setLoadingDiff((prev) => (prev === fileToLoad ? null : prev));
           }
-          setLoadingDiff((prev) => (prev === fileToLoad ? null : prev));
         }
       }
     } else {
       console.error('Failed to load diff summary:', result.error);
     }
     setLoading(false);
-    // Also refresh git status so we know if there are unmerged commits
-    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId);
-    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId);
   };
 
   // Lazy load diff content for the selected file
@@ -561,20 +575,27 @@ export function ReviewPane() {
     setCommitTitleRaw(draft?.commitTitle ?? '');
     setCommitBodyRaw(draft?.commitBody ?? '');
 
-    // Only fetch data if the pane is visible; otherwise defer until it opens
+    // Only fetch data if the pane is visible; otherwise defer until it opens.
+    // When visible, defer via rAF so state resets paint before the async fetch starts.
     if (reviewPaneOpen) {
-      refresh();
+      const rafId = requestAnimationFrame(() => refresh());
+      return () => cancelAnimationFrame(rafId);
     } else {
       needsRefreshRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset+refresh on context change only; refresh/reviewPaneOpen are read but not deps (handled separately)
   }, [gitContextKey]);
 
-  // Fire deferred refresh when the review pane becomes visible
+  // Fire deferred refresh when the review pane becomes visible.
+  // Uses requestAnimationFrame to yield to the browser first so it can paint
+  // the pane opening animation before we start the async fetch.
   useEffect(() => {
     if (reviewPaneOpen && needsRefreshRef.current) {
       needsRefreshRef.current = false;
-      refresh();
+      const rafId = requestAnimationFrame(() => {
+        refresh();
+      });
+      return () => cancelAnimationFrame(rafId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is a non-memoized function; only trigger on pane visibility change
   }, [reviewPaneOpen]);
@@ -1126,7 +1147,7 @@ export function ReviewPane() {
     (effectiveThreadId ? true : !isAgentRunning);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" style={{ contain: 'strict' }}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-3">
         <div className="flex items-center gap-1">

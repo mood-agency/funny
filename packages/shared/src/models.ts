@@ -11,6 +11,15 @@ import type {
   GeminiModel,
   PermissionMode,
 } from './types.js';
+// ── Application defaults (single source of truth) ────────────────
+// Change these values to update defaults across the entire codebase.
+import type { FollowUpMode, ThreadMode } from './types.js';
+
+export const DEFAULT_PROVIDER: AgentProvider = 'claude';
+export const DEFAULT_MODEL: AgentModel = 'opus';
+export const DEFAULT_THREAD_MODE: ThreadMode = 'local';
+export const DEFAULT_FOLLOW_UP_MODE: FollowUpMode = 'queue';
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'autoEdit';
 
 // ── Model ID mappings ─────────────────────────────────────────
 
@@ -133,10 +142,10 @@ export function resolveModelId(provider: AgentProvider, model: AgentModel): stri
 
 /** Get the default model for a provider. */
 export function getDefaultModel(provider: AgentProvider): AgentModel {
-  if (provider === 'claude') return 'sonnet';
+  if (provider === 'claude') return DEFAULT_MODEL;
   if (provider === 'codex') return 'o4-mini';
   if (provider === 'gemini') return 'gemini-3-flash-preview';
-  if (provider === 'llm-api') return 'sonnet'; // Default to sonnet-equivalent
+  if (provider === 'llm-api') return DEFAULT_MODEL; // Default to claude-equivalent
   throw new Error(`Unknown provider: ${provider}`);
 }
 

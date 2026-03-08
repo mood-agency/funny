@@ -12,6 +12,7 @@ import { resolve, isAbsolute } from 'path';
 import { isGitRepoSync } from '@funny/core/git';
 import type { Project, FollowUpMode } from '@funny/shared';
 import { badRequest, notFound, conflict, internal, type DomainError } from '@funny/shared/errors';
+import { DEFAULT_FOLLOW_UP_MODE } from '@funny/shared/models';
 import { eq, and, asc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { ok, err, type Result } from 'neverthrow';
@@ -36,7 +37,7 @@ function toProject(row: ProjectRow): Project {
   return {
     ...rest,
     ...(color != null ? { color } : {}),
-    ...(followUpMode && followUpMode !== 'interrupt'
+    ...(followUpMode && followUpMode !== DEFAULT_FOLLOW_UP_MODE
       ? { followUpMode: followUpMode as FollowUpMode }
       : {}),
     ...(defaultProvider != null

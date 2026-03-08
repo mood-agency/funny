@@ -97,8 +97,8 @@ describe('resolveModelId', () => {
 // ── getDefaultModel ─────────────────────────────────────────────
 
 describe('getDefaultModel', () => {
-  test('returns sonnet for claude', () => {
-    expect(getDefaultModel('claude')).toBe('sonnet');
+  test('returns opus for claude', () => {
+    expect(getDefaultModel('claude')).toBe('opus');
   });
 
   test('returns o4-mini for codex', () => {
@@ -109,8 +109,8 @@ describe('getDefaultModel', () => {
     expect(getDefaultModel('gemini')).toBe('gemini-3-flash-preview');
   });
 
-  test('returns sonnet for llm-api', () => {
-    expect(getDefaultModel('llm-api')).toBe('sonnet');
+  test('returns opus for llm-api', () => {
+    expect(getDefaultModel('llm-api')).toBe('opus');
   });
 
   test('throws on unknown provider', () => {

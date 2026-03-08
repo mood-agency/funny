@@ -95,8 +95,8 @@ export function ReadFileCard({
           })()}
       </button>
       {expanded && parsedOutput && (
-        <div className="overflow-hidden border-t border-border/40">
-          <div className="flex items-center justify-between border-b border-border/30 bg-background/50 px-3 py-1">
+        <div className="max-h-[50vh] overflow-y-auto border-t border-border/40">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/30 bg-background/50 px-3 py-1">
             <span className="text-xs font-medium text-muted-foreground">{fileName}</span>
             {ext && (
               <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">

@@ -111,6 +111,10 @@ export const ThreadItem = memo(function ThreadItem({
   const isRunning = thread.status === 'running';
   const isSettingUp = thread.status === 'setting_up';
   const isBusy = isRunning || isSettingUp;
+  // Sidebar icons: no color, only keep animate-spin for busy states
+  const statusIconClassName = isBusy
+    ? 'text-muted-foreground animate-spin'
+    : 'text-muted-foreground';
   const displayTime = timeValue ?? timeAgo(thread.createdAt, t);
 
   // Git status config
@@ -169,23 +173,18 @@ export const ThreadItem = memo(function ThreadItem({
                 <Pin className="h-3.5 w-3.5" />
               </span>
             ) : (
-              thread.status !== 'completed' && (
-                <span
-                  className={cn(
-                    'absolute inset-0',
-                    onPin && !isBusy && 'group-hover/thread:hidden',
-                  )}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <StatusIcon className={cn('h-3.5 w-3.5', threadStatusCfg.className)} />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      {t(`thread.status.${thread.status}`)}
-                    </TooltipContent>
-                  </Tooltip>
-                </span>
-              )
+              <span
+                className={cn('absolute inset-0', onPin && !isBusy && 'group-hover/thread:hidden')}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <StatusIcon className={cn('h-3.5 w-3.5', statusIconClassName)} />
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    {t(`thread.status.${thread.status}`)}
+                  </TooltipContent>
+                </Tooltip>
+              </span>
             )}
             {onPin && !isBusy && (
               <span

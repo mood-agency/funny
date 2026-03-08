@@ -11,6 +11,13 @@
  * the agent with the next message in the queue.
  */
 
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_FOLLOW_UP_MODE,
+} from '@funny/shared/models';
+
 import type { AgentCompletedEvent } from '../thread-event-bus.js';
 import type { EventHandler } from './types.js';
 
@@ -26,7 +33,7 @@ export const agentCompletedQueueHandler: EventHandler<'agent:completed'> = {
 
     const project = ctx.getProject(thread.projectId);
     if (!project) return;
-    const mode = project?.followUpMode ?? 'interrupt';
+    const mode = project?.followUpMode ?? DEFAULT_FOLLOW_UP_MODE;
     if (mode !== 'queue' && mode !== 'ask') return;
 
     const next = ctx.dequeueMessage(threadId);
@@ -41,12 +48,12 @@ export const agentCompletedQueueHandler: EventHandler<'agent:completed'> = {
         threadId,
         next.content,
         effectiveCwd,
-        next.model || thread.model || 'sonnet',
-        next.permissionMode || thread.permissionMode || 'autoEdit',
+        next.model || thread.model || DEFAULT_MODEL,
+        next.permissionMode || thread.permissionMode || DEFAULT_PERMISSION_MODE,
         next.images ? JSON.parse(next.images) : undefined,
         next.disallowedTools ? JSON.parse(next.disallowedTools) : undefined,
         next.allowedTools ? JSON.parse(next.allowedTools) : undefined,
-        next.provider || thread.provider || 'claude',
+        next.provider || thread.provider || DEFAULT_PROVIDER,
       );
 
       // Emit queue update with the dequeued message content so the client

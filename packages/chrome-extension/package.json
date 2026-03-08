@@ -9,7 +9,8 @@
     "package": "bun run build.ts && bun run package.ts"
   },
   "dependencies": {
-    "@funny/funny-client": "workspace:*"
+    "@funny/funny-client": "workspace:*",
+    "@funny/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.37",

@@ -87,3 +87,20 @@ export function useActiveInitInfo(): AgentInitInfo | undefined {
     return next;
   });
 }
+
+/** Subscribe to the active thread's messages array.
+ *  Returns the same reference when the array hasn't changed, preventing
+ *  downstream memo comparators from failing on status-only store updates. */
+export function useActiveMessages() {
+  return useThreadStore((s) => s.activeThread?.messages ?? null);
+}
+
+/** Subscribe to the active thread's threadEvents array. */
+export function useActiveThreadEvents() {
+  return useThreadStore((s) => s.activeThread?.threadEvents);
+}
+
+/** Subscribe to the active thread's compactionEvents array. */
+export function useActiveCompactionEvents() {
+  return useThreadStore((s) => s.activeThread?.compactionEvents);
+}

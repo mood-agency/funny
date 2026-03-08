@@ -5,6 +5,8 @@
  * via GET /api/setup/status — nothing is hardcoded.
  */
 
+import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
+
 interface ProviderInfo {
   available: boolean;
   label?: string;
@@ -121,7 +123,7 @@ function applyFromConfig(config: any) {
   const effectiveModel = config.model || providerData[effectiveProvider]?.defaultModel || '';
   populateModels(providerSelect.value, effectiveModel);
 
-  modeSelect.value = config.mode || 'worktree';
+  modeSelect.value = config.mode || DEFAULT_THREAD_MODE;
 }
 
 function populateModels(provider: string, selectedModel?: string) {
@@ -275,7 +277,7 @@ function applyProjectDefaults(projectId: string) {
   const effectiveModel = project.defaultModel || '';
   populateModels(providerSelect.value, effectiveModel);
 
-  modeSelect.value = project.defaultMode || 'worktree';
+  modeSelect.value = project.defaultMode || DEFAULT_THREAD_MODE;
 }
 
 async function testConnection(showFeedback: boolean) {

@@ -1,3 +1,4 @@
+import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -25,7 +26,7 @@ export function NewThreadInput() {
   const project = effectiveProjectId
     ? projects.find((p) => p.id === effectiveProjectId)
     : undefined;
-  const defaultThreadMode = project?.defaultMode ?? 'worktree';
+  const defaultThreadMode = project?.defaultMode ?? DEFAULT_THREAD_MODE;
   const toolPermissions = useSettingsStore((s) => s.toolPermissions);
 
   const [creating, setCreating] = useState(false);

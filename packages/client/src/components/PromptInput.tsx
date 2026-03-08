@@ -1,5 +1,11 @@
 import type { ImageAttachment, QueuedMessage, Skill } from '@funny/shared';
 import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_THREAD_MODE,
+} from '@funny/shared/models';
+import {
   ArrowUp,
   ArrowLeft,
   Square,
@@ -18,6 +24,7 @@ import {
   Pencil,
   Trash2,
   Check,
+  ChevronDown,
 } from 'lucide-react';
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -25,13 +32,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 // Textarea import available if needed
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -44,6 +45,155 @@ import { useThreadStore } from '@/stores/thread-store';
 
 import { ImageLightbox } from './ImageLightbox';
 import { BranchPicker } from './SearchablePicker';
+
+// ── Lightweight Popover-based selectors ──────────────────────────
+// Radix Select is slow to open (~900ms processing) due to item measurement,
+// FocusScope traversal, and DismissableLayer setup. These use Popover instead,
+// which is significantly lighter (no item measurement, no scroll-into-view logic).
+
+const ModeSelect = memo(function ModeSelect({
+  value,
+  onChange,
+  modes,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  modes: { value: string; label: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const currentLabel = modes.find((m) => m.value === value)?.label ?? value;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          data-testid="prompt-mode-select"
+          tabIndex={-1}
+          className="flex h-7 cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          <span>{currentLabel}</span>
+          <ChevronDown className="h-3 w-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="start"
+        className="w-auto min-w-[8rem] p-1 data-[state=closed]:animate-none data-[state=open]:animate-none"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        {modes.map((m) => (
+          <button
+            key={m.value}
+            className={cn(
+              'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground',
+              m.value === value && 'bg-accent text-accent-foreground',
+            )}
+            onClick={() => {
+              onChange(m.value);
+              setOpen(false);
+            }}
+          >
+            {m.label}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+});
+
+const ModelSelect = memo(function ModelSelect({
+  value,
+  onChange,
+  groups,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  groups: ReturnType<typeof getUnifiedModelOptions>;
+}) {
+  const [open, setOpen] = useState(false);
+  // Find current label
+  let currentLabel = value;
+  for (const g of groups) {
+    const found = g.models.find((m) => m.value === value);
+    if (found) {
+      currentLabel = found.label;
+      break;
+    }
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          data-testid="prompt-model-select"
+          tabIndex={-1}
+          className="flex h-7 cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          <span>{currentLabel}</span>
+          <ChevronDown className="h-3 w-3 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        className="w-auto min-w-[10rem] p-1 data-[state=closed]:animate-none data-[state=open]:animate-none"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        {groups.map((group) => (
+          <div key={group.provider}>
+            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+              {group.providerLabel}
+            </div>
+            {group.models.map((m) => (
+              <button
+                key={m.value}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground',
+                  m.value === value && 'bg-accent text-accent-foreground',
+                )}
+                onClick={() => {
+                  onChange(m.value);
+                  setOpen(false);
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+});
+
+const ContextUsage = memo(function ContextUsage({
+  provider,
+  model,
+  tokenOffset,
+  cumulativeTokens,
+}: {
+  provider: string;
+  model: string;
+  tokenOffset: number;
+  cumulativeTokens: number;
+}) {
+  const maxTokens = getContextWindow(provider, model);
+  const cumulative = tokenOffset + cumulativeTokens;
+  const pct = maxTokens > 0 ? Math.min(100, (cumulative / maxTokens) * 100) : 0;
+  const tokenK = Math.round(cumulative / 1000);
+  const colorClass =
+    pct > 80 ? 'text-red-500' : pct > 60 ? 'text-amber-500' : 'text-muted-foreground';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn('cursor-default text-xs tabular-nums', colorClass)}>
+          {pct.toFixed(0)}% used
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        Context: {tokenK}K / {Math.round(maxTokens / 1000)}K tokens
+      </TooltipContent>
+    </Tooltip>
+  );
+});
 
 /** Parse a git remote URL into a friendly `owner/repo` display string. */
 function formatRemoteUrl(url: string): string {
@@ -117,10 +267,10 @@ export const PromptInput = memo(function PromptInput({
     propProjectId || selectedProjectIdForDefaults
       ? projects.find((p) => p.id === (propProjectId || selectedProjectIdForDefaults))
       : undefined;
-  const defaultProvider = effectiveProject?.defaultProvider ?? 'claude';
-  const defaultModel = effectiveProject?.defaultModel ?? 'sonnet';
-  const defaultPermissionMode = effectiveProject?.defaultPermissionMode ?? 'autoEdit';
-  const defaultThreadMode = effectiveProject?.defaultMode ?? 'worktree';
+  const defaultProvider = effectiveProject?.defaultProvider ?? DEFAULT_PROVIDER;
+  const defaultModel = effectiveProject?.defaultModel ?? DEFAULT_MODEL;
+  const defaultPermissionMode = effectiveProject?.defaultPermissionMode ?? DEFAULT_PERMISSION_MODE;
+  const defaultThreadMode = effectiveProject?.defaultMode ?? DEFAULT_THREAD_MODE;
 
   const [prompt, setPrompt] = useState(initialPromptProp ?? '');
 
@@ -1319,75 +1469,22 @@ export const PromptInput = memo(function PromptInput({
               >
                 <Paperclip className="h-4 w-4" />
               </Button>
-              <Select value={mode} onValueChange={setMode}>
-                <SelectTrigger
-                  data-testid="prompt-mode-select"
-                  tabIndex={-1}
-                  className="h-7 w-auto min-w-0 shrink-0 border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-accent-foreground"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {modes.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ModeSelect value={mode} onChange={setMode} modes={modes} />
               {/* Model + send — always visible, pushed right */}
               <div className="ml-auto flex shrink-0 items-center gap-1">
-                {!isNewThread &&
-                  (() => {
-                    const maxTokens = getContextWindow(
-                      activeThreadProvider ?? provider ?? 'claude',
-                      activeThreadModel ?? model ?? 'sonnet',
-                    );
-                    const cumulative = contextTokenOffset + contextCumulativeTokens;
-                    const pct = maxTokens > 0 ? Math.min(100, (cumulative / maxTokens) * 100) : 0;
-                    const tokenK = Math.round(cumulative / 1000);
-                    const colorClass =
-                      pct > 80
-                        ? 'text-red-500'
-                        : pct > 60
-                          ? 'text-amber-500'
-                          : 'text-muted-foreground';
-                    return (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className={cn('cursor-default text-xs tabular-nums', colorClass)}>
-                            {pct.toFixed(0)}% used
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          Context: {tokenK}K / {Math.round(maxTokens / 1000)}K tokens
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })()}
-                <Select value={unifiedModel} onValueChange={setUnifiedModel}>
-                  <SelectTrigger
-                    data-testid="prompt-model-select"
-                    tabIndex={-1}
-                    className="h-7 w-auto min-w-0 shrink-0 border-0 bg-transparent text-xs text-muted-foreground shadow-none hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {unifiedModelGroups.map((group) => (
-                      <div key={group.provider}>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                          {group.providerLabel}
-                        </div>
-                        {group.models.map((m) => (
-                          <SelectItem key={m.value} value={m.value}>
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </div>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {!isNewThread && (
+                  <ContextUsage
+                    provider={activeThreadProvider ?? provider ?? DEFAULT_PROVIDER}
+                    model={activeThreadModel ?? model ?? DEFAULT_MODEL}
+                    tokenOffset={contextTokenOffset}
+                    cumulativeTokens={contextCumulativeTokens}
+                  />
+                )}
+                <ModelSelect
+                  value={unifiedModel}
+                  onChange={setUnifiedModel}
+                  groups={unifiedModelGroups}
+                />
                 {running && !prompt.trim() ? (
                   <Button
                     data-testid="prompt-stop"
@@ -1466,7 +1563,7 @@ export const PromptInput = memo(function PromptInput({
                     onClick={() => setSendToBacklog((v) => !v)}
                     tabIndex={-1}
                     className={cn(
-                      'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors shrink-0 ml-auto',
+                      'flex items-center gap-1 pl-2 py-1 text-xs rounded transition-colors shrink-0 ml-auto',
                       sendToBacklog
                         ? 'bg-primary/10 text-primary'
                         : 'text-muted-foreground hover:text-foreground hover:bg-muted',
@@ -1479,7 +1576,7 @@ export const PromptInput = memo(function PromptInput({
                 )}
               </div>
             ) : (
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col">
                 {effectiveCwd && (
                   <div className="no-scrollbar flex items-center gap-1 overflow-x-auto">
                     <span className="group/cwd flex max-w-[400px] shrink-0 items-center gap-1 truncate px-2 py-1 text-xs text-muted-foreground">

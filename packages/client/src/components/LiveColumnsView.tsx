@@ -1,4 +1,5 @@
 import type { Thread } from '@funny/shared';
+import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
 import {
   Loader2,
   Columns3,
@@ -500,7 +501,9 @@ export function LiveColumnsView() {
 
       const slideUpProject = projects.find((p) => p.id === slideUpProjectId);
       const threadMode =
-        (opts.threadMode as 'local' | 'worktree') || slideUpProject?.defaultMode || 'worktree';
+        (opts.threadMode as 'local' | 'worktree') ||
+        slideUpProject?.defaultMode ||
+        DEFAULT_THREAD_MODE;
 
       if (opts.sendToBacklog) {
         const result = await api.createIdleThread({

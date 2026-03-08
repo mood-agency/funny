@@ -280,11 +280,12 @@ export function App() {
             ? 'opacity-100'
             : 'w-0 opacity-0 border-l-0',
         )}
-        style={
-          reviewPaneOpen && !settingsOpen && !allThreadsProjectId
+        style={{
+          contain: 'layout style',
+          ...(reviewPaneOpen && !settingsOpen && !allThreadsProjectId
             ? { width: `${reviewPaneWidth}vw` }
-            : undefined
-        }
+            : {}),
+        }}
       >
         {/* Resize handle */}
         {reviewPaneOpen && !settingsOpen && !allThreadsProjectId && (

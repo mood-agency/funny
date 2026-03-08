@@ -418,6 +418,15 @@ export class AgentMessageHandler {
               toolName: tc.name,
               toolUseId: block.tool_use_id,
             });
+          } else if (this.state.pendingPermissionRequest.has(threadId)) {
+            // A tool succeeded without permission denial — the agent moved on,
+            // so clear the stale permission request to avoid a false WAIT at result time.
+            log.debug('Clearing stale pendingPermissionRequest after successful tool result', {
+              ...this.threadCtx(threadId),
+              tool: tc?.name ?? 'unknown',
+              wasPermission: this.state.pendingPermissionRequest.get(threadId)?.toolName ?? '',
+            });
+            this.state.pendingPermissionRequest.delete(threadId);
           }
 
           // Emit git:changed event for file-modifying tools

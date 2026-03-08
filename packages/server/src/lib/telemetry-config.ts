@@ -15,8 +15,6 @@ export interface TelemetryConfig {
   enabled: boolean;
   /** Service name for the server process */
   serverServiceName: string;
-  /** Service name for browser log forwarding */
-  browserServiceName: string;
 }
 
 let _config: TelemetryConfig | null = null;
@@ -28,7 +26,6 @@ export function getTelemetryConfig(): TelemetryConfig {
       endpoint,
       enabled: !!process.env.OTLP_ENDPOINT,
       serverServiceName: 'funny-server',
-      browserServiceName: 'funny-browser',
     };
   }
   return _config;

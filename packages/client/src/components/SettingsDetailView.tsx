@@ -1,6 +1,6 @@
 import type { ToolPermission } from '@funny/shared';
 import type { AgentProvider } from '@funny/shared';
-import { getDefaultModel } from '@funny/shared/models';
+import { getDefaultModel, DEFAULT_PROVIDER, DEFAULT_FOLLOW_UP_MODE } from '@funny/shared/models';
 import { Monitor, GitBranch, RotateCcw, Check, ChevronsUpDown, X, Plus } from 'lucide-react';
 import { useState, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -406,7 +406,7 @@ function GeneralSettings() {
               description={t('settings.followUpModeDesc')}
             >
               <SegmentedControl<string>
-                value={selectedProject.followUpMode || 'interrupt'}
+                value={selectedProject.followUpMode || DEFAULT_FOLLOW_UP_MODE}
                 onChange={(v) => saveProject(selectedProject.id, { followUpMode: v })}
                 options={[
                   {
@@ -436,7 +436,7 @@ function GeneralSettings() {
             >
               <div className="flex items-center gap-2">
                 <ModelCombobox
-                  value={selectedProject.defaultProvider || 'claude'}
+                  value={selectedProject.defaultProvider || DEFAULT_PROVIDER}
                   onChange={(v) => {
                     const p = v as AgentProvider;
                     saveProject(selectedProject.id, {
@@ -451,10 +451,12 @@ function GeneralSettings() {
                 <ModelCombobox
                   value={
                     selectedProject.defaultModel ||
-                    getDefaultModel((selectedProject.defaultProvider || 'claude') as AgentProvider)
+                    getDefaultModel(
+                      (selectedProject.defaultProvider || DEFAULT_PROVIDER) as AgentProvider,
+                    )
                   }
                   onChange={(v) => saveProject(selectedProject.id, { defaultModel: v })}
-                  options={getModelOptions(selectedProject.defaultProvider || 'claude', t)}
+                  options={getModelOptions(selectedProject.defaultProvider || DEFAULT_PROVIDER, t)}
                   placeholder={t('settings.selectModel')}
                   searchPlaceholder={t('settings.searchModel')}
                 />
@@ -468,7 +470,7 @@ function GeneralSettings() {
               )}
             >
               <SegmentedControl<string>
-                value={selectedProject.defaultMode || 'worktree'}
+                value={selectedProject.defaultMode || 'local'}
                 onChange={(v) => saveProject(selectedProject.id, { defaultMode: v })}
                 options={[
                   {

@@ -10,6 +10,8 @@
  * Uses Shadow DOM to isolate styles from the host page.
  */
 
+import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
+
 // ---------------------------------------------------------------------------
 // Interfaces
 // ---------------------------------------------------------------------------
@@ -66,7 +68,7 @@ if (window.__funnyAnnotatorActive) {
 }
 window.__funnyAnnotatorActive = true;
 
-console.log('[Funny Annotator] v2.1 loaded', new Date().toISOString());
+console.info('[Funny Annotator] v2.1 loaded', new Date().toISOString());
 
 // ---------------------------------------------------------------------------
 // State
@@ -1433,7 +1435,7 @@ function detectFramework(): string {
     document.documentElement.removeAttribute('data-funny-framework');
     document.dispatchEvent(new Event('__funny_detect_framework'));
     const result = document.documentElement.getAttribute('data-funny-framework') || '';
-    console.log('[Funny Annotator] Framework detect result:', result || 'none');
+    console.info('[Funny Annotator] Framework detect result:', result || 'none');
     document.documentElement.removeAttribute('data-funny-framework');
     return result;
   } catch {
@@ -1522,7 +1524,7 @@ async function loadSettingsData() {
 
     // Populate mode — project default > fallback
     const modeSelect = settingsPanel.querySelector('[data-key="mode"]') as HTMLSelectElement;
-    const effectiveMode = selectedProject?.defaultMode || config.mode || 'worktree';
+    const effectiveMode = selectedProject?.defaultMode || config.mode || DEFAULT_THREAD_MODE;
     modeSelect.value = effectiveMode;
 
     // Populate providers
@@ -1601,9 +1603,9 @@ function applyProjectDefaults(projectId: string) {
   const effectiveModel = project.defaultModel || '';
   populateSettingsModels(providerSelect.value, effectiveModel);
 
-  // Resolve mode: project default > 'worktree'
+  // Resolve mode: project default > 'local'
   const modeSelect = settingsPanel.querySelector('[data-key="mode"]') as HTMLSelectElement;
-  modeSelect.value = project.defaultMode || 'worktree';
+  modeSelect.value = project.defaultMode || DEFAULT_THREAD_MODE;
 }
 
 function populateSettingsModels(provider: string, selectedModel?: string) {

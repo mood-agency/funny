@@ -5,6 +5,7 @@
  */
 
 import { validationErr, type DomainError } from '@funny/shared/errors';
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_PERMISSION_MODE } from '@funny/shared/models';
 import { ok, err, type Result } from 'neverthrow';
 import { z } from 'zod';
 
@@ -86,9 +87,9 @@ export const createThreadSchema = z.object({
   projectId: z.string().min(1),
   title: z.string().optional().default(''),
   mode: threadModeSchema,
-  provider: agentProviderSchema.optional().default('claude'),
-  model: agentModelSchema.optional().default('sonnet'),
-  permissionMode: permissionModeSchema.optional().default('autoEdit'),
+  provider: agentProviderSchema.optional().default(DEFAULT_PROVIDER),
+  model: agentModelSchema.optional().default(DEFAULT_MODEL),
+  permissionMode: permissionModeSchema.optional().default(DEFAULT_PERMISSION_MODE),
   source: threadSourceSchema.optional().default('web'),
   baseBranch: z.string().optional(),
   prompt: z.string().min(1, 'prompt is required'),
@@ -274,9 +275,9 @@ export const createAutomationSchema = z.object({
   name: z.string().min(1, 'name is required'),
   prompt: z.string().min(1, 'prompt is required'),
   schedule: automationScheduleSchema,
-  provider: agentProviderSchema.optional().default('claude'),
-  model: agentModelSchema.optional().default('sonnet'),
-  permissionMode: permissionModeSchema.optional().default('autoEdit'),
+  provider: agentProviderSchema.optional().default(DEFAULT_PROVIDER),
+  model: agentModelSchema.optional().default(DEFAULT_MODEL),
+  permissionMode: permissionModeSchema.optional().default(DEFAULT_PERMISSION_MODE),
   mode: automationModeSchema.optional().default('default'),
 });
 

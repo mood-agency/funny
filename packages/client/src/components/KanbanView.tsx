@@ -5,6 +5,7 @@ import {
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import type { Thread, ThreadStage, Project, GitStatusInfo } from '@funny/shared';
+import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
 import { GitBranch, Pin, Plus, Search, Trash2, Chrome, Bot, Webhook, Terminal } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback, memo, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -579,7 +580,9 @@ export function KanbanView({
 
       const slideUpProject = projects.find((p) => p.id === slideUpProjectId);
       const threadMode =
-        (opts.threadMode as 'local' | 'worktree') || slideUpProject?.defaultMode || 'worktree';
+        (opts.threadMode as 'local' | 'worktree') ||
+        slideUpProject?.defaultMode ||
+        DEFAULT_THREAD_MODE;
       const toIdle =
         opts.sendToBacklog || slideUpStage === 'backlog' || slideUpStage === 'planning';
 

@@ -4,6 +4,13 @@
  * @domain layer: infrastructure
  */
 
+import {
+  DEFAULT_FOLLOW_UP_MODE,
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_THREAD_MODE,
+  DEFAULT_PERMISSION_MODE,
+} from '@funny/shared/models';
 import { sqliteTable, text, real, integer } from 'drizzle-orm/sqlite-core';
 
 export const projects = sqliteTable('projects', {
@@ -11,7 +18,7 @@ export const projects = sqliteTable('projects', {
   name: text('name').notNull(),
   path: text('path').notNull(),
   color: text('color'),
-  followUpMode: text('follow_up_mode').notNull().default('interrupt'), // 'interrupt' | 'queue'
+  followUpMode: text('follow_up_mode').notNull().default(DEFAULT_FOLLOW_UP_MODE),
   defaultProvider: text('default_provider'), // nullable — null means "use global default"
   defaultModel: text('default_model'),
   defaultMode: text('default_mode'),
@@ -32,8 +39,8 @@ export const threads = sqliteTable('threads', {
   createdBy: text('created_by'), // Username, external agent ID, or pipeline/automation name
   title: text('title').notNull(),
   mode: text('mode').notNull(), // 'local' | 'worktree'
-  provider: text('provider').notNull().default('claude'), // 'claude' | 'codex'
-  permissionMode: text('permission_mode').notNull().default('autoEdit'), // 'plan' | 'autoEdit' | 'confirmEdit' | 'ask'
+  provider: text('provider').notNull().default(DEFAULT_PROVIDER),
+  permissionMode: text('permission_mode').notNull().default(DEFAULT_PERMISSION_MODE),
   status: text('status').notNull().default('pending'), // 'pending' | 'running' | 'waiting' | 'completed' | 'failed' | 'stopped' | 'interrupted'
   branch: text('branch'),
   baseBranch: text('base_branch'),
@@ -43,7 +50,7 @@ export const threads = sqliteTable('threads', {
   archived: integer('archived').notNull().default(0),
   pinned: integer('pinned').notNull().default(0),
   stage: text('stage').notNull().default('backlog'), // 'backlog' | 'planning' | 'in_progress' | 'review' | 'done'
-  model: text('model').notNull().default('sonnet'), // 'sonnet' | 'opus' | 'haiku'
+  model: text('model').notNull().default(DEFAULT_MODEL),
   initialPrompt: text('initial_prompt'),
   source: text('source').notNull().default('web'), // 'web' | 'chrome_extension' | 'api' | 'automation' | 'ingest'
   externalRequestId: text('external_request_id'),
@@ -104,10 +111,10 @@ export const automations = sqliteTable('automations', {
   name: text('name').notNull(),
   prompt: text('prompt').notNull(),
   schedule: text('schedule').notNull(),
-  provider: text('provider').notNull().default('claude'), // 'claude' | 'codex'
-  model: text('model').notNull().default('sonnet'),
-  mode: text('mode').notNull().default('worktree'),
-  permissionMode: text('permission_mode').notNull().default('autoEdit'),
+  provider: text('provider').notNull().default(DEFAULT_PROVIDER),
+  model: text('model').notNull().default(DEFAULT_MODEL),
+  mode: text('mode').notNull().default(DEFAULT_THREAD_MODE),
+  permissionMode: text('permission_mode').notNull().default(DEFAULT_PERMISSION_MODE),
   baseBranch: text('base_branch'),
   enabled: integer('enabled').notNull().default(1),
   maxRunHistory: integer('max_run_history').notNull().default(20),

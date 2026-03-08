@@ -25,7 +25,6 @@ import {
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/app-store';
 
-import { GroupBySelector, type GroupBy } from './analytics/GroupBySelector';
 import { MetricCard } from './analytics/MetricCard';
 import { StageDistributionChart } from './analytics/StageDistributionChart';
 import { TimelineChart } from './analytics/TimelineChart';
@@ -61,7 +60,6 @@ export function AnalyticsView() {
 
   const [projectId, setProjectId] = useState<string>(() => selectedProjectId || '__all__');
   const [timeRange, setTimeRange] = useState<TimeRange>('month');
-  const [groupBy, setGroupBy] = useState<GroupBy>('day');
   const [overview, setOverview] = useState<OverviewData | null>(null);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -71,10 +69,18 @@ export function AnalyticsView() {
     [projects, projectId],
   );
 
+  // Auto-derive groupBy from timeRange so we don't need a separate selector
+  const groupBy =
+    timeRange === 'day'
+      ? 'day'
+      : timeRange === 'week'
+        ? 'day'
+        : timeRange === 'month'
+          ? 'week'
+          : 'month';
+
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ timeRange });
-    if (projectId !== '__all__') params.set('projectId', projectId);
 
     Promise.all([
       api.analyticsOverview(projectId === '__all__' ? undefined : projectId, timeRange),
@@ -222,10 +228,7 @@ export function AnalyticsView() {
                     className="rounded-lg border border-border p-5"
                     data-testid="analytics-timeline-chart"
                   >
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold">{t('analytics.timeline')}</h3>
-                      <GroupBySelector value={groupBy} onChange={setGroupBy} />
-                    </div>
+                    <h3 className="mb-4 text-sm font-semibold">{t('analytics.timeline')}</h3>
                     <TimelineChart
                       created={timeline.createdByDate}
                       completed={timeline.completedByDate}

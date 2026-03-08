@@ -114,8 +114,8 @@ export function EditFileCard({
         )}
       </div>
       {expanded && hasDiff && (
-        <div className="overflow-hidden border-t border-border/40">
-          <div className="max-h-80 overflow-hidden text-xs [&_.diff-container]:font-mono [&_.diff-container]:text-sm">
+        <div className="max-h-[50vh] overflow-y-auto border-t border-border/40">
+          <div className="text-xs [&_.diff-container]:font-mono [&_.diff-container]:text-sm">
             <Suspense
               fallback={<div className="p-2 text-xs text-muted-foreground">Loading diff...</div>}
             >

@@ -19,6 +19,7 @@ import {
   EllipsisVertical,
   Trash2,
   FolderOpen,
+  PanelLeftClose,
 } from 'lucide-react';
 import { memo, useState, useEffect, useCallback, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -57,6 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useSidebar } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePreviewWindow } from '@/hooks/use-preview-window';
 import { api } from '@/lib/api';
@@ -99,6 +101,7 @@ function threadToMarkdown(messages: MessageWithToolCalls[], includeToolCalls: bo
 const MoreActionsMenu = memo(function MoreActionsMenu() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { toggleSidebar } = useSidebar();
   const threadId = useThreadStore((s) => s.activeThread?.id);
   const threadProjectId = useThreadStore((s) => s.activeThread?.projectId);
   const threadTitle = useThreadStore((s) => s.activeThread?.title);
@@ -157,6 +160,15 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
           <TooltipContent>{t('thread.moreActions', 'More actions')}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            data-testid="header-menu-toggle-sidebar"
+            onClick={toggleSidebar}
+            className="cursor-pointer"
+          >
+            <PanelLeftClose className="mr-2 h-4 w-4" />
+            {t('sidebar.collapse', 'Toggle sidebar')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem
             data-testid="header-menu-copy-text"
             onClick={() => handleCopy(false)}
@@ -420,10 +432,10 @@ export const ProjectHeader = memo(function ProjectHeader() {
   const activeThreadParentId = useThreadStore((s) => s.activeThread?.parentThreadId);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const projects = useProjectStore((s) => s.projects);
-  const setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
-  const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
   const timelineVisible = useUIStore((s) => s.timelineVisible);
   const setTimelineVisible = useUIStore((s) => s.setTimelineVisible);
+  const setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
+  const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
   const kanbanContext = useUIStore((s) => s.kanbanContext);
   const { openPreview, isTauri } = usePreviewWindow();
   const toggleTerminalPanel = useTerminalStore((s) => s.togglePanel);
@@ -629,22 +641,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            {activeThreadId && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setTimelineVisible(!timelineVisible)}
-                    data-testid="header-toggle-timeline"
-                    className={timelineVisible ? 'text-primary' : 'text-muted-foreground'}
-                  >
-                    <Milestone className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('thread.toggleTimeline', 'Toggle Timeline')}</TooltipContent>
-              </Tooltip>
-            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -679,6 +675,22 @@ export const ProjectHeader = memo(function ProjectHeader() {
               </TooltipTrigger>
               <TooltipContent>{t('terminal.toggle', 'Toggle Terminal')}</TooltipContent>
             </Tooltip>
+            {activeThreadId && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    data-testid="header-toggle-timeline"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setTimelineVisible(!timelineVisible)}
+                    className={timelineVisible ? 'text-primary' : 'text-muted-foreground'}
+                  >
+                    <Milestone className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('thread.toggleTimeline', 'Toggle Timeline')}</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
