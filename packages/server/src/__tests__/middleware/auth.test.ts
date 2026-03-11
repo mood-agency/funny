@@ -262,6 +262,7 @@ describe('authMiddleware', () => {
     test('valid session sets userId and userRole', async () => {
       mockGetSession.mockResolvedValue({
         user: { id: 'user-42', role: 'admin' },
+        session: { activeOrganizationId: null },
       });
 
       const app = createApp();
@@ -275,6 +276,7 @@ describe('authMiddleware', () => {
     test('session user without role defaults to "user"', async () => {
       mockGetSession.mockResolvedValue({
         user: { id: 'user-99' },
+        session: { activeOrganizationId: null },
       });
 
       const app = createApp();
@@ -319,6 +321,7 @@ describe('requireAdmin', () => {
     mockGetAuthMode.mockReturnValue('multi');
     mockGetSession.mockResolvedValue({
       user: { id: 'user-regular', role: 'user' },
+      session: { activeOrganizationId: null },
     });
 
     const app = createAdminApp();
@@ -332,6 +335,7 @@ describe('requireAdmin', () => {
     mockGetAuthMode.mockReturnValue('multi');
     mockGetSession.mockResolvedValue({
       user: { id: 'user-admin', role: 'admin' },
+      session: { activeOrganizationId: null },
     });
 
     const app = createAdminApp();
@@ -346,6 +350,7 @@ describe('requireAdmin', () => {
     mockGetAuthMode.mockReturnValue('multi');
     mockGetSession.mockResolvedValue({
       user: { id: 'user-norole' },
+      session: { activeOrganizationId: null },
     });
 
     const app = createAdminApp();

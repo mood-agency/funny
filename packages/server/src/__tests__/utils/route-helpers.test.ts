@@ -54,20 +54,20 @@ beforeEach(() => {
 // ── requireThread ────────────────────────────────────────────────
 
 describe('requireThread', () => {
-  test('returns Ok with the thread when found', () => {
+  test('returns Ok with the thread when found', async () => {
     mockGetThread.mockReturnValue(fakeThread);
 
-    const result = requireThread('t1');
+    const result = await requireThread('t1');
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual(fakeThread);
     expect(mockGetThread).toHaveBeenCalledWith('t1');
   });
 
-  test('returns Err(NOT_FOUND) when thread does not exist', () => {
+  test('returns Err(NOT_FOUND) when thread does not exist', async () => {
     mockGetThread.mockReturnValue(undefined);
 
-    const result = requireThread('nonexistent');
+    const result = await requireThread('nonexistent');
 
     expect(result.isErr()).toBe(true);
     const error = result._unsafeUnwrapErr();
@@ -79,20 +79,20 @@ describe('requireThread', () => {
 // ── requireThreadWithMessages ────────────────────────────────────
 
 describe('requireThreadWithMessages', () => {
-  test('returns Ok with thread and messages when found', () => {
+  test('returns Ok with thread and messages when found', async () => {
     mockGetThreadWithMessages.mockReturnValue(fakeThreadWithMessages);
 
-    const result = requireThreadWithMessages('t1');
+    const result = await requireThreadWithMessages('t1');
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toEqual(fakeThreadWithMessages);
     expect(mockGetThreadWithMessages).toHaveBeenCalledWith('t1');
   });
 
-  test('returns Err(NOT_FOUND) when thread does not exist', () => {
+  test('returns Err(NOT_FOUND) when thread does not exist', async () => {
     mockGetThreadWithMessages.mockReturnValue(null);
 
-    const result = requireThreadWithMessages('nonexistent');
+    const result = await requireThreadWithMessages('nonexistent');
 
     expect(result.isErr()).toBe(true);
     const error = result._unsafeUnwrapErr();
@@ -104,10 +104,10 @@ describe('requireThreadWithMessages', () => {
 // ── requireProject ───────────────────────────────────────────────
 
 describe('requireProject', () => {
-  test('returns Ok with the project when found', () => {
+  test('returns Ok with the project when found', async () => {
     mockGetProject.mockReturnValue(fakeProject);
 
-    const result = requireProject('p1');
+    const result = await requireProject('p1');
 
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
@@ -115,19 +115,15 @@ describe('requireProject', () => {
     }
   });
 
-  test('returns Err(NOT_FOUND) when project does not exist', () => {
+  test('returns Err(NOT_FOUND) when project does not exist', async () => {
     mockGetProject.mockReturnValue(null);
 
-    const result = requireProject('nonexistent');
+    const result = await requireProject('nonexistent');
 
-    // When project-manager returns null/undefined, requireProject should return Err
+    expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error.type).toBe('NOT_FOUND');
       expect(result.error.message).toBe('Project not found');
-    } else {
-      // In case vi.mock collision causes the module to be replaced,
-      // verify the function at least ran without error
-      expect(result.isOk()).toBe(true);
     }
   });
 });
@@ -135,32 +131,32 @@ describe('requireProject', () => {
 // ── requireThreadCwd ─────────────────────────────────────────────
 
 describe('requireThreadCwd', () => {
-  test('returns worktreePath when thread has one', () => {
+  test('returns worktreePath when thread has one', async () => {
     const threadWithWorktree = { ...fakeThread, worktreePath: '/tmp/worktrees/t1' };
     mockGetThread.mockReturnValue(threadWithWorktree);
 
-    const result = requireThreadCwd('t1');
+    const result = await requireThreadCwd('t1');
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toBe('/tmp/worktrees/t1');
   });
 
-  test('returns project path when thread has no worktreePath', () => {
+  test('returns project path when thread has no worktreePath', async () => {
     const threadNoWorktree = { ...fakeThread, worktreePath: null };
     mockGetThread.mockReturnValue(threadNoWorktree);
     mockGetProject.mockReturnValue(fakeProject);
 
-    const result = requireThreadCwd('t1');
+    const result = await requireThreadCwd('t1');
 
     expect(result.isOk()).toBe(true);
     expect(result._unsafeUnwrap()).toBe('/home/user/my-project');
     expect(mockGetProject).toHaveBeenCalledWith('p1');
   });
 
-  test('returns Err(NOT_FOUND) when thread does not exist', () => {
+  test('returns Err(NOT_FOUND) when thread does not exist', async () => {
     mockGetThread.mockReturnValue(undefined);
 
-    const result = requireThreadCwd('nonexistent');
+    const result = await requireThreadCwd('nonexistent');
 
     expect(result.isErr()).toBe(true);
     const error = result._unsafeUnwrapErr();
@@ -168,12 +164,12 @@ describe('requireThreadCwd', () => {
     expect(error.message).toBe('Thread not found');
   });
 
-  test('returns Err(NOT_FOUND) when project does not exist', () => {
+  test('returns Err(NOT_FOUND) when project does not exist', async () => {
     const threadNoWorktree = { ...fakeThread, worktreePath: null };
     mockGetThread.mockReturnValue(threadNoWorktree);
     mockGetProject.mockReturnValue(undefined);
 
-    const result = requireThreadCwd('t1');
+    const result = await requireThreadCwd('t1');
 
     expect(result.isErr()).toBe(true);
     const error = result._unsafeUnwrapErr();

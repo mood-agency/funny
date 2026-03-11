@@ -53,6 +53,13 @@ vi.mock('../../services/thread-event-bus.js', () => ({
     removeListener: vi.fn(),
   },
 }));
+vi.mock('../../services/pipeline-orchestrator.js', () => ({
+  getPipelineForProject: vi.fn(() => Promise.resolve(null)),
+  startPipelineRun: vi.fn(),
+}));
+vi.mock('../../services/git-workflow-service.js', () => ({
+  isWorkflowActive: vi.fn(() => false),
+}));
 
 import { pipelineTriggerHandler } from '../../services/handlers/pipeline-trigger-handler.js';
 
