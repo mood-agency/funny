@@ -44,6 +44,7 @@ vi.mock('../../db/index.js', () => ({
       })),
     })),
   },
+  dbRun: vi.fn(),
 }));
 vi.mock('../../services/thread-service.js', () => ({
   createAndStartThread: vi.fn(),
