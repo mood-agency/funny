@@ -994,3 +994,10 @@
     contain: layout style paint;
   }
 }
+
+/* Hide the message-level copy button when a code block inside the same message is hovered,
+   so only the code block's own copy button is visible. */
+.group\/msg:has(.group\/codeblock:hover) .msg-copy-btn {
+  opacity: 0 !important;
+  pointer-events: none;
+}

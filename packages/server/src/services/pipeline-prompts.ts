@@ -118,6 +118,40 @@ Fix the issues reported by the hook. Only modify the files that have errors.
 ${suffix}`;
 }
 
+// ── Test auto-fix prompt ─────────────────────────────────────
+
+export function buildTestFixerPrompt(
+  testCommand: string,
+  testOutput: string,
+  iteration: number,
+  customPrompt?: string,
+): string {
+  const contextBlock = `The test command \`${testCommand}\` failed (attempt ${iteration}) with the following output:
+
+\`\`\`
+${testOutput}
+\`\`\``;
+
+  const suffix = `After fixing, run the tests again with \`${testCommand}\` to verify they pass.
+Do NOT create a git commit — just fix the files and stage your changes with \`git add\`.`;
+
+  if (customPrompt) {
+    return `${contextBlock}
+
+${customPrompt}
+
+${suffix}`;
+  }
+
+  return `${contextBlock}
+
+Analyze the test failures and fix the underlying code. Focus on:
+- Fix the source code that causes the test failures
+- Only modify tests if the tests themselves have bugs
+- Do not delete or skip failing tests
+${suffix}`;
+}
+
 // ── Commit message generation prompts ───────────────────────
 
 export const COMMIT_MESSAGE_SYSTEM_PROMPT =

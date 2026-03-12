@@ -164,6 +164,18 @@ export function executeWorkflow(params: WorkflowParams): { workflowId: string } 
     correctorPrompt: pipelineConfig?.correctorPrompt,
     precommitFixerPrompt: pipelineConfig?.precommitFixerPrompt,
     commitMessagePrompt: pipelineConfig?.commitMessagePrompt,
+    testFixerPrompt: pipelineConfig?.testFixerPrompt,
+    // Test auto-fix config
+    testEnabled: pipelineConfig?.testEnabled ?? false,
+    testCommand: pipelineConfig?.testCommand ?? null,
+    testFixEnabled: pipelineConfig?.testFixEnabled ?? false,
+    testFixModel: pipelineConfig?.testFixModel ?? 'sonnet',
+    testFixMaxIterations: pipelineConfig?.testFixMaxIterations ?? 3,
+    // Test auto-fix tracking (initialized empty)
+    testOutput: null,
+    testPassed: false,
+    testIteration: 1,
+    testFixerThreadId: null,
     // Review-fix tracking (initialized empty)
     commitSha: null,
     iteration: 1,

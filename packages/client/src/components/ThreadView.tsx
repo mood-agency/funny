@@ -170,7 +170,7 @@ export function CopyButton({ content }: { content: string }) {
   return (
     <button
       onClick={() => copy(content)}
-      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/msg:opacity-100"
+      className="msg-copy-btn shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/msg:opacity-100"
       aria-label="Copy message"
       data-testid="message-copy"
     >

@@ -779,6 +779,17 @@ const migrations: Migration[] = [
       await addColumn('pty_sessions', 'terminal_state', 'TEXT');
     },
   },
+  {
+    name: '040_pipeline_test_autofix',
+    async up() {
+      await addColumn('pipelines', 'test_enabled', 'INTEGER NOT NULL', '0');
+      await addColumn('pipelines', 'test_command', 'TEXT');
+      await addColumn('pipelines', 'test_fix_enabled', 'INTEGER NOT NULL', '0');
+      await addColumn('pipelines', 'test_fix_model', 'TEXT NOT NULL', "'sonnet'");
+      await addColumn('pipelines', 'test_fix_max_iterations', 'INTEGER NOT NULL', '3');
+      await addColumn('pipelines', 'test_fixer_prompt', 'TEXT');
+    },
+  },
 ];
 
 // ── Public API ──────────────────────────────────────────────────

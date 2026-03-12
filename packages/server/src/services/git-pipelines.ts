@@ -60,6 +60,7 @@ import {
   buildPrecommitFixerPrompt,
   buildReviewerPrompt,
   buildCorrectorPrompt,
+  buildTestFixerPrompt,
 } from './pipeline-prompts.js';
 import * as pm from './project-manager.js';
 import { threadEventBus } from './thread-event-bus.js';
@@ -106,6 +107,20 @@ export interface GitPipelineContext {
   correctorPrompt?: string;
   precommitFixerPrompt?: string;
   commitMessagePrompt?: string;
+  testFixerPrompt?: string;
+
+  // ── Test auto-fix config ────────────────────────────────
+  testEnabled: boolean;
+  testCommand: string | null;
+  testFixEnabled: boolean;
+  testFixModel: AgentModel;
+  testFixMaxIterations: number;
+
+  // ── Test auto-fix tracking ──────────────────────────────
+  testOutput: string | null;
+  testPassed: boolean;
+  testIteration: number;
+  testFixerThreadId: string | null;
 
   // ── Review-fix tracking ────────────────────────────────
   commitSha: string | null;
@@ -642,6 +657,164 @@ export const reviewFixSubPipeline = definePipeline<GitPipelineContext>({
   },
 });
 
+// ── Test auto-fix nodes (run tests → fix failures loop) ─────
+
+async function testRunnerNode(ctx: GitPipelineContext): Promise<GitPipelineContext> {
+  if (!ctx.testCommand) throw new Error('Test command is required');
+
+  ctx.setStep('test-run', { status: 'running' });
+
+  const result = await runHookCommand(ctx.cwd, ctx.testCommand);
+
+  if (result.success) {
+    log.info('Pipeline: tests passed', { namespace: 'pipeline', iteration: ctx.testIteration });
+    ctx.setStep('test-run', { status: 'completed' });
+
+    if (ctx.threadId) {
+      await emitWorkflowEvent(ctx.userId, ctx.threadId, 'workflow:test_run', {
+        workflowId: ctx.workflowId,
+        iteration: ctx.testIteration,
+        passed: true,
+      });
+    }
+
+    return { ...ctx, testPassed: true, testOutput: null };
+  }
+
+  log.info('Pipeline: tests failed', {
+    namespace: 'pipeline',
+    iteration: ctx.testIteration,
+    output: (result.output || '').slice(0, 500),
+  });
+
+  ctx.setStep('test-run', { status: 'failed', error: 'Tests failed' });
+
+  if (ctx.threadId) {
+    await emitWorkflowEvent(ctx.userId, ctx.threadId, 'workflow:test_run', {
+      workflowId: ctx.workflowId,
+      iteration: ctx.testIteration,
+      passed: false,
+    });
+  }
+
+  return { ...ctx, testPassed: false, testOutput: result.output || 'Tests failed' };
+}
+
+async function testFixerNode(ctx: GitPipelineContext): Promise<GitPipelineContext> {
+  if (!ctx.threadId || !ctx.projectId) {
+    throw new Error('Test fixer requires threadId and projectId');
+  }
+  if (!ctx.testCommand || !ctx.testOutput) {
+    throw new Error('Test fixer requires testCommand and testOutput');
+  }
+
+  ctx.setStep('test-fixer', { status: 'running' });
+
+  const prompt = buildTestFixerPrompt(
+    ctx.testCommand,
+    ctx.testOutput,
+    ctx.testIteration,
+    ctx.testFixerPrompt,
+  );
+
+  const fixerThread = await createAndStartThread({
+    projectId: ctx.projectId,
+    userId: ctx.userId,
+    title: `Test fix (iteration ${ctx.testIteration})`,
+    mode: 'local',
+    provider: 'claude',
+    model: ctx.testFixModel,
+    permissionMode: 'autoEdit',
+    source: 'automation',
+    prompt,
+    parentThreadId: ctx.threadId,
+  });
+
+  log.info('Pipeline: test fixer thread created', {
+    namespace: 'pipeline',
+    fixerThreadId: fixerThread.id,
+    iteration: ctx.testIteration,
+  });
+
+  await waitForAgentCompletionPoll(fixerThread.id);
+
+  // Stage changes and commit as a pipeline commit
+  const parentThread = await tm.getThread(ctx.threadId);
+  const targetCwd = parentThread?.worktreePath || parentThread?.initCwd || ctx.cwd;
+
+  await gitRead(['add', '-A'], { cwd: targetCwd, reject: false });
+
+  // Check if there are staged changes to commit
+  const statusResult = await gitRead(['status', '--porcelain'], {
+    cwd: targetCwd,
+    reject: false,
+  });
+  const hasChanges = statusResult.exitCode === 0 && statusResult.stdout.trim().length > 0;
+
+  if (hasChanges) {
+    const commitMessage = `fix: address test failures (iteration ${ctx.testIteration})`;
+
+    // Mark as pipeline commit to prevent re-triggering review
+    const patchListener = (event: { isPipelineCommit?: boolean }) => {
+      event.isPipelineCommit = true;
+    };
+    threadEventBus.on('git:committed', patchListener as any);
+
+    try {
+      const { commitChanges } = await import('./git-service.js');
+      const commitResult = await commitChanges(
+        ctx.threadId,
+        ctx.userId,
+        targetCwd,
+        commitMessage,
+        false,
+        true,
+        ctx.workflowId,
+      );
+      if (commitResult.isErr()) {
+        const e = commitResult.error;
+        throw new Error(e.type === 'PROCESS_ERROR' ? e.stderr || e.message : e.message);
+      }
+    } finally {
+      threadEventBus.removeListener('git:committed', patchListener as any);
+    }
+  }
+
+  ctx.setStep('test-fixer', { status: 'completed' });
+
+  if (ctx.threadId) {
+    await emitWorkflowEvent(ctx.userId, ctx.threadId, 'workflow:test_fix', {
+      workflowId: ctx.workflowId,
+      iteration: ctx.testIteration,
+      fixerThreadId: fixerThread.id,
+      hasChanges,
+    });
+  }
+
+  return {
+    ...ctx,
+    testFixerThreadId: fixerThread.id,
+    testOutput: null,
+    testPassed: false,
+    testIteration: ctx.testIteration + 1,
+  };
+}
+
+/** The test-fix sub-pipeline — runs tests then fixes failures in a loop. */
+export const testFixSubPipeline = definePipeline<GitPipelineContext>({
+  name: 'test-fix',
+  nodes: [
+    node('test-run', testRunnerNode),
+    node('test-fixer', testFixerNode, {
+      when: (ctx) => !ctx.testPassed && ctx.testFixEnabled,
+    }),
+  ],
+  loop: {
+    from: 'test-run',
+    until: (ctx) => ctx.testPassed || !ctx.testFixEnabled,
+  },
+});
+
 // ── Push / PR / Merge nodes ──────────────────────────────────
 
 async function pushNode(ctx: GitPipelineContext): Promise<GitPipelineContext> {
@@ -734,11 +907,16 @@ const reviewFixNode = subPipeline('review-fix', reviewFixSubPipeline, {
   when: (ctx) => ctx.pipelineEnabled && !!ctx.threadId && !!ctx.projectId,
 });
 
-/** Build a commit-based pipeline: stage → commit → review-fix → ...tail */
+/** Shared test-fix sub-pipeline node — runs after review-fix. */
+const testFixNode = subPipeline('test-fix', testFixSubPipeline, {
+  when: (ctx) => ctx.testEnabled && !!ctx.testCommand && !!ctx.threadId && !!ctx.projectId,
+});
+
+/** Build a commit-based pipeline: stage → commit → review-fix → test-fix → ...tail */
 function commitPipelineWith(name: string, ...tail: PipelineNode<GitPipelineContext>[][]) {
   return definePipeline<GitPipelineContext>({
     name,
-    nodes: compose(stageNodes, commitNodes, [reviewFixNode], ...tail),
+    nodes: compose(stageNodes, commitNodes, [reviewFixNode], [testFixNode], ...tail),
   });
 }
 
@@ -795,6 +973,8 @@ const STEP_LABELS: Record<string, string> = {
   commit: 'Committing',
   review: 'Reviewing code',
   fix: 'Fixing issues',
+  'test-run': 'Running tests',
+  'test-fixer': 'Fixing test failures',
   push: 'Pushing',
   pr: 'Creating pull request',
   merge: 'Merging',
@@ -826,6 +1006,15 @@ export function deriveSteps(
       for (const child of reviewFixSubPipeline.nodes) {
         const label = STEP_LABELS[child.name];
         if (!label) continue; // skip internal nodes without UI labels
+        steps.push({ id: child.name, label, status: 'pending' });
+      }
+      continue;
+    }
+
+    if (n.name === 'test-fix') {
+      for (const child of testFixSubPipeline.nodes) {
+        const label = STEP_LABELS[child.name];
+        if (!label) continue;
         steps.push({ id: child.name, label, status: 'pending' });
       }
       continue;

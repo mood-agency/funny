@@ -62,6 +62,12 @@ pipelineRoutes.post('/', async (c) => {
     correctorPrompt: body.correctorPrompt,
     precommitFixerPrompt: body.precommitFixerPrompt,
     commitMessagePrompt: body.commitMessagePrompt,
+    testEnabled: body.testEnabled,
+    testCommand: body.testCommand,
+    testFixEnabled: body.testFixEnabled,
+    testFixModel: body.testFixModel,
+    testFixMaxIterations: body.testFixMaxIterations,
+    testFixerPrompt: body.testFixerPrompt,
   });
 
   const pipeline = await getPipelineById(id);
@@ -94,6 +100,13 @@ pipelineRoutes.patch('/:id', async (c) => {
     updates.precommitFixerPrompt = body.precommitFixerPrompt || null;
   if (body.commitMessagePrompt !== undefined)
     updates.commitMessagePrompt = body.commitMessagePrompt || null;
+  if (body.testEnabled !== undefined) updates.testEnabled = body.testEnabled ? 1 : 0;
+  if (body.testCommand !== undefined) updates.testCommand = body.testCommand || null;
+  if (body.testFixEnabled !== undefined) updates.testFixEnabled = body.testFixEnabled ? 1 : 0;
+  if (body.testFixModel !== undefined) updates.testFixModel = body.testFixModel;
+  if (body.testFixMaxIterations !== undefined)
+    updates.testFixMaxIterations = body.testFixMaxIterations;
+  if (body.testFixerPrompt !== undefined) updates.testFixerPrompt = body.testFixerPrompt || null;
 
   await updatePipeline(id, updates);
   return c.json(await getPipelineById(id));

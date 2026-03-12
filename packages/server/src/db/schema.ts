@@ -234,6 +234,12 @@ export const pipelines = sqliteTable('pipelines', {
   correctorPrompt: text('corrector_prompt'),
   precommitFixerPrompt: text('precommit_fixer_prompt'),
   commitMessagePrompt: text('commit_message_prompt'),
+  testEnabled: integer('test_enabled').notNull().default(0),
+  testCommand: text('test_command'),
+  testFixEnabled: integer('test_fix_enabled').notNull().default(0),
+  testFixModel: text('test_fix_model').notNull().default(DEFAULT_MODEL),
+  testFixMaxIterations: integer('test_fix_max_iterations').notNull().default(3),
+  testFixerPrompt: text('test_fixer_prompt'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

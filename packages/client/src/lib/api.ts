@@ -745,6 +745,12 @@ export const api = {
     correctorPrompt?: string;
     precommitFixerPrompt?: string;
     commitMessagePrompt?: string;
+    testEnabled?: boolean;
+    testCommand?: string;
+    testFixEnabled?: boolean;
+    testFixModel?: string;
+    testFixMaxIterations?: number;
+    testFixerPrompt?: string;
   }) => request<Pipeline>('/pipelines', { method: 'POST', body: JSON.stringify(data) }),
   updatePipeline: (
     id: string,
@@ -761,6 +767,12 @@ export const api = {
       correctorPrompt: string;
       precommitFixerPrompt: string;
       commitMessagePrompt: string;
+      testEnabled: boolean;
+      testCommand: string;
+      testFixEnabled: boolean;
+      testFixModel: string;
+      testFixMaxIterations: number;
+      testFixerPrompt: string;
     }>,
   ) =>
     request<{ ok: boolean }>(`/pipelines/${id}`, {

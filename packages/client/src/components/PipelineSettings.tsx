@@ -281,6 +281,70 @@ export function PipelineSettings() {
         )}
       </div>
 
+      {/* Test Auto-Fix section */}
+      <div className="settings-card mb-0">
+        <div className="flex items-center justify-between bg-muted/30 px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Test Auto-Fix
+          </p>
+          <Switch
+            checked={!!pipeline.testEnabled}
+            onCheckedChange={(v) => saveField({ testEnabled: v })}
+            data-testid="pipeline-test-toggle"
+            size="xs"
+          />
+        </div>
+        {!!pipeline.testEnabled && (
+          <>
+            <SettingRow title="Test Command" description="Command to run tests (e.g. bun test)">
+              <Input
+                type="text"
+                value={pipeline.testCommand ?? ''}
+                onChange={(e) => saveField({ testCommand: e.target.value })}
+                placeholder="bun test"
+                className="h-8 w-40 text-xs"
+                data-testid="pipeline-test-command"
+              />
+            </SettingRow>
+            <SettingRow title="Auto-fix Failures" description="Spawn an agent to fix failing tests">
+              <Switch
+                checked={!!pipeline.testFixEnabled}
+                onCheckedChange={(v) => saveField({ testFixEnabled: v })}
+                data-testid="pipeline-test-fix-toggle"
+                size="xs"
+              />
+            </SettingRow>
+            {!!pipeline.testFixEnabled && (
+              <>
+                <SettingRow title="Fixer Model" description="Model for fixing test failures">
+                  <ModelSelect
+                    value={(pipeline.testFixModel as string) || 'sonnet'}
+                    onChange={(v) => saveField({ testFixModel: v })}
+                    testId="pipeline-test-fix-model"
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="Max Fix Attempts"
+                  description="Max test-fix cycles before giving up"
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={pipeline.testFixMaxIterations ?? 3}
+                    onChange={(e) =>
+                      saveField({ testFixMaxIterations: parseInt(e.target.value, 10) || 3 })
+                    }
+                    className="h-8 w-16 text-center text-xs"
+                    data-testid="pipeline-test-fix-max"
+                  />
+                </SettingRow>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Custom Prompts section */}
       <Collapsible>
         <div className="settings-card mb-0">
@@ -327,6 +391,14 @@ export function PipelineSettings() {
                 onBlur={(v) => handlePromptBlur('commitMessagePrompt', v)}
                 placeholder="e.g. Generate a commit message following our team conventions..."
                 testId="pipeline-commit-message-prompt"
+              />
+
+              <PromptField
+                label="Test Fixer Prompt"
+                value={pipeline.testFixerPrompt ?? ''}
+                onBlur={(v) => handlePromptBlur('testFixerPrompt', v)}
+                placeholder="e.g. Analyze test failures and fix the underlying code..."
+                testId="pipeline-test-fixer-prompt"
               />
             </div>
           </CollapsibleContent>

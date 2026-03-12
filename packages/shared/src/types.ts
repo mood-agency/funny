@@ -1030,6 +1030,12 @@ export interface Pipeline {
   correctorPrompt?: string;
   precommitFixerPrompt?: string;
   commitMessagePrompt?: string;
+  testEnabled: boolean;
+  testCommand?: string;
+  testFixEnabled: boolean;
+  testFixModel: AgentModel;
+  testFixMaxIterations: number;
+  testFixerPrompt?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -54,6 +54,12 @@ export interface PipelineConfig {
   correctorPrompt?: string;
   precommitFixerPrompt?: string;
   commitMessagePrompt?: string;
+  testEnabled: boolean;
+  testCommand?: string;
+  testFixEnabled: boolean;
+  testFixModel: AgentModel;
+  testFixMaxIterations: number;
+  testFixerPrompt?: string;
 }
 
 // ── Active runs (for cancellation) ───────────────────────────
@@ -81,6 +87,12 @@ function toPipelineConfig(row: PipelineRow): PipelineConfig {
     ...(row.correctorPrompt ? { correctorPrompt: row.correctorPrompt } : {}),
     ...(row.precommitFixerPrompt ? { precommitFixerPrompt: row.precommitFixerPrompt } : {}),
     ...(row.commitMessagePrompt ? { commitMessagePrompt: row.commitMessagePrompt } : {}),
+    testEnabled: !!row.testEnabled,
+    testCommand: row.testCommand ?? undefined,
+    testFixEnabled: !!row.testFixEnabled,
+    testFixModel: (row.testFixModel as AgentModel) || 'sonnet',
+    testFixMaxIterations: row.testFixMaxIterations ?? 3,
+    ...(row.testFixerPrompt ? { testFixerPrompt: row.testFixerPrompt } : {}),
   };
 }
 
@@ -105,6 +117,12 @@ export async function createPipeline(data: {
   correctorPrompt?: string;
   precommitFixerPrompt?: string;
   commitMessagePrompt?: string;
+  testEnabled?: boolean;
+  testCommand?: string;
+  testFixEnabled?: boolean;
+  testFixModel?: string;
+  testFixMaxIterations?: number;
+  testFixerPrompt?: string;
 }): Promise<string> {
   const id = nanoid();
   const now = new Date().toISOString();
@@ -125,6 +143,12 @@ export async function createPipeline(data: {
       correctorPrompt: data.correctorPrompt || null,
       precommitFixerPrompt: data.precommitFixerPrompt || null,
       commitMessagePrompt: data.commitMessagePrompt || null,
+      testEnabled: data.testEnabled ? 1 : 0,
+      testCommand: data.testCommand || null,
+      testFixEnabled: data.testFixEnabled ? 1 : 0,
+      testFixModel: data.testFixModel || 'sonnet',
+      testFixMaxIterations: data.testFixMaxIterations || 3,
+      testFixerPrompt: data.testFixerPrompt || null,
       createdAt: now,
       updatedAt: now,
     }),
@@ -301,6 +325,17 @@ export async function startPipelineRun(opts: {
     correctorPrompt: pipeline.correctorPrompt ?? undefined,
     precommitFixerPrompt: pipeline.precommitFixerPrompt ?? undefined,
     commitMessagePrompt: pipeline.commitMessagePrompt ?? undefined,
+    testFixerPrompt: pipeline.testFixerPrompt ?? undefined,
+    // Test auto-fix (disabled for standalone runs — only used in workflow pipelines)
+    testEnabled: false,
+    testCommand: null,
+    testFixEnabled: false,
+    testFixModel: pipeline.testFixModel || 'sonnet',
+    testFixMaxIterations: pipeline.testFixMaxIterations || 3,
+    testOutput: null,
+    testPassed: false,
+    testIteration: 1,
+    testFixerThreadId: null,
     // Review-fix tracking
     commitSha: commitSha ?? null,
     iteration: 1,
