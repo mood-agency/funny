@@ -258,6 +258,15 @@ await autoMigrate();
 void startScheduler();
 
 // Initialize team mode if --team flag was used
+if (process.env.TEAM_SERVER_URL && !process.env.RUNNER_AUTH_SECRET) {
+  log.error(
+    'RUNNER_AUTH_SECRET is required when TEAM_SERVER_URL is set. Set it in your .env file.',
+    {
+      namespace: 'server',
+    },
+  );
+  process.exit(1);
+}
 if (process.env.TEAM_SERVER_URL) {
   const { initTeamMode, setBrowserWSHandler } = await import('./services/team-client.js');
   await initTeamMode(process.env.TEAM_SERVER_URL);

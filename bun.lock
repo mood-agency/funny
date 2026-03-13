@@ -373,6 +373,7 @@
         "better-auth": "^1.4.18",
         "drizzle-orm": "^0.45.1",
         "hono": "^4.11.9",
+        "kysely": "^0.28.11",
         "nanoid": "^5.0.9",
         "neverthrow": "^8.2.0",
         "nodemailer": "^8.0.2",

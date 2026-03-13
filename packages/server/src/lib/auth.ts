@@ -10,6 +10,7 @@ import { resolve } from 'path';
 import { betterAuth } from 'better-auth';
 import { admin, username, organization } from 'better-auth/plugins';
 import { createAccessControl } from 'better-auth/plugins/access';
+import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 
 import { DATA_DIR } from './data-dir.js';
@@ -71,8 +72,15 @@ const PORT = parseInt(process.env.PORT || '3002', 10);
 
 const authPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
+const kyselyDb = new Kysely<any>({
+  dialect: new PostgresDialect({ pool: authPool }),
+});
+
 export const auth = betterAuth({
-  database: authPool,
+  database: {
+    db: kyselyDb,
+    type: 'postgres' as const,
+  },
   baseURL: `http://localhost:${PORT}`,
   basePath: '/api/auth',
   secret: getOrCreateSecret(),

@@ -5,7 +5,9 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+  // Load env from both the monorepo root and the package dir (package-level overrides root)
+  const monorepoRoot = resolve(__dirname, '../..');
+  const env = { ...loadEnv(mode, monorepoRoot, ''), ...loadEnv(mode, process.cwd(), '') };
   const clientPort = Number(env.VITE_PORT) || 5173;
   const serverPort = Number(env.VITE_SERVER_PORT) || 3001;
   const serverUrl = env.VITE_SERVER_URL; // e.g. "https://funny-server.example.com"

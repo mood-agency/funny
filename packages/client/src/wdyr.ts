@@ -32,10 +32,17 @@ if (import.meta.env.DEV) {
       // Log with detail
       loggerMod.then(({ createClientLogger }) => {
         const logger = createClientLogger('wdyr');
+        const safeStringify = (v: unknown) => {
+          try {
+            return JSON.stringify(v);
+          } catch {
+            return '[circular]';
+          }
+        };
         logger.warn(`unnecessary-rerender: ${component}`, {
           component,
-          'reason.propsDifferences': JSON.stringify(reason?.propsDifferences ?? []),
-          'reason.stateDifferences': JSON.stringify(reason?.stateDifferences ?? []),
+          'reason.propsDifferences': safeStringify(reason?.propsDifferences ?? []),
+          'reason.stateDifferences': safeStringify(reason?.stateDifferences ?? []),
         });
       });
     },

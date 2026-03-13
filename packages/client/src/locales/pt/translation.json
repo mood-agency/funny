@@ -566,6 +566,7 @@
     "delete": "Excluir",
     "add": "Adicionar",
     "save": "Salvar",
+    "saving": "Salvando...",
     "loading": "Carregando...",
     "stop": "Parar",
     "continue": "Continuar",

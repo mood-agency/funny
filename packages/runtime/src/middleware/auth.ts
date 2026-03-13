@@ -10,7 +10,6 @@ import type { Context, Next } from 'hono';
 
 import { getAuthMode } from '../lib/auth-mode.js';
 import { validateToken } from '../services/auth-service.js';
-import { isTeamModeActive } from '../services/team-client.js';
 
 const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET;
 

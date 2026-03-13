@@ -572,6 +572,7 @@
     "delete": "Eliminar",
     "add": "Agregar",
     "save": "Guardar",
+    "saving": "Guardando...",
     "loading": "Cargando...",
     "stop": "Detener",
     "continue": "Continuar",
