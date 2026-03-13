@@ -573,6 +573,7 @@
     "delete": "Delete",
     "add": "Add",
     "save": "Save",
+    "saving": "Saving...",
     "loading": "Loading...",
     "stop": "Stop",
     "continue": "Continue",

@@ -14,6 +14,29 @@ import { findRunnerForProject, getRunnerHttpUrl } from '../services/runner-manag
 import * as runnerResolver from '../services/runner-resolver.js';
 import * as threadRegistry from '../services/thread-registry.js';
 
+const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET!;
+
+/**
+ * Resolve a runner URL for a project, falling back to DEFAULT_RUNNER_URL
+ * when no runner is registered in the DB.
+ */
+async function resolveRunnerUrlForProject(
+  projectId: string,
+): Promise<{ httpUrl: string; runnerId: string | null } | null> {
+  // Try DB-registered runner first
+  const runnerResult = await findRunnerForProject(projectId);
+  if (runnerResult) {
+    const httpUrl = await getRunnerHttpUrl(runnerResult.runner.runnerId);
+    if (httpUrl) return { httpUrl, runnerId: runnerResult.runner.runnerId };
+  }
+
+  // Fallback to the resolver (which checks DEFAULT_RUNNER_URL)
+  const fallbackUrl = await runnerResolver.resolveRunnerUrl('/api/threads', { projectId });
+  if (fallbackUrl) return { httpUrl: fallbackUrl, runnerId: null };
+
+  return null;
+}
+
 export const threadRoutes = new Hono<ServerEnv>();
 
 /**
@@ -31,16 +54,13 @@ threadRoutes.post('/', async (c) => {
     return c.json({ error: 'projectId is required' }, 400);
   }
 
-  // Find a runner for this project
-  const runnerResult = await findRunnerForProject(projectId);
-  if (!runnerResult) {
+  // Find a runner for this project (with DEFAULT_RUNNER_URL fallback)
+  const resolved = await resolveRunnerUrlForProject(projectId);
+  if (!resolved) {
     return c.json({ error: 'No online runner found for this project' }, 502);
   }
 
-  const runnerHttpUrl = await getRunnerHttpUrl(runnerResult.runner.runnerId);
-  if (!runnerHttpUrl) {
-    return c.json({ error: 'Runner has no HTTP URL configured' }, 502);
-  }
+  const { httpUrl: runnerHttpUrl, runnerId } = resolved;
 
   // Proxy the thread creation to the runner
   try {
@@ -49,7 +69,7 @@ threadRoutes.post('/', async (c) => {
       headers: {
         'Content-Type': 'application/json',
         'X-Forwarded-User': userId,
-        'X-Runner-Auth': process.env.RUNNER_AUTH_SECRET || 'funny-server-proxy',
+        'X-Runner-Auth': RUNNER_AUTH_SECRET,
         ...(c.get('organizationId')
           ? { 'X-Forwarded-Org': c.get('organizationId') as string }
           : {}),
@@ -66,11 +86,11 @@ threadRoutes.post('/', async (c) => {
 
     // Register the thread in the central DB
     const threadId = threadData.id || threadData.thread?.id;
-    if (threadId) {
+    if (threadId && runnerId) {
       await threadRegistry.registerThread({
         id: threadId,
         projectId,
-        runnerId: runnerResult.runner.runnerId,
+        runnerId,
         userId,
         title: body.title || threadData.title,
         model: body.model,
@@ -78,8 +98,7 @@ threadRoutes.post('/', async (c) => {
         branch: body.branch,
       });
 
-      // Cache in the resolver for fast lookups
-      runnerResolver.cacheThreadRunner(threadId, runnerResult.runner.runnerId, runnerHttpUrl);
+      runnerResolver.cacheThreadRunner(threadId, runnerId, runnerHttpUrl);
     }
 
     return c.json(threadData, 201);
@@ -105,15 +124,12 @@ threadRoutes.post('/idle', async (c) => {
     return c.json({ error: 'projectId is required' }, 400);
   }
 
-  const runnerResult = await findRunnerForProject(projectId);
-  if (!runnerResult) {
+  const resolved = await resolveRunnerUrlForProject(projectId);
+  if (!resolved) {
     return c.json({ error: 'No online runner found for this project' }, 502);
   }
 
-  const runnerHttpUrl = await getRunnerHttpUrl(runnerResult.runner.runnerId);
-  if (!runnerHttpUrl) {
-    return c.json({ error: 'Runner has no HTTP URL configured' }, 502);
-  }
+  const { httpUrl: runnerHttpUrl, runnerId } = resolved;
 
   try {
     const runnerResponse = await fetch(`${runnerHttpUrl}/api/threads/idle`, {
@@ -121,7 +137,7 @@ threadRoutes.post('/idle', async (c) => {
       headers: {
         'Content-Type': 'application/json',
         'X-Forwarded-User': userId,
-        'X-Runner-Auth': process.env.RUNNER_AUTH_SECRET || 'funny-server-proxy',
+        'X-Runner-Auth': RUNNER_AUTH_SECRET,
         ...(c.get('organizationId')
           ? { 'X-Forwarded-Org': c.get('organizationId') as string }
           : {}),
@@ -137,11 +153,11 @@ threadRoutes.post('/idle', async (c) => {
     const threadData = (await runnerResponse.json()) as any;
 
     const threadId = threadData.id || threadData.thread?.id;
-    if (threadId) {
+    if (threadId && runnerId) {
       await threadRegistry.registerThread({
         id: threadId,
         projectId,
-        runnerId: runnerResult.runner.runnerId,
+        runnerId,
         userId,
         title: body.title || threadData.title,
         model: body.model,
@@ -149,7 +165,7 @@ threadRoutes.post('/idle', async (c) => {
         branch: body.branch,
       });
 
-      runnerResolver.cacheThreadRunner(threadId, runnerResult.runner.runnerId, runnerHttpUrl);
+      runnerResolver.cacheThreadRunner(threadId, runnerId, runnerHttpUrl);
     }
 
     return c.json(threadData, 201);
@@ -184,7 +200,7 @@ threadRoutes.delete('/:id', async (c) => {
         method: 'DELETE',
         headers: {
           'X-Forwarded-User': userId,
-          'X-Runner-Auth': process.env.RUNNER_AUTH_SECRET || 'funny-server-proxy',
+          'X-Runner-Auth': RUNNER_AUTH_SECRET,
           ...(c.get('organizationId')
             ? { 'X-Forwarded-Org': c.get('organizationId') as string }
             : {}),
