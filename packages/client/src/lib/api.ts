@@ -32,13 +32,11 @@ import { startSpan, metric } from '@/lib/telemetry';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
 
 const isTauri = !!(window as any).__TAURI_INTERNALS__;
-const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined;
 const serverPort = import.meta.env.VITE_SERVER_PORT || '3001';
-const BASE = serverUrl
-  ? `${serverUrl.replace(/\/+$/, '')}/api`
-  : isTauri
-    ? `http://localhost:${serverPort}/api`
-    : '/api';
+// In the browser, always use relative URLs so requests go through the Vite proxy
+// (which forwards to VITE_SERVER_URL). This keeps cookies same-origin.
+// Only Tauri needs an absolute URL since there's no dev proxy.
+const BASE = isTauri ? `http://localhost:${serverPort}/api` : '/api';
 
 /**
  * Get the API base URL for a thread.

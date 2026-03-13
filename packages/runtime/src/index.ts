@@ -443,7 +443,27 @@ const server = Bun.serve({
         }
         if (server.upgrade(req, { data: { userId: '__local__', organizationId: null } })) return;
       } else {
-        // Multi mode: validate session from cookies
+        // Try central server session validation first (team mode — browser talks directly to runtime)
+        const teamServerUrl = process.env.TEAM_SERVER_URL;
+        const cookie = req.headers.get('Cookie');
+        if (teamServerUrl && cookie) {
+          try {
+            const res = await fetch(`${teamServerUrl}/api/auth/get-session`, {
+              headers: { Cookie: cookie },
+            });
+            if (res.ok) {
+              const data = (await res.json()) as any;
+              if (data?.user?.id) {
+                const organizationId = data.session?.activeOrganizationId ?? null;
+                if (server.upgrade(req, { data: { userId: data.user.id, organizationId } })) return;
+              }
+            }
+          } catch {
+            // Fall through to local Better Auth validation
+          }
+        }
+
+        // Multi mode: validate session from local Better Auth
         const { auth } = await import('./lib/auth.js');
         const session = await auth.api.getSession({ headers: req.headers });
         if (!session) {

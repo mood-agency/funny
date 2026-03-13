@@ -51,10 +51,7 @@ import { PipelineSettings } from './PipelineSettings';
 import { ProjectConfigSettings } from './ProjectConfigSettings';
 import { ProjectHooksSettings } from './ProjectHooksSettings';
 import { BranchPicker } from './SearchablePicker';
-import { TeamInvitations } from './settings/TeamInvitations';
 import { TeamMembers } from './settings/TeamMembers';
-import { TeamProjects } from './settings/TeamProjects';
-import { TeamSettings } from './settings/TeamSettings';
 import { UserManagement } from './settings/UserManagement';
 import { settingsLabelKeys, type SettingsItemId } from './SettingsPanel';
 import { SkillsSettings } from './SkillsSettings';
@@ -890,16 +887,10 @@ export function SettingsDetailView() {
             <PipelineSettings />
           ) : page === 'archived-threads' ? (
             <ArchivedThreadsSettings />
-          ) : page === 'team-settings' ? (
-            <TeamSettings />
-          ) : page === 'team-projects' ? (
-            <TeamProjects />
-          ) : page === 'team-members' ? (
-            <TeamMembers />
-          ) : page === 'team-invitations' ? (
-            <TeamInvitations />
           ) : page === 'users' ? (
             <UserManagement />
+          ) : page === 'team-members' ? (
+            <TeamMembers />
           ) : (
             <p className="text-sm text-muted-foreground">{t('settings.comingSoon', { label })}</p>
           )}

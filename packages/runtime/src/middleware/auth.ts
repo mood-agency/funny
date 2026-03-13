@@ -9,9 +9,18 @@
 import type { Context, Next } from 'hono';
 
 import { getAuthMode } from '../lib/auth-mode.js';
+import { log } from '../lib/logger.js';
 import { validateToken } from '../services/auth-service.js';
 
 const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET;
+const TEAM_SERVER_URL = process.env.TEAM_SERVER_URL;
+
+// Cache validated sessions: cookie hash → { userId, role, orgId, expiresAt }
+const sessionCache = new Map<
+  string,
+  { userId: string; role: string; orgId: string | null; expiresAt: number }
+>();
+const SESSION_CACHE_TTL = 60_000; // 1 minute
 
 /** Paths that skip authentication entirely */
 const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/mode', '/api/bootstrap']);
@@ -40,6 +49,51 @@ export async function authMiddleware(c: Context, next: Next) {
     c.set('userRole', 'user');
     c.set('organizationId', c.req.header('X-Forwarded-Org') || null);
     return next();
+  }
+
+  // Direct browser→runtime requests in team mode: validate session cookie with the central server.
+  // This allows the client to talk to the runtime directly without the server proxying.
+  if (TEAM_SERVER_URL && c.req.header('Cookie')) {
+    const cookie = c.req.header('Cookie')!;
+    const cacheKey = cookie.slice(0, 128); // Use prefix as cache key
+
+    // Check cache first
+    const cached = sessionCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      c.set('userId', cached.userId);
+      c.set('userRole', cached.role);
+      c.set('organizationId', cached.orgId);
+      return next();
+    }
+
+    // Validate with the central server
+    try {
+      const res = await fetch(`${TEAM_SERVER_URL}/api/auth/get-session`, {
+        headers: { Cookie: cookie },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as any;
+        if (data?.user?.id) {
+          const entry = {
+            userId: data.user.id as string,
+            role: (data.user.role as string) || 'user',
+            orgId: (data.session?.activeOrganizationId as string) ?? null,
+            expiresAt: Date.now() + SESSION_CACHE_TTL,
+          };
+          sessionCache.set(cacheKey, entry);
+          c.set('userId', entry.userId);
+          c.set('userRole', entry.role);
+          c.set('organizationId', entry.orgId);
+          return next();
+        }
+      }
+    } catch (err) {
+      log.warn('Failed to validate session with central server', {
+        namespace: 'auth',
+        error: String(err),
+      });
+    }
+    // Fall through to other auth modes if session validation fails
   }
 
   if (getAuthMode() === 'local') {

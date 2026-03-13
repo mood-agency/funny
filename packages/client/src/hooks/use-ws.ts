@@ -507,15 +507,12 @@ function connect() {
   const mode = getAuthMode();
 
   const isTauri = !!(window as any).__TAURI_INTERNALS__;
-  const serverUrl = import.meta.env.VITE_SERVER_URL as string | undefined;
   const serverPort = import.meta.env.VITE_SERVER_PORT || '3001';
 
-  // Determine WebSocket base URL
+  // Determine WebSocket base URL.
+  // In the browser, use relative WS URL so it goes through the Vite proxy (same-origin).
   let base: string;
-  if (serverUrl) {
-    // Team mode: connect WS to the central server
-    base = `${serverUrl.replace(/\/+$/, '').replace(/^http/, 'ws')}/ws`;
-  } else if (isTauri) {
+  if (isTauri) {
     base = `ws://localhost:${serverPort}/ws`;
   } else {
     base = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
