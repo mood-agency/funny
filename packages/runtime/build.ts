@@ -32,6 +32,8 @@ const result = await Bun.build({
     // It's only used in pty-helper.mjs which runs under Node.js.
     // Listed here just in case any transitive import pulls it in.
     'node-pty',
+    // Optional — dynamically imported in test-runner.ts
+    '@funny/podman-chrome-streaming',
   ],
   minify: false, // Keep readable for debugging production issues
   sourcemap: 'external', // Generate .js.map alongside the bundle
