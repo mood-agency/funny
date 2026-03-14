@@ -22,13 +22,13 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            markdown: ['react-markdown', 'remark-gfm'],
-            motion: ['motion'],
-            syntax: ['shiki'],
-            monaco: ['@monaco-editor/react'],
-            mermaid: ['mermaid'],
-            tiptap: ['@tiptap/react', '@tiptap/core'],
+          manualChunks(id: string) {
+            if (id.includes('react-markdown') || id.includes('remark-gfm')) return 'markdown';
+            if (id.includes('/motion/')) return 'motion';
+            if (id.includes('/shiki/')) return 'syntax';
+            if (id.includes('@monaco-editor/react')) return 'monaco';
+            if (id.includes('/mermaid/')) return 'mermaid';
+            if (id.includes('@tiptap/react') || id.includes('@tiptap/core')) return 'tiptap';
           },
         },
       },
