@@ -66,6 +66,7 @@ export function createTestDb() {
       container_name TEXT,
       init_tools TEXT,
       init_cwd TEXT,
+      runner_id TEXT,
       created_at TEXT NOT NULL,
       completed_at TEXT
     )
