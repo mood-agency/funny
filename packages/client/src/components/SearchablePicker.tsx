@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
+import { HighlightText } from '@/components/ui/highlight-text';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
@@ -256,7 +257,11 @@ export function SearchablePicker({
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
-                          <span className="truncate font-mono font-medium">{item.label}</span>
+                          <HighlightText
+                            text={item.label}
+                            query={search}
+                            className="truncate font-mono font-medium"
+                          />
                           {item.badge && (
                             <span className="rounded bg-muted px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
                               {item.badge}

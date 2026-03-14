@@ -568,6 +568,23 @@ export const PromptInputUI = memo(function PromptInputUI({
       : t('thread.typeToInterrupt')
     : defaultPlaceholder;
 
+  // ── Click-to-focus: click anywhere on the prompt box (except interactive elements) to focus editor ──
+  const handlePromptBoxClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      // Don't steal focus from interactive elements
+      if (
+        target.closest(
+          'button, a, input, select, textarea, [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [data-radix-popper-content-wrapper]',
+        )
+      ) {
+        return;
+      }
+      editorRef.current?.focus();
+    },
+    [editorRef],
+  );
+
   // ── Render ──
   return (
     <div className="border-border px-4 py-3">
@@ -743,25 +760,22 @@ export const PromptInputUI = memo(function PromptInputUI({
         )}
 
         {/* Editor + bottom toolbar */}
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div
           ref={promptBoxRef}
           className={cn(
-            'relative rounded-md border bg-input/80',
+            'relative cursor-text rounded-md border bg-input/80',
             isDragging
               ? 'border-primary border-2 ring-2 ring-primary/20'
               : 'border-border/80 focus-within:border-ring',
           )}
+          onClick={handlePromptBoxClick}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
           {/* TipTap Editor */}
-          {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-          <div
-            ref={editorContainerRef}
-            className="px-3 pt-2"
-            onClick={() => editorRef.current?.focus()}
-          >
+          <div ref={editorContainerRef} className="px-3 pt-2">
             <PromptEditor
               ref={editorRef}
               placeholder={editorPlaceholder}

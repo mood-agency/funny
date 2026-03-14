@@ -224,13 +224,13 @@ function SuggestionPopup({
             <HighlightText
               text={type === 'slash' ? `/${item.label}` : item.label}
               query={query}
-              className="truncate font-mono text-xs font-medium block"
+              className="block truncate font-mono text-xs font-medium"
             />
             {item.description && (
               <HighlightText
                 text={item.description}
                 query={query}
-                className="truncate text-xs text-muted-foreground block"
+                className="block truncate text-xs text-muted-foreground"
               />
             )}
           </div>
@@ -581,6 +581,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
       }).configure({
         HTMLAttributes: { class: 'slash-command' },
         suggestion: slashSuggestion(),
+        deleteTriggerWithBackspace: true,
       }),
     ],
     editorProps: {
