@@ -66,7 +66,7 @@ export function BashCard({
             <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
               {t('tools.input')}
             </div>
-            <div className="overflow-x-auto rounded border border-border/40 bg-background/80 px-2.5 py-1.5 font-mono text-sm">
+            <div className="overflow-x-auto rounded border border-border/40 bg-background/80 px-2.5 py-1.5 font-mono text-xs">
               {highlightedCommand ? (
                 <div
                   className="whitespace-pre-wrap break-all leading-relaxed [&_.shiki]:!bg-transparent [&_code]:!p-0 [&_pre]:!m-0"

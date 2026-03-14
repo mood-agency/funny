@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 
 import { useDictation } from '@/hooks/use-dictation';
 import { api } from '@/lib/api';
-import { getUnifiedModelOptions, parseUnifiedModel } from '@/lib/providers';
+import { getUnifiedModelOptions } from '@/lib/providers';
 import { useDraftStore } from '@/stores/draft-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -112,7 +112,6 @@ export const PromptInput = memo(function PromptInput({
   const activeThreadWorktreePath = useThreadStore((s) => s.activeThread?.worktreePath);
   const activeThreadProvider = useThreadStore((s) => s.activeThread?.provider);
   const activeThreadModel = useThreadStore((s) => s.activeThread?.model);
-  const activeThreadMode = useThreadStore((s) => s.activeThread?.mode);
   const activeThreadBranch = useThreadStore((s) => s.activeThread?.branch);
   const activeThreadBaseBranch = useThreadStore((s) => s.activeThread?.baseBranch);
 
@@ -481,13 +480,14 @@ export const PromptInput = memo(function PromptInput({
 
   useEffect(() => {
     const editorRefCurrent = editorRef.current;
+    const currentImages = imagesRef.current;
     return () => {
       if (hasSubmittedRef.current) return;
       const threadId = threadIdRef.current;
       if (threadId) {
         const editorJSON = editorRefCurrent?.getJSON();
         if (editorJSON) {
-          setEditorDraft(threadId, editorJSON, imagesRef.current);
+          setEditorDraft(threadId, editorJSON, currentImages);
         }
       }
     };

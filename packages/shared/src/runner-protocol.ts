@@ -45,8 +45,9 @@ export interface RunnerRegisterRequest {
   os: string;
   /** Optional base workspace directory where repos live */
   workspace?: string;
-  /** HTTP base URL where this runner accepts proxied requests (e.g. "http://192.168.1.5:3001") */
-  httpUrl: string;
+  /** HTTP base URL where this runner accepts proxied requests (e.g. "http://192.168.1.5:3001").
+   *  Optional — if not provided, the server uses the WebSocket tunnel for all communication. */
+  httpUrl?: string;
 }
 
 export interface RunnerRegisterResponse {
@@ -205,7 +206,8 @@ export type RunnerWSMessage =
   | RunnerWSAuth
   | RunnerWSAgentEvent
   | RunnerWSBrowserRelay
-  | RunnerWSPing;
+  | RunnerWSPing
+  | RunnerWSTunnelResponse;
 
 export interface RunnerWSAuth {
   type: 'runner:auth';
@@ -231,12 +233,22 @@ export interface RunnerWSPing {
   type: 'runner:ping';
 }
 
+/** Runner → Server: response to a tunneled HTTP request */
+export interface RunnerWSTunnelResponse {
+  type: 'tunnel:response';
+  requestId: string;
+  status: number;
+  headers: Record<string, string>;
+  body: string | null;
+}
+
 // Messages from Central Server → Runner via WebSocket
 export type CentralWSMessage =
   | CentralWSAuthOk
   | CentralWSPong
   | CentralWSCommand
-  | CentralWSBrowserMessage;
+  | CentralWSBrowserMessage
+  | CentralWSTunnelRequest;
 
 export interface CentralWSAuthOk {
   type: 'central:auth_ok';
@@ -257,6 +269,16 @@ export interface CentralWSBrowserMessage {
   userId: string;
   organizationId?: string;
   data: unknown;
+}
+
+/** Server → Runner: tunneled HTTP request to be handled locally */
+export interface CentralWSTunnelRequest {
+  type: 'tunnel:request';
+  requestId: string;
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: string | null;
 }
 
 // ─── Pending Tasks Response ─────────────────────────────

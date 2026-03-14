@@ -19,7 +19,11 @@
 import { hostname } from 'os';
 
 import type { Project, WSEvent } from '@funny/shared';
-import type { RunnerRegisterResponse, RunnerTask } from '@funny/shared/runner-protocol';
+import type {
+  CentralWSTunnelRequest,
+  RunnerRegisterResponse,
+  RunnerTask,
+} from '@funny/shared/runner-protocol';
 
 import { log } from '../lib/logger.js';
 import { listProjects } from './project-manager.js';
@@ -31,6 +35,9 @@ export type BrowserWSHandler = (
   respond: (responseData: unknown) => void,
 ) => void;
 
+/** A Hono-like app that can handle fetch requests */
+type FetchableApp = { fetch: (request: Request) => Promise<Response> | Response };
+
 interface TeamClientState {
   serverUrl: string;
   runnerId: string | null;
@@ -40,6 +47,8 @@ interface TeamClientState {
   ws: WebSocket | null;
   unsubscribeBroker: (() => void) | null;
   browserWSHandler: BrowserWSHandler | null;
+  /** Reference to the local Hono app for handling tunnel requests */
+  localApp: FetchableApp | null;
 }
 
 const state: TeamClientState = {
@@ -51,6 +60,7 @@ const state: TeamClientState = {
   ws: null,
   unsubscribeBroker: null,
   browserWSHandler: null,
+  localApp: null,
 };
 
 // ── HTTP helpers ─────────────────────────────────────────
@@ -76,10 +86,9 @@ async function centralFetch(path: string, options: RequestInit = {}): Promise<Re
 
 async function register(): Promise<boolean> {
   try {
-    const port = process.env.PORT || '3001';
-    // Allow explicit override for when runtime and server are on different networks
-    // (e.g. runtime on host, server in container — use host.docker.internal or real IP)
-    const httpUrl = process.env.RUNNER_HTTP_URL || `http://${hostname()}:${port}`;
+    // Only set httpUrl if explicitly configured (allows direct HTTP fallback).
+    // Without it, all communication goes through the WebSocket tunnel (works behind NAT).
+    const httpUrl = process.env.RUNNER_HTTP_URL || undefined;
 
     const res = await centralFetch('/api/runners/register', {
       method: 'POST',
@@ -87,7 +96,7 @@ async function register(): Promise<boolean> {
         name: `${hostname()}-funny`,
         hostname: hostname(),
         os: process.platform,
-        httpUrl,
+        ...(httpUrl ? { httpUrl } : {}),
       }),
     });
 
@@ -111,7 +120,7 @@ async function register(): Promise<boolean> {
     log.info('Registered with central server', {
       namespace: 'team',
       runnerId: data.runnerId,
-      httpUrl,
+      transport: httpUrl ? 'http+tunnel' : 'tunnel-only',
     });
 
     return true;
@@ -283,6 +292,11 @@ function connectWebSocket(): void {
           });
           // TODO: Execute task locally and report result
         }
+
+        // Handle tunneled HTTP requests from the server
+        if (data.type === 'tunnel:request') {
+          handleTunnelRequest(data as CentralWSTunnelRequest);
+        }
       } catch {}
     };
 
@@ -370,6 +384,74 @@ function forwardEventToCentral(event: WSEvent, userId?: string): void {
   }
 }
 
+// ── Tunnel Request Handling ──────────────────────────────
+
+/**
+ * Handle a tunneled HTTP request from the server.
+ * Forwards the request to the local Hono app and sends the response back.
+ */
+async function handleTunnelRequest(data: CentralWSTunnelRequest): Promise<void> {
+  if (!state.localApp) {
+    log.warn('Received tunnel:request but no local app registered', { namespace: 'team' });
+    sendTunnelResponse(data.requestId, 503, {}, 'Local app not initialized');
+    return;
+  }
+
+  try {
+    // Build a Request object for the local Hono app
+    const url = `http://localhost${data.path}`;
+    const init: RequestInit = {
+      method: data.method,
+      headers: data.headers,
+    };
+    if (data.body && data.method !== 'GET' && data.method !== 'HEAD') {
+      init.body = data.body;
+    }
+
+    const request = new Request(url, init);
+    const response = await state.localApp.fetch(request);
+
+    // Serialize the response
+    const responseBody = await response.text();
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    sendTunnelResponse(data.requestId, response.status, responseHeaders, responseBody);
+  } catch (err) {
+    log.error('Failed to handle tunnel request', {
+      namespace: 'team',
+      requestId: data.requestId,
+      path: data.path,
+      error: (err as Error).message,
+    });
+    sendTunnelResponse(data.requestId, 500, {}, JSON.stringify({ error: 'Internal runner error' }));
+  }
+}
+
+function sendTunnelResponse(
+  requestId: string,
+  status: number,
+  headers: Record<string, string>,
+  body: string | null,
+): void {
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  try {
+    state.ws.send(
+      JSON.stringify({
+        type: 'tunnel:response',
+        requestId,
+        status,
+        headers,
+        body,
+      }),
+    );
+  } catch {
+    // WS may have closed
+  }
+}
+
 // ── Lifecycle ────────────────────────────────────────────
 
 /**
@@ -446,4 +528,13 @@ export function getTeamServerUrl(): string | null {
  */
 export function setBrowserWSHandler(handler: BrowserWSHandler): void {
   state.browserWSHandler = handler;
+}
+
+/**
+ * Register the local Hono app for handling tunneled HTTP requests.
+ * Called by runtime's app.ts after creating the app, so tunnel:request
+ * messages can be forwarded to the app's routes.
+ */
+export function setLocalApp(app: FetchableApp): void {
+  state.localApp = app;
 }

@@ -43,7 +43,7 @@ export async function registerRunner(
     status: 'online',
     os: req.os,
     workspace: req.workspace ?? null,
-    httpUrl: req.httpUrl,
+    httpUrl: req.httpUrl ?? null,
     activeThreadIds: '[]',
     registeredAt: now,
     lastHeartbeatAt: now,

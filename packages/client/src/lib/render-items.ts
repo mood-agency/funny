@@ -62,6 +62,9 @@ export function buildGroupedRenderItems(
       flat.push({ type: 'message', msg });
     }
     for (const tc of msg.toolCalls ?? []) {
+      // EnterPlanMode carries no useful data (empty input) — skip it entirely.
+      // The actual plan content is rendered by ExitPlanMode.
+      if (tc.name === 'EnterPlanMode') continue;
       // Track the most recent Write to a plan file (.plan, plan.md, or ~/.claude/plans/*.md)
       if (tc.name === 'Write') {
         try {

@@ -3,27 +3,18 @@
  * @domain type: adapter
  * @domain layer: infrastructure
  *
- * Runtime auth middleware — always uses Better Auth sessions.
+ * Runtime auth middleware.
  *
- * Priority order:
- * 1. X-Runner-Auth header (server → runtime shared secret)
- * 2. Team mode session validation (browser → runtime with central server cookie)
- * 3. Better Auth session (default for all browser requests)
+ * Two modes of operation:
+ * 1. **Standalone** (runtime runs directly): validates Better Auth sessions or
+ *    team-mode central server sessions.
+ * 2. **Mounted by server** (in-process): trusts X-Forwarded-User headers set by
+ *    the server's auth middleware. Use `createForwardedAuthMiddleware()`.
  */
 
 import type { Context, Next } from 'hono';
 
 import { log } from '../lib/logger.js';
-
-const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET;
-const TEAM_SERVER_URL = process.env.TEAM_SERVER_URL;
-
-// Cache validated sessions: cookie hash → { userId, role, orgId, expiresAt }
-const sessionCache = new Map<
-  string,
-  { userId: string; role: string; orgId: string | null; expiresAt: number }
->();
-const SESSION_CACHE_TTL = 60_000; // 1 minute
 
 /** Paths that skip authentication entirely */
 const PUBLIC_PATHS = new Set([
@@ -34,32 +25,53 @@ const PUBLIC_PATHS = new Set([
 ]);
 
 /**
- * Authentication middleware.
+ * Forwarded auth middleware — trusts X-Forwarded-User headers from the server.
  *
- * Priority order:
- * 1. X-Runner-Auth header (server → runtime communication)
- * 2. Team mode session validation (browser → runtime with central server cookie)
- * 3. Better Auth session (all browser requests)
+ * Used when the runtime is mounted in-process by the server. The server has
+ * already validated the session (via Better Auth) and sets these headers:
+ * - X-Forwarded-User: userId
+ * - X-Forwarded-Role: userRole
+ * - X-Forwarded-Org: organizationId
+ */
+export async function forwardedAuthMiddleware(c: Context, next: Next) {
+  const path = new URL(c.req.url).pathname;
+  if (PUBLIC_PATHS.has(path)) return next();
+  if (path.startsWith('/api/auth/')) return next();
+  if (path === '/api/mcp/oauth/callback') return next();
+
+  const userId = c.req.header('X-Forwarded-User');
+  if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+  c.set('userId', userId);
+  c.set('userRole', c.req.header('X-Forwarded-Role') || 'user');
+  c.set('organizationId', c.req.header('X-Forwarded-Org') || null);
+  return next();
+}
+
+// ── Standalone auth (used when runtime runs its own server) ──────
+
+const TEAM_SERVER_URL = process.env.TEAM_SERVER_URL;
+
+// Cache validated sessions: cookie hash → { userId, role, orgId, expiresAt }
+const sessionCache = new Map<
+  string,
+  { userId: string; role: string; orgId: string | null; expiresAt: number }
+>();
+const SESSION_CACHE_TTL = 60_000; // 1 minute
+
+/**
+ * Standalone auth middleware — validates sessions directly.
+ *
+ * Priority:
+ * 1. Team mode session validation (browser → runtime with central server cookie)
+ * 2. Better Auth session (default for all browser requests)
  */
 export async function authMiddleware(c: Context, next: Next) {
   const path = new URL(c.req.url).pathname;
 
-  // Public endpoints — always allowed
   if (PUBLIC_PATHS.has(path)) return next();
 
-  // ── Priority 1: Server → Runtime via shared secret ─────────────
-  const runnerAuth = c.req.header('X-Runner-Auth');
-  if (RUNNER_AUTH_SECRET && runnerAuth === RUNNER_AUTH_SECRET) {
-    const forwardedUser = c.req.header('X-Forwarded-User');
-    if (!forwardedUser) return c.json({ error: 'Unauthorized: missing X-Forwarded-User' }, 401);
-
-    c.set('userId', forwardedUser);
-    c.set('userRole', c.req.header('X-Forwarded-Role') || 'user');
-    c.set('organizationId', c.req.header('X-Forwarded-Org') || null);
-    return next();
-  }
-
-  // ── Priority 2: Team mode — validate with central server ───────
+  // ── Team mode — validate with central server ───────────────────
   if (TEAM_SERVER_URL && c.req.header('Cookie')) {
     const cookie = c.req.header('Cookie')!;
     const cacheKey = cookie.slice(0, 128);
@@ -102,7 +114,7 @@ export async function authMiddleware(c: Context, next: Next) {
     // Fall through to local Better Auth
   }
 
-  // ── Priority 3: Better Auth session ────────────────────────────
+  // ── Better Auth session ────────────────────────────────────────
   if (path.startsWith('/api/auth/')) return next();
   if (path === '/api/mcp/oauth/callback') return next();
 

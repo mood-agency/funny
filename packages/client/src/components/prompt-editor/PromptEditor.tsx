@@ -21,6 +21,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
+import { HighlightText } from '@/components/ui/highlight-text';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -65,6 +66,8 @@ interface PromptEditorProps {
   /** Callback to load skills on first / trigger */
   loadSkills?: () => Promise<Skill[]>;
   className?: string;
+  /** Ref to the outer container — suggestion popup will match its width */
+  containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 // ── Suggestion popup ─────────────────────────────────────────────
@@ -87,6 +90,10 @@ interface SuggestionPopupProps {
   onHover: (index: number) => void;
   rect: (() => DOMRect | null) | null;
   type: 'file' | 'slash';
+  /** Current search query for highlighting matches */
+  query?: string;
+  /** Ref to a container element — the popup will match its width and left edge */
+  containerRef?: React.RefObject<HTMLElement | null>;
 }
 
 function SuggestionPopup({
@@ -98,6 +105,8 @@ function SuggestionPopup({
   onHover,
   rect,
   type,
+  query = '',
+  containerRef,
 }: SuggestionPopupProps) {
   const { t } = useTranslation();
   const popupRef = useRef<HTMLDivElement>(null);
@@ -108,13 +117,18 @@ function SuggestionPopup({
     if (!rect) return { position: 'fixed', visibility: 'hidden' as const, zIndex: 50 };
     const r = rect();
     if (!r) return { position: 'fixed', visibility: 'hidden' as const, zIndex: 50 };
+    // If a container ref is provided, match its left edge and width
+    const container = containerRef?.current;
+    const containerRect = container?.getBoundingClientRect();
     return {
       position: 'fixed',
-      left: r.left,
-      bottom: window.innerHeight - r.top + 4,
+      left: containerRect ? containerRect.left : r.left,
+      width: containerRect ? containerRect.width : undefined,
+      // Align the popup's bottom edge to the top of the container (or cursor)
+      bottom: window.innerHeight - (containerRect ? containerRect.top : r.top) + 4,
       zIndex: 50,
     };
-  }, [rect]);
+  }, [rect, containerRef]);
 
   // Scroll selected into view — use scrollTop manipulation instead of
   // scrollIntoView which can scroll parent containers and cause jumps.
@@ -135,8 +149,12 @@ function SuggestionPopup({
   if (loading && items.length === 0) {
     return createPortal(
       <div
+        data-suggestion-popup
         style={style}
-        className="max-h-52 w-80 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+        className={cn(
+          'max-h-52 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+          !containerRef?.current && 'w-80',
+        )}
       >
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -152,8 +170,12 @@ function SuggestionPopup({
   if (items.length === 0) {
     return createPortal(
       <div
+        data-suggestion-popup
         style={style}
-        className="max-h-52 w-80 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+        className={cn(
+          'max-h-52 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+          !containerRef?.current && 'w-80',
+        )}
       >
         <div className="px-3 py-2 text-xs text-muted-foreground">
           {type === 'file'
@@ -168,8 +190,12 @@ function SuggestionPopup({
   return createPortal(
     <div
       ref={popupRef}
+      data-suggestion-popup
       style={style}
-      className="max-h-52 w-80 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className={cn(
+        'max-h-52 overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md',
+        !containerRef?.current && 'w-80',
+      )}
     >
       {items.map((item, i) => (
         <button
@@ -195,11 +221,17 @@ function SuggestionPopup({
             <Zap className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           )}
           <div className="min-w-0">
-            <div className="truncate font-mono text-xs font-medium">
-              {type === 'slash' ? `/${item.label}` : item.label}
-            </div>
+            <HighlightText
+              text={type === 'slash' ? `/${item.label}` : item.label}
+              query={query}
+              className="truncate font-mono text-xs font-medium block"
+            />
             {item.description && (
-              <div className="truncate text-xs text-muted-foreground">{item.description}</div>
+              <HighlightText
+                text={item.description}
+                query={query}
+                className="truncate text-xs text-muted-foreground block"
+              />
             )}
           </div>
         </button>
@@ -217,7 +249,18 @@ function SuggestionPopup({
 // ── PromptEditor ─────────────────────────────────────────────────
 
 export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(function PromptEditor(
-  { placeholder, disabled, onSubmit, onCycleMode, onChange, onPaste, cwd, loadSkills, className },
+  {
+    placeholder,
+    disabled,
+    onSubmit,
+    onCycleMode,
+    onChange,
+    onPaste,
+    cwd,
+    loadSkills,
+    className,
+    containerRef,
+  },
   ref,
 ) {
   // ── Suggestion state (shared for both @ and /) ──
@@ -226,6 +269,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [suggestionTruncated, setSuggestionTruncated] = useState(false);
+  const [suggestionQuery, setSuggestionQuery] = useState('');
   const [suggestionRect, setSuggestionRect] = useState<(() => DOMRect | null) | null>(null);
   const suggestionCommandRef = useRef<((props: Record<string, unknown>) => void) | null>(null);
 
@@ -253,7 +297,10 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
     () => ({
       char: '@',
       allowSpaces: false,
+      allowedPrefixes: null,
       items: ({ query }: { query: string }) => {
+        // Update query immediately so highlights stay in sync with typing
+        setSuggestionQuery(query);
         // Return a promise that resolves with items after debounce
         return new Promise<SuggestionItem[]>((resolve) => {
           if (fileTimerRef.current) clearTimeout(fileTimerRef.current);
@@ -313,12 +360,14 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           setSuggestionType('file');
           setSuggestionItems(props.items);
           setSuggestionIndex(0);
+          setSuggestionQuery(props.query ?? '');
           setSuggestionRect(() => props.clientRect);
           suggestionCommandRef.current = props.command;
         },
         onUpdate: (props: any) => {
           setSuggestionItems(props.items);
           setSuggestionIndex(0);
+          setSuggestionQuery(props.query ?? '');
           setSuggestionRect(() => props.clientRect);
           suggestionCommandRef.current = props.command;
         },
@@ -356,6 +405,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
         onExit: () => {
           setSuggestionType(null);
           setSuggestionItems([]);
+          setSuggestionQuery('');
           setSuggestionLoading(false);
           setSuggestionTruncated(false);
         },
@@ -371,7 +421,10 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
     () => ({
       char: '/',
       allowSpaces: false,
+      allowedPrefixes: null,
       items: async ({ query }: { query: string }) => {
+        // Update query immediately so highlights stay in sync with typing
+        setSuggestionQuery(query);
         if (!skillsCacheRef.current) {
           setSuggestionLoading(true);
           const fn = loadSkillsRef.current;
@@ -415,12 +468,14 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           setSuggestionType('slash');
           setSuggestionItems(props.items);
           setSuggestionIndex(0);
+          setSuggestionQuery(props.query ?? '');
           setSuggestionRect(() => props.clientRect);
           suggestionCommandRef.current = props.command;
         },
         onUpdate: (props: any) => {
           setSuggestionItems(props.items);
           setSuggestionIndex(0);
+          setSuggestionQuery(props.query ?? '');
           setSuggestionRect(() => props.clientRect);
           suggestionCommandRef.current = props.command;
         },
@@ -457,6 +512,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
         onExit: () => {
           setSuggestionType(null);
           setSuggestionItems([]);
+          setSuggestionQuery('');
           setSuggestionLoading(false);
         },
       }),
@@ -474,6 +530,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
   onChangeRef.current = onChange;
 
   const editor = useEditor({
+    immediatelyRender: true,
     extensions: [
       Document,
       Paragraph,
@@ -692,6 +749,26 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
     suggestionCommandRef.current?.(item as unknown as Record<string, unknown>);
   }, []);
 
+  // ── Close suggestion popup on click outside ──
+  useEffect(() => {
+    if (!suggestionType) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // Check if click is inside the editor
+      if (editor?.view.dom.contains(target)) return;
+      // Check if click is inside the popup (portaled to body)
+      const popup = document.querySelector('[data-suggestion-popup]');
+      if (popup?.contains(target)) return;
+      // Click is outside — dismiss the suggestion
+      setSuggestionType(null);
+      setSuggestionItems([]);
+      setSuggestionLoading(false);
+      setSuggestionTruncated(false);
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [suggestionType, editor]);
+
   return (
     <>
       <EditorContent editor={editor} className={cn('tiptap-prompt-editor', className)} />
@@ -705,6 +782,8 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           onHover={setSuggestionIndex}
           rect={suggestionRect}
           type={suggestionType}
+          query={suggestionQuery}
+          containerRef={containerRef}
         />
       )}
     </>

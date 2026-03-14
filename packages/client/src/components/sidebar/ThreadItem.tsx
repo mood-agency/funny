@@ -143,9 +143,9 @@ export const ThreadItem = memo(function ThreadItem({
       >
         {/* Row 1: Status icon + Title */}
         <div className="flex min-w-0 items-center gap-1.5">
-          {/* Thread status / pin icon */}
+          {/* Thread status / pin icon — active statuses always show status, pin only when idle */}
           <div className="relative h-3.5 w-3.5 flex-shrink-0">
-            {thread.pinned ? (
+            {thread.pinned && thread.status !== 'running' && thread.status !== 'setting_up' ? (
               <span
                 className={cn(
                   'absolute inset-0 flex items-center justify-center text-muted-foreground',
