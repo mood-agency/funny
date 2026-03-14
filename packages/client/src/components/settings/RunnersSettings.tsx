@@ -310,9 +310,7 @@ export function RunnersSettings() {
 
   const serverUrl = window.location.origin;
 
-  const installCommand = inviteToken
-    ? `TEAM_SERVER_URL=${serverUrl} RUNNER_INVITE_TOKEN=${inviteToken} bunx funny`
-    : '';
+  const installCommand = inviteToken ? `bunx funny --team ${serverUrl} --token ${inviteToken}` : '';
 
   const loadToken = async () => {
     setLoadingToken(true);

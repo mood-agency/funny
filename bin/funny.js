@@ -1,9 +1,92 @@
 #!/usr/bin/env bun
-import { existsSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
+import { resolve, join } from 'path';
 import { parseArgs } from 'util';
 
-// Parse CLI arguments
+// ── Persistent config in ~/.funny/.env ────────────────────
+
+const FUNNY_DIR = join(homedir(), '.funny');
+const ENV_FILE = join(FUNNY_DIR, '.env');
+
+/**
+ * Parse a simple .env file into key-value pairs.
+ * Handles KEY=VALUE, ignores comments (#) and blank lines.
+ */
+function parseEnvFile(content) {
+  const vars = {};
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    // Strip surrounding quotes
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    vars[key] = value;
+  }
+  return vars;
+}
+
+/**
+ * Load saved env vars from ~/.funny/.env.
+ * Only sets values that are NOT already in process.env (env vars take precedence).
+ */
+function loadSavedEnv() {
+  if (!existsSync(ENV_FILE)) return;
+  try {
+    const content = readFileSync(ENV_FILE, 'utf-8');
+    const vars = parseEnvFile(content);
+    for (const [key, value] of Object.entries(vars)) {
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Non-fatal — may be corrupted or inaccessible
+  }
+}
+
+/**
+ * Save env vars to ~/.funny/.env, merging with existing values.
+ * Creates ~/.funny directory if it doesn't exist.
+ */
+function saveEnv(updates) {
+  // Read existing values
+  let existing = {};
+  if (existsSync(ENV_FILE)) {
+    try {
+      existing = parseEnvFile(readFileSync(ENV_FILE, 'utf-8'));
+    } catch {}
+  }
+
+  // Merge updates
+  const merged = { ...existing, ...updates };
+
+  // Write header + key=value pairs
+  const lines = ['# Saved by funny CLI — do not edit while running'];
+  for (const [key, value] of Object.entries(merged)) {
+    lines.push(`${key}=${value}`);
+  }
+
+  // Ensure directory exists
+  mkdirSync(FUNNY_DIR, { recursive: true });
+
+  // Write with restricted permissions (0o600) — contains tokens
+  writeFileSync(ENV_FILE, lines.join('\n') + '\n', { mode: 0o600 });
+}
+
+// ── Load saved config before parsing CLI args ─────────────
+loadSavedEnv();
+
+// ── Parse CLI arguments ───────────────────────────────────
+
 const { values } = parseArgs({
   options: {
     port: {
@@ -19,6 +102,10 @@ const { values } = parseArgs({
     team: {
       type: 'string',
       description: 'URL of the central server to connect to for team mode',
+    },
+    token: {
+      type: 'string',
+      description: 'Runner invite token for team server registration',
     },
     help: {
       type: 'boolean',
@@ -38,12 +125,26 @@ Options:
   -p, --port <port>          Server port (default: 3001)
   -h, --host <host>          Server host (default: 127.0.0.1)
   --team <url>               Connect to a central team server (e.g. http://192.168.1.10:3002)
+  --token <token>            Runner invite token for team server registration
   --help                     Show this help message
+
+Team Mode:
+  Connect this instance as a runner to a central server:
+
+    funny --team http://192.168.1.10:3002 --token utkn_xxx
+
+  The --team and --token values are saved to ~/.funny/.env so subsequent
+  runs only need:
+
+    funny
+
+  To change the server, pass --team again with a new URL.
 
 Examples:
   funny                          # Start standalone on http://127.0.0.1:3001
   funny --port 8080              # Start on custom port
-  funny --team http://central:3002  # Connect to team server
+  funny --team http://central:3002 --token utkn_xxx  # Connect to team server (saves config)
+  funny --team http://central:3002  # Re-connect with saved token
 
 Authentication:
   Always uses Better Auth with login page. Default admin account (admin/admin)
@@ -53,31 +154,66 @@ Environment Variables:
   PORT                       Server port
   HOST                       Server host
   TEAM_SERVER_URL            Central team server URL (same as --team)
+  RUNNER_INVITE_TOKEN        Runner invite token (same as --token)
   CORS_ORIGIN                Custom CORS origins (comma-separated)
   DB_MODE                    Database mode: sqlite (default) or postgres
   DATABASE_URL               PostgreSQL connection URL (when DB_MODE=postgres)
+
+Config:
+  Saved config:  ~/.funny/.env
+  Database:      ~/.funny/data.db
 
 For more information, visit: https://github.com/anthropics/funny
 `);
   process.exit(0);
 }
 
-// Set environment variables from CLI args
+// ── Set environment variables from CLI args ───────────────
+
 process.env.PORT = values.port;
 process.env.HOST = values.host;
 
+// CLI --team and --token override env vars and saved config
 if (values.team) {
   process.env.TEAM_SERVER_URL = values.team;
-  console.log(`[funny] Team mode enabled — connecting to ${values.team}`);
+}
+if (values.token) {
+  process.env.RUNNER_INVITE_TOKEN = values.token;
 }
 
-// Generate RUNNER_AUTH_SECRET if not set
+// ── Save team config when provided via CLI ────────────────
+
+const toSave = {};
+if (values.team) toSave.TEAM_SERVER_URL = values.team;
+if (values.token) toSave.RUNNER_INVITE_TOKEN = values.token;
+
+if (Object.keys(toSave).length > 0) {
+  try {
+    saveEnv(toSave);
+    console.log(`[funny] Config saved to ${ENV_FILE}`);
+  } catch (err) {
+    console.warn(`[funny] Warning: could not save config to ${ENV_FILE}:`, err.message);
+  }
+}
+
+// ── Team mode log ─────────────────────────────────────────
+
+if (process.env.TEAM_SERVER_URL) {
+  const source = values.team ? 'CLI' : existsSync(ENV_FILE) ? 'saved config' : 'env';
+  console.log(
+    `[funny] Team mode enabled — connecting to ${process.env.TEAM_SERVER_URL} (from ${source})`,
+  );
+}
+
+// ── Generate RUNNER_AUTH_SECRET if not set ─────────────────
+
 if (!process.env.RUNNER_AUTH_SECRET) {
   const crypto = await import('crypto');
   process.env.RUNNER_AUTH_SECRET = crypto.randomUUID();
 }
 
-// Resolve entry points — prefer server (unified entry), fall back to runtime (standalone)
+// ── Resolve entry points and start ────────────────────────
+
 const serverEntry = resolve(import.meta.dir, '../packages/server/dist/index.js');
 const serverSrc = resolve(import.meta.dir, '../packages/server/src/index.ts');
 const runtimeEntry = resolve(import.meta.dir, '../packages/runtime/dist/index.js');
