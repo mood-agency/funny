@@ -97,8 +97,16 @@ async function register(): Promise<boolean> {
     // Without it, all communication goes through the WebSocket tunnel (works behind NAT).
     const httpUrl = process.env.RUNNER_HTTP_URL || undefined;
 
+    // When using a user invite token (RUNNER_INVITE_TOKEN), send it as a header
+    // so the server can associate this runner with the user's account.
+    const inviteToken = process.env.RUNNER_INVITE_TOKEN;
+    const extraHeaders: Record<string, string> = inviteToken
+      ? { 'X-Runner-Invite-Token': inviteToken }
+      : {};
+
     const res = await centralFetch('/api/runners/register', {
       method: 'POST',
+      headers: extraHeaders,
       body: JSON.stringify({
         name: `${hostname()}-funny`,
         hostname: hostname(),

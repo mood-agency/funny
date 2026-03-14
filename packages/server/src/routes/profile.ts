@@ -35,6 +35,7 @@ profileRoutes.get('/', async (c) => {
       terminalShell: null,
       toolPermissions: null,
       theme: null,
+      runnerInviteToken: null,
     },
   );
 });
@@ -64,4 +65,18 @@ profileRoutes.put('/', async (c) => {
 profileRoutes.get('/setup-completed', async (c) => {
   const userId = c.get('userId') as string;
   return c.json({ setupCompleted: await ps.isSetupCompleted(userId) });
+});
+
+/** GET /runner-invite-token — get (or auto-create) the user's runner invite token */
+profileRoutes.get('/runner-invite-token', async (c) => {
+  const userId = c.get('userId') as string;
+  const token = await ps.getOrCreateRunnerInviteToken(userId);
+  return c.json({ token });
+});
+
+/** POST /runner-invite-token/rotate — regenerate the runner invite token */
+profileRoutes.post('/runner-invite-token/rotate', async (c) => {
+  const userId = c.get('userId') as string;
+  const token = await ps.rotateRunnerInviteToken(userId);
+  return c.json({ token });
 });

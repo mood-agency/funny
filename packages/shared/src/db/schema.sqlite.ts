@@ -176,6 +176,7 @@ export const userProfiles = sqliteTable('user_profiles', {
   terminalShell: text('terminal_shell'),
   toolPermissions: text('tool_permissions'),
   theme: text('theme'),
+  runnerInviteToken: text('runner_invite_token'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

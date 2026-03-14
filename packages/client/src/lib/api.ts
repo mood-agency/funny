@@ -905,6 +905,26 @@ export const api = {
 
   isSetupCompleted: () => request<{ setupCompleted: boolean }>('/profile/setup-completed'),
 
+  getRunnerInviteToken: () => request<{ token: string }>('/profile/runner-invite-token'),
+
+  rotateRunnerInviteToken: () =>
+    request<{ token: string }>('/profile/runner-invite-token/rotate', { method: 'POST' }),
+
+  getMyRunners: () =>
+    request<{ runners: import('@funny/shared/runner-protocol').RunnerInfo[] }>('/runners'),
+
+  deleteRunner: (runnerId: string) =>
+    request<{ ok: boolean }>(`/runners/${runnerId}`, { method: 'DELETE' }),
+
+  assignRunnerProject: (runnerId: string, projectId: string, localPath: string) =>
+    request<import('@funny/shared/runner-protocol').RunnerProjectAssignment>(
+      `/runners/${runnerId}/projects`,
+      { method: 'POST', body: JSON.stringify({ projectId, localPath }) },
+    ),
+
+  unassignRunnerProject: (runnerId: string, projectId: string) =>
+    request<{ ok: boolean }>(`/runners/${runnerId}/projects/${projectId}`, { method: 'DELETE' }),
+
   completeSetup: () =>
     request<import('@funny/shared').UserProfile>('/profile', {
       method: 'PUT',

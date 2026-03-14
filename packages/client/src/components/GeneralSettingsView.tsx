@@ -8,6 +8,7 @@ import {
   Mic,
   Palette,
   Send,
+  Server,
   SlidersHorizontal,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -47,9 +48,17 @@ import {
 import { useUIStore } from '@/stores/ui-store';
 
 import { OrganizationManagement } from './settings/OrganizationManagement';
+import { RunnersSettings } from './settings/RunnersSettings';
 import { SettingRow } from './settings/SettingRow';
 
-type GeneralPage = 'general' | 'appearance' | 'github' | 'speech' | 'email' | 'organizations';
+type GeneralPage =
+  | 'general'
+  | 'appearance'
+  | 'github'
+  | 'speech'
+  | 'email'
+  | 'organizations'
+  | 'runners';
 
 const NAV_ITEMS: Array<{ id: GeneralPage; label: string; icon: typeof SlidersHorizontal }> = [
   { id: 'general', label: 'settings.general', icon: SlidersHorizontal },
@@ -58,6 +67,7 @@ const NAV_ITEMS: Array<{ id: GeneralPage; label: string; icon: typeof SlidersHor
   { id: 'speech', label: 'Speech', icon: Mic },
   { id: 'email', label: 'Email (SMTP)', icon: Mail },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
+  { id: 'runners', label: 'Runners', icon: Server },
 ];
 
 function getLanguageName(code: string): string {
@@ -587,6 +597,8 @@ export function GeneralSettingsView() {
         )}
 
         {activePreferencesPage === 'organizations' && <OrganizationManagement />}
+
+        {activePreferencesPage === 'runners' && <RunnersSettings />}
 
         {activePreferencesPage === 'email' && (
           <>

@@ -43,7 +43,10 @@ const messageRepo = createMessageRepository({ db, schema: schema as any, dbAll, 
 
 // ── Runner communication helpers ─────────────────────────────────
 
-async function resolveRunnerForProject(projectId: string): Promise<ResolvedRunner | null> {
+async function resolveRunnerForProject(
+  projectId: string,
+  userId?: string,
+): Promise<ResolvedRunner | null> {
   const runnerResult = await findRunnerForProject(projectId);
   if (runnerResult) {
     return {
@@ -51,7 +54,7 @@ async function resolveRunnerForProject(projectId: string): Promise<ResolvedRunne
       httpUrl: runnerResult.runner.httpUrl ?? null,
     };
   }
-  return await runnerResolver.resolveRunner('/api/threads', { projectId });
+  return await runnerResolver.resolveRunner('/api/threads', { projectId }, userId);
 }
 
 async function fetchFromRunner(
@@ -273,7 +276,7 @@ threadRoutes.post('/', async (c) => {
   const { getLocalRunnerFetch } = await import('../lib/local-runner.js');
   const resolved = getLocalRunnerFetch()
     ? { runnerId: '__local__', httpUrl: null }
-    : await resolveRunnerForProject(projectId);
+    : await resolveRunnerForProject(projectId, userId);
   if (!resolved) {
     return c.json({ error: 'No online runner found for this project' }, 502);
   }
@@ -331,7 +334,7 @@ threadRoutes.post('/idle', async (c) => {
   const { getLocalRunnerFetch } = await import('../lib/local-runner.js');
   const resolved = getLocalRunnerFetch()
     ? { runnerId: '__local__', httpUrl: null }
-    : await resolveRunnerForProject(projectId);
+    : await resolveRunnerForProject(projectId, userId);
   if (!resolved) {
     return c.json({ error: 'No online runner found for this project' }, 502);
   }

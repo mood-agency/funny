@@ -58,9 +58,9 @@ export async function proxyToRunner(c: Context<ServerEnv>): Promise<Response> {
     );
   }
 
-  // Remote runners: resolve which runner should handle this request
+  // Remote runners: resolve which runner should handle this request (scoped to requesting user)
   const query = Object.fromEntries(url.searchParams.entries());
-  const resolved = await resolveRunner(path, query);
+  const resolved = await resolveRunner(path, query, userId);
 
   if (!resolved) {
     return c.json(

@@ -83,6 +83,7 @@ export interface UserProfile {
   terminalShell: string | null;
   toolPermissions: Record<string, string> | null;
   theme: string | null;
+  runnerInviteToken: string | null;
   createdAt: string;
   updatedAt: string;
 }

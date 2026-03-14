@@ -77,11 +77,24 @@ runnerRoutes.post('/tasks/result', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── Runner Listing (admin) ──────────────────────────────
+// ── Runner Listing ──────────────────────────────────────
 
 runnerRoutes.get('/', async (c) => {
-  const allRunners = await rm.listRunners();
-  return c.json({ runners: allRunners });
+  const userId = c.get('userId') as string | undefined;
+  const isRunner = c.get('isRunner') as boolean | undefined;
+  const userRole = c.get('userRole') as string | undefined;
+
+  // Admins and runner-authenticated requests see all runners
+  if (isRunner || userRole === 'admin') {
+    return c.json({ runners: await rm.listRunners() });
+  }
+
+  // Regular users see only their own runners
+  if (userId) {
+    return c.json({ runners: await rm.listRunnersByUser(userId) });
+  }
+
+  return c.json({ runners: [] });
 });
 
 runnerRoutes.get('/:runnerId', async (c) => {
@@ -93,8 +106,21 @@ runnerRoutes.get('/:runnerId', async (c) => {
 
 runnerRoutes.delete('/:runnerId', async (c) => {
   const runnerId = c.req.param('runnerId');
-  await rm.removeRunner(runnerId);
-  return c.json({ ok: true });
+  const userId = c.get('userId') as string | undefined;
+  const userRole = c.get('userRole') as string | undefined;
+
+  if (userRole === 'admin') {
+    await rm.removeRunner(runnerId);
+    return c.json({ ok: true });
+  }
+
+  if (userId) {
+    const removed = await rm.removeRunnerForUser(runnerId, userId);
+    if (!removed) return c.json({ error: 'Runner not found or not owned by you' }, 404);
+    return c.json({ ok: true });
+  }
+
+  return c.json({ error: 'Unauthorized' }, 401);
 });
 
 // ── Project Assignment ──────────────────────────────────

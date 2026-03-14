@@ -22,6 +22,7 @@ export interface UserProfile {
   terminalShell: string | null;
   toolPermissions: Record<string, any> | null;
   theme: string | null;
+  runnerInviteToken: string | null;
 }
 
 export async function getProfile(userId: string): Promise<UserProfile | null> {
@@ -42,6 +43,7 @@ export async function getProfile(userId: string): Promise<UserProfile | null> {
     terminalShell: r.terminalShell ?? null,
     toolPermissions: r.toolPermissions ? JSON.parse(r.toolPermissions as string) : null,
     theme: r.theme ?? null,
+    runnerInviteToken: r.runnerInviteToken ?? null,
   };
 }
 
@@ -126,4 +128,75 @@ export async function getAssemblyaiApiKey(userId: string): Promise<string | null
 export async function isSetupCompleted(userId: string): Promise<boolean> {
   const rows = await db.select().from(userProfiles).where(eq(userProfiles.userId, userId));
   return !!rows[0]?.setupCompleted;
+}
+
+// ── Runner Invite Token ─────────────────────────────────
+
+/** Return the runner invite token for a user, generating one if it doesn't exist yet. */
+export async function getOrCreateRunnerInviteToken(userId: string): Promise<string> {
+  const rows = await db
+    .select({ runnerInviteToken: userProfiles.runnerInviteToken })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId));
+
+  if (rows[0]?.runnerInviteToken) return rows[0].runnerInviteToken;
+
+  const token = `utkn_${nanoid(32)}`;
+  const now = new Date().toISOString();
+
+  if (rows.length > 0) {
+    await db
+      .update(userProfiles)
+      .set({ runnerInviteToken: token, updatedAt: now })
+      .where(eq(userProfiles.userId, userId));
+  } else {
+    await db.insert(userProfiles).values({
+      id: nanoid(),
+      userId,
+      runnerInviteToken: token,
+      setupCompleted: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return token;
+}
+
+/** Regenerate the runner invite token, invalidating the previous one for new registrations. */
+export async function rotateRunnerInviteToken(userId: string): Promise<string> {
+  const token = `utkn_${nanoid(32)}`;
+  const now = new Date().toISOString();
+
+  const rows = await db
+    .select({ id: userProfiles.id })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId));
+
+  if (rows.length > 0) {
+    await db
+      .update(userProfiles)
+      .set({ runnerInviteToken: token, updatedAt: now })
+      .where(eq(userProfiles.userId, userId));
+  } else {
+    await db.insert(userProfiles).values({
+      id: nanoid(),
+      userId,
+      runnerInviteToken: token,
+      setupCompleted: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return token;
+}
+
+/** Validate a runner invite token and return the userId it belongs to, or null if invalid. */
+export async function validateRunnerInviteToken(token: string): Promise<string | null> {
+  const rows = await db
+    .select({ userId: userProfiles.userId })
+    .from(userProfiles)
+    .where(eq(userProfiles.runnerInviteToken, token));
+  return rows[0]?.userId ?? null;
 }

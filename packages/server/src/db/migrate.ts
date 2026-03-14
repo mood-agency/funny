@@ -654,9 +654,16 @@ const migrations: Migration[] = [
   },
 
   {
+    name: '026_runner_invite_token',
+    async up() {
+      await ctx().addColumn('user_profiles', 'runner_invite_token', 'TEXT');
+    },
+  },
+
+  {
     // Better Auth tables — only needed in SQLite mode.
     // In PostgreSQL mode, Better Auth uses the Kysely adapter and handles its own migrations.
-    name: '026_better_auth_tables',
+    name: '027_better_auth_tables',
     async up() {
       if (ctx().isPg) return;
 

@@ -305,3 +305,54 @@ export async function removeRunner(runnerId: string): Promise<void> {
   await db.delete(runners).where(eq(runners.id, runnerId));
   log.info('Runner removed', { namespace: 'runner', runnerId });
 }
+
+/** List only the runners owned by a specific user. */
+export async function listRunnersByUser(userId: string): Promise<RunnerInfo[]> {
+  const rows = await db.select().from(runners).where(eq(runners.userId, userId));
+  const now = Date.now();
+
+  const runnerIdSet = new Set(rows.map((r) => r.id));
+  const allAssignments = await db.select().from(runnerProjectAssignments);
+  const filteredAssignments = allAssignments.filter((a) => runnerIdSet.has(a.runnerId));
+
+  const assignmentsByRunner = new Map<string, string[]>();
+  for (const a of filteredAssignments) {
+    const list = assignmentsByRunner.get(a.runnerId) ?? [];
+    list.push(a.projectId);
+    assignmentsByRunner.set(a.runnerId, list);
+  }
+
+  return rows.map((r) => {
+    const lastHb = new Date(r.lastHeartbeatAt).getTime();
+    const isStale = now - lastHb > HEARTBEAT_TIMEOUT_MS;
+    const status = isStale ? 'offline' : (r.status as RunnerInfo['status']);
+
+    return {
+      runnerId: r.id,
+      name: r.name,
+      hostname: r.hostname,
+      os: r.os,
+      workspace: r.workspace ?? undefined,
+      httpUrl: r.httpUrl ?? undefined,
+      status,
+      activeThreadCount: (JSON.parse(r.activeThreadIds) as string[]).length,
+      assignedProjectIds: assignmentsByRunner.get(r.id) ?? [],
+      registeredAt: r.registeredAt,
+      lastHeartbeatAt: r.lastHeartbeatAt,
+    };
+  });
+}
+
+/** Delete a runner only if it belongs to the requesting user. Returns false if not found/owned. */
+export async function removeRunnerForUser(runnerId: string, userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: runners.id })
+    .from(runners)
+    .where(and(eq(runners.id, runnerId), eq(runners.userId, userId)));
+
+  if (!rows[0]) return false;
+
+  await db.delete(runners).where(eq(runners.id, runnerId));
+  log.info('Runner removed by owner', { namespace: 'runner', runnerId, userId });
+  return true;
+}

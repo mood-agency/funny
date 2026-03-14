@@ -8,7 +8,7 @@
  * 3. Fall back to null if no runner can be determined
  */
 
-import { eq, ne } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
 import { runnerProjectAssignments, runners } from '../db/schema.js';
@@ -31,10 +31,14 @@ const DEFAULT_RUNNER_URL = process.env.DEFAULT_RUNNER_URL || null;
  * Resolve which runner should handle a request.
  * Returns { runnerId, httpUrl } where httpUrl may be null (use tunnel).
  * Returns null if no runner can be determined.
+ *
+ * When userId is provided, resolution is scoped to that user's runners
+ * to ensure tenant isolation.
  */
 export async function resolveRunner(
   path: string,
   query: Record<string, string>,
+  userId?: string,
 ): Promise<ResolvedRunner | null> {
   const projectId = extractProjectId(path, query);
   const threadId = extractThreadId(path);
@@ -47,7 +51,7 @@ export async function resolveRunner(
 
   // Strategy 2: Project-based resolution
   if (projectId) {
-    const resolved = await resolveByProject(projectId);
+    const resolved = await resolveByProject(projectId, userId);
     if (resolved) return resolved;
   }
 
@@ -65,8 +69,8 @@ export async function resolveRunner(
     log.warn('No runner found for thread', { namespace: 'proxy', threadId });
   }
 
-  // Strategy 4: Fallback to any online runner (or DEFAULT_RUNNER_URL)
-  return await resolveAnyOnlineRunner();
+  // Strategy 4: Fallback to any online runner scoped to this user (or DEFAULT_RUNNER_URL)
+  return await resolveAnyOnlineRunner(userId);
 }
 
 /**
@@ -130,18 +134,22 @@ function extractThreadId(path: string): string | null {
   return null;
 }
 
-async function resolveAnyOnlineRunner(): Promise<ResolvedRunner | null> {
+async function resolveAnyOnlineRunner(userId?: string): Promise<ResolvedRunner | null> {
+  const condition = userId
+    ? and(ne(runners.status, 'offline'), eq(runners.userId, userId))
+    : ne(runners.status, 'offline');
+
   const onlineRunners = await db
     .select({ id: runners.id, httpUrl: runners.httpUrl })
     .from(runners)
-    .where(ne(runners.status, 'offline'));
+    .where(condition);
 
   if (onlineRunners.length > 0) {
     return { runnerId: onlineRunners[0].id, httpUrl: onlineRunners[0].httpUrl ?? null };
   }
 
-  // Fallback to configured default runner URL (useful for dev)
-  if (DEFAULT_RUNNER_URL) {
+  // Fallback to configured default runner URL (useful for dev, only when no userId scope)
+  if (!userId && DEFAULT_RUNNER_URL) {
     log.debug('Using DEFAULT_RUNNER_URL fallback', { namespace: 'proxy', url: DEFAULT_RUNNER_URL });
     return { runnerId: '__default__', httpUrl: DEFAULT_RUNNER_URL };
   }
@@ -149,7 +157,14 @@ async function resolveAnyOnlineRunner(): Promise<ResolvedRunner | null> {
   return null;
 }
 
-async function resolveByProject(projectId: string): Promise<ResolvedRunner | null> {
+async function resolveByProject(
+  projectId: string,
+  userId?: string,
+): Promise<ResolvedRunner | null> {
+  const condition = userId
+    ? and(eq(runnerProjectAssignments.projectId, projectId), eq(runners.userId, userId))
+    : eq(runnerProjectAssignments.projectId, projectId);
+
   const assignments = await db
     .select({
       runnerId: runnerProjectAssignments.runnerId,
@@ -158,7 +173,7 @@ async function resolveByProject(projectId: string): Promise<ResolvedRunner | nul
     })
     .from(runnerProjectAssignments)
     .innerJoin(runners, eq(runners.id, runnerProjectAssignments.runnerId))
-    .where(eq(runnerProjectAssignments.projectId, projectId));
+    .where(condition);
 
   // Filter to online runners
   const online = assignments.filter((a) => a.status !== 'offline');

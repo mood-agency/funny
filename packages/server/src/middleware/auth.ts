@@ -40,6 +40,18 @@ export async function authMiddleware(c: Context<ServerEnv>, next: Next) {
   // MCP OAuth callback
   if (path === '/api/mcp/oauth/callback') return next();
 
+  // ── Runner registration via user invite token ──────────────────
+  // Allows a runner to self-register under a user's account without a session cookie.
+  const inviteToken = c.req.header('X-Runner-Invite-Token');
+  if (inviteToken && c.req.method === 'POST' && path === '/api/runners/register') {
+    const ps = await import('../services/profile-service.js');
+    const userId = await ps.validateRunnerInviteToken(inviteToken);
+    if (!userId) return c.json({ error: 'Invalid runner invite token' }, 401);
+    c.set('userId', userId);
+    c.set('isRunner', false);
+    return next();
+  }
+
   // ── Runner auth via bearer token ───────────────────────────────
   const authHeader = c.req.header('Authorization');
   if (authHeader?.startsWith('Bearer runner_')) {
