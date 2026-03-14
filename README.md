@@ -103,10 +103,18 @@ The admin can create additional user accounts from the central server's API.
 
 #### Step 2: Each team member connects
 
-Each team member runs funny locally with the `--team` flag:
+Each team member runs funny locally with the `--team` and `--token` flags:
 
 ```bash
-funny --team http://<central-server-ip>:3002
+funny --team http://<central-server-ip>:3002 --token <invite-token>
+```
+
+The invite token is generated from the central server's **Settings > Runners** page. Copy the install command and run it — it works on Windows, macOS, and Linux.
+
+On first run, the `--team` and `--token` values are **automatically saved** to `~/.funny/.env`, so subsequent runs only need:
+
+```bash
+funny
 ```
 
 This starts the full funny app locally (UI, git, agents) **and** connects to the central server to:
@@ -147,6 +155,7 @@ Team member A                    Team member B
 | `-h, --host <host>`   | Server host                              | `127.0.0.1` |
 | `--auth-mode <mode>`  | Authentication mode: `local` or `multi`  | `local`     |
 | `--team <url>`        | Connect to a central team server         | -           |
+| `--token <token>`     | Runner invite token for team registration | -          |
 | `--help`              | Show help message                        | -           |
 
 **funny-server** (team coordination server)
@@ -157,6 +166,22 @@ Team member A                    Team member B
 | `-h, --host <host>`   | Server host                              | `0.0.0.0`   |
 | `--help`              | Show help message                        | -           |
 
+### Persistent Configuration
+
+When you pass `--team` or `--token` via the CLI, the values are automatically saved to `~/.funny/.env`. On subsequent runs, funny loads this file so you don't need to repeat the flags.
+
+```bash
+# First time — pass the full connection info
+funny --team http://192.168.1.10:3002 --token utkn_xxx
+
+# Every subsequent run — just this
+funny
+```
+
+**Precedence order:** CLI flags > shell environment variables > saved `~/.funny/.env`
+
+To change the server, simply pass `--team` again with a new URL — the saved config is updated automatically. The `.env` file is created with restricted permissions (`0600`) since it contains tokens.
+
 ### Environment Variables
 
 | Variable                 | Description                           | Default         | Used by          |
@@ -165,6 +190,7 @@ Team member A                    Team member B
 | `HOST`                   | Server hostname                       | `127.0.0.1`     | both             |
 | `AUTH_MODE`              | Authentication mode (`local`/`multi`) | `local`         | funny            |
 | `TEAM_SERVER_URL`        | Central server URL (same as `--team`) | -               | funny            |
+| `RUNNER_INVITE_TOKEN`    | Runner invite token (same as `--token`)| -               | funny            |
 | `CORS_ORIGIN`            | Custom CORS origins (comma-separated) | Auto-configured | both             |
 | `FUNNY_CENTRAL_DATA_DIR` | Central server data directory         | `~/.funny-central` | funny-server |
 | `LOG_LEVEL`              | Log level (debug/info/warn/error)     | `info`          | funny-server    |
@@ -276,6 +302,7 @@ bun test
 
 ```
 ~/.funny/
+├── .env              # Saved CLI config (--team, --token) — auto-generated
 ├── data.db           # SQLite database (projects, threads, messages)
 ├── auth-token        # Bearer token for local auth
 ├── auth-secret       # Session secret (multi-user mode)
