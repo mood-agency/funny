@@ -80,7 +80,7 @@ export async function registerThread(entry: {
  */
 export async function getRunnerForThread(
   threadId: string,
-): Promise<{ runnerId: string; httpUrl: string } | null> {
+): Promise<{ runnerId: string; httpUrl: string | null } | null> {
   const rows = await db
     .select({
       runnerId: threads.runnerId,
@@ -90,11 +90,11 @@ export async function getRunnerForThread(
     .innerJoin(runners, eq(runners.id, threads.runnerId))
     .where(eq(threads.id, threadId));
 
-  if (!rows[0] || !rows[0].runnerId || !rows[0].httpUrl) return null;
+  if (!rows[0] || !rows[0].runnerId) return null;
 
   return {
     runnerId: rows[0].runnerId,
-    httpUrl: rows[0].httpUrl,
+    httpUrl: rows[0].httpUrl ?? null,
   };
 }
 

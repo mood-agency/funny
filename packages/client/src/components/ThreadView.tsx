@@ -1067,26 +1067,27 @@ export function ThreadView() {
     [scheduleIdle],
   );
 
-  // When opening or switching threads, keep the latest user prompt pinned near
-  // the top instead of jumping to the bottom.
+  // When opening or switching threads, scroll to the bottom so the user sees
+  // the latest content first.
   useLayoutEffect(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport || !activeThread) return;
 
-    // Reset pagination refs, then pin the latest user prompt.
-    userHasScrolledUp.current = true;
+    // Reset pagination refs, then scroll to the bottom.
+    userHasScrolledUp.current = false;
     prevOldestIdRef.current = null;
     prevScrollHeightRef.current = 0;
     pinnedPromptIdRef.current = null;
     scrolledThreadRef.current = null;
+    setPromptPinSpacerHeight(0);
     const rafId = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        pinUserMessageToTop();
+        viewport.scrollTop = viewport.scrollHeight;
       });
     });
     return () => cancelAnimationFrame(rafId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only reset on thread ID change, not on every activeThread reference update
-  }, [activeThread?.id, pinUserMessageToTop]);
+  }, [activeThread?.id]);
 
   const openLightbox = useCallback((images: { src: string; alt: string }[], index: number) => {
     setLightboxImages(images);
@@ -1228,11 +1229,26 @@ export function ThreadView() {
     const needsAttention =
       (curWaiting === 'question' || curWaiting === 'permission') && curWaiting !== prevWaiting;
 
-    // Re-pin only when switching threads or when the user sent a new prompt.
+    // Re-pin only when the user sent a new prompt.
+    // On thread switch, scroll to bottom instead of pinning.
     // Otherwise leave scroll position alone so the user can browse freely.
-    if (isNewThread || hasNewUserMessage) {
+    if (isNewThread) {
+      // Thread switch: scroll to bottom so the user sees the latest content.
+      const viewport = scrollViewportRef.current;
+      if (viewport) {
+        userHasScrolledUp.current = false;
+        scrollingToBottomRef.current = true;
+        requestAnimationFrame(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+          requestAnimationFrame(() => {
+            viewport.scrollTop = viewport.scrollHeight;
+            scrollingToBottomRef.current = false;
+          });
+        });
+      }
+    } else if (hasNewUserMessage) {
       requestAnimationFrame(() => {
-        pinUserMessageToTop(null, hasNewUserMessage && !isNewThread);
+        pinUserMessageToTop(null, true);
       });
     } else if (needsAttention) {
       // Auto-scroll to bottom to reveal AskUserQuestion / permission card
@@ -1398,22 +1414,26 @@ export function ThreadView() {
       smoothScrollPending.current = true;
       if (scrollDownRef.current) scrollDownRef.current.style.display = 'none';
 
-      // Always show optimistic message — the server decides whether to queue or run.
-      // Previously we skipped it for queue mode, but client and server can disagree
-      // on whether the agent is running (e.g. after server restart), leading to a
-      // state where the message appears queued in the UI but actually started running.
-      startTransition(() => {
-        useThreadStore
-          .getState()
-          .appendOptimisticMessage(
-            thread.id,
-            prompt,
-            images,
-            opts.model as any,
-            opts.mode as any,
-            opts.fileReferences,
-          );
-      });
+      // Only show the optimistic message when the thread is NOT running.
+      // When the thread is running, the message will be queued by the server
+      // and displayed in the queue widget — showing an optimistic card would
+      // cause a brief flash before the rollback removes it.
+      // If the client is wrong about the thread being idle, the server may
+      // queue the message and we'll roll it back; a rare flash is acceptable.
+      if (!threadIsRunning) {
+        startTransition(() => {
+          useThreadStore
+            .getState()
+            .appendOptimisticMessage(
+              thread.id,
+              prompt,
+              images,
+              opts.model as any,
+              opts.mode as any,
+              opts.fileReferences,
+            );
+        });
+      }
 
       const { allowedTools, disallowedTools } = deriveToolLists(
         useSettingsStore.getState().toolPermissions,
@@ -1442,8 +1462,11 @@ export function ThreadView() {
       } else if (result.value && (result.value as any).queued) {
         // Server confirmed the message was queued — remove the optimistic
         // message from the stream so it only appears in the queue widget.
-        // It will be re-injected when the queue drains and the agent starts.
-        useThreadStore.getState().rollbackOptimisticMessage(thread.id);
+        // Only roll back if we actually added an optimistic message (i.e. the
+        // client thought the thread was idle but the server disagreed).
+        if (!threadIsRunning) {
+          useThreadStore.getState().rollbackOptimisticMessage(thread.id);
+        }
         toast.success(t('thread.messageQueued'));
       }
       setSending(false);
@@ -1473,19 +1496,23 @@ export function ThreadView() {
       smoothScrollPending.current = true;
       if (scrollDownRef.current) scrollDownRef.current.style.display = 'none';
 
-      // Always show optimistic message — server decides whether to queue or run
-      startTransition(() => {
-        useThreadStore
-          .getState()
-          .appendOptimisticMessage(
-            thread.id,
-            pending.prompt,
-            pending.images,
-            pending.opts.model as any,
-            pending.opts.permissionMode as any,
-            pending.opts.fileReferences as any,
-          );
-      });
+      // Only show the optimistic message for interrupt (the agent will restart
+      // with this message). For queue, skip it — the message goes to the queue
+      // widget and showing a card would cause a brief flash before rollback.
+      if (action === 'interrupt') {
+        startTransition(() => {
+          useThreadStore
+            .getState()
+            .appendOptimisticMessage(
+              thread.id,
+              pending.prompt,
+              pending.images,
+              pending.opts.model as any,
+              pending.opts.permissionMode as any,
+              pending.opts.fileReferences as any,
+            );
+        });
+      }
 
       const result = await api.sendMessage(
         thread.id,
@@ -1504,7 +1531,10 @@ export function ThreadView() {
           toast.error(t('thread.sendFailedGeneric', { error: err.message }));
         }
       } else if (result.value && (result.value as any).queued) {
-        useThreadStore.getState().rollbackOptimisticMessage(thread.id);
+        // Only roll back if we added an optimistic message (interrupt path)
+        if (action === 'interrupt') {
+          useThreadStore.getState().rollbackOptimisticMessage(thread.id);
+        }
         toast.success(t('thread.messageQueued'));
       }
       setSending(false);

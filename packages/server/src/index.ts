@@ -26,7 +26,7 @@ type WSData = {
 };
 
 import { log } from './lib/logger.js';
-import { authMiddleware } from './middleware/auth.js';
+import { authMiddleware, setAuthInstance } from './middleware/auth.js';
 
 const isTeamMode = !!process.env.TEAM_SERVER_URL;
 const isStandalone = !isTeamMode;
@@ -37,9 +37,13 @@ let runtimeApp: Awaited<
   ReturnType<typeof import('@ironmussa/funny-runtime/app').createRuntimeApp>
 > | null = null;
 
+// Auth instance — populated during init, used by middleware and route handlers.
+// Uses `any` because the runtime and server auth instances have slightly different types
+// (different access control statements, different plugin configurations).
+let authInstance: any;
+
 if (isStandalone) {
   // ── Standalone: mount runtime in-process ─────────────────
-  // Generate a RUNNER_AUTH_SECRET for server→runtime communication if not set
   if (!process.env.RUNNER_AUTH_SECRET) {
     const crypto = await import('crypto');
     process.env.RUNNER_AUTH_SECRET = crypto.randomUUID();
@@ -48,8 +52,16 @@ if (isStandalone) {
   const { createRuntimeApp } = await import('@ironmussa/funny-runtime/app');
   runtimeApp = await createRuntimeApp({
     skipStaticServing: true, // Server handles static files
+    skipAuthSetup: true, // Server handles all auth (Better Auth)
   });
   await runtimeApp.init();
+
+  // Initialize Better Auth using the runtime's auth module (supports both SQLite and PG)
+  const runtimeAuth = await import('@ironmussa/funny-runtime/lib/auth');
+  await runtimeAuth.initBetterAuth();
+  authInstance = runtimeAuth.auth;
+  setAuthInstance(authInstance);
+
   log.info('Runtime mounted in-process (standalone mode)', { namespace: 'server' });
 } else {
   // ── Team mode: initialize central server DB ─────────────
@@ -60,11 +72,13 @@ if (isStandalone) {
 
   const { initDatabase } = await import('./db/index.js');
   const { autoMigrate } = await import('./db/migrate.js');
-  const { initBetterAuth } = await import('./lib/auth.js');
+  const { initBetterAuth, auth } = await import('./lib/auth.js');
 
   await initDatabase();
   await autoMigrate();
   await initBetterAuth();
+  authInstance = auth;
+  setAuthInstance(authInstance);
 }
 
 // ── App ─────────────────────────────────────────────────
@@ -98,12 +112,35 @@ app.get('/api/bootstrap', (c) => {
 
 if (isStandalone) {
   // ── Standalone routes ─────────────────────────────────────
+  // Better Auth routes (server handles auth for both modes)
+  app.on(['POST', 'GET'], '/api/auth/*', (c) => authInstance.handler(c.req.raw));
+
   // Auth middleware for standalone mode
   app.use('/api/*', authMiddleware);
 
-  // Mount the runtime app's routes directly
+  // Forward to runtime with user identity headers
   if (runtimeApp) {
-    app.route('/', runtimeApp.app);
+    app.all('*', async (c) => {
+      const userId = c.get('userId') || '';
+      const userRole = c.get('userRole') || 'user';
+      const orgId = c.get('organizationId') || '';
+
+      // Create a new request with forwarded user headers
+      const headers = new Headers(c.req.raw.headers);
+      headers.set('X-Forwarded-User', userId);
+      headers.set('X-Forwarded-Role', userRole);
+      if (orgId) headers.set('X-Forwarded-Org', orgId);
+
+      const forwardedReq = new Request(c.req.raw.url, {
+        method: c.req.raw.method,
+        headers,
+        body: c.req.raw.body,
+        // @ts-expect-error -- Bun supports duplex
+        duplex: c.req.raw.body ? 'half' : undefined,
+      });
+
+      return runtimeApp.app.fetch(forwardedReq);
+    });
   }
 } else {
   // ── Team mode routes ──────────────────────────────────────
@@ -114,13 +151,12 @@ if (isStandalone) {
   const { profileRoutes } = await import('./routes/profile.js');
   const { threadRoutes } = await import('./routes/threads.js');
   const { proxyToRunner } = await import('./middleware/proxy.js');
-  const { auth } = await import('./lib/auth.js');
 
   // Public invite-link routes (before auth middleware)
   app.route('/api/invite-links', inviteLinkPublicRoutes);
 
   // Better Auth routes
-  app.on(['POST', 'GET'], '/api/auth/*', (c) => auth.handler(c.req.raw));
+  app.on(['POST', 'GET'], '/api/auth/*', (c) => authInstance.handler(c.req.raw));
 
   app.use('*', authMiddleware);
 
@@ -207,8 +243,7 @@ const server = Bun.serve({
 
       // Team mode
       if (wsData.type === 'browser' && wsData.req) {
-        const { auth } = await import('./lib/auth.js');
-        const session = await auth.api.getSession({ headers: wsData.req.headers });
+        const session = await authInstance.api.getSession({ headers: wsData.req.headers });
         if (!session) {
           ws.close(4001, 'Unauthorized');
           return;
@@ -264,6 +299,11 @@ const server = Bun.serve({
           if (data.type === 'runner:browser_relay' && data.userId) {
             wsRelay.relayToUser(data.userId, data.data);
           }
+
+          if (data.type === 'tunnel:response' && data.requestId) {
+            const wsTunnel = await import('./services/ws-tunnel.js');
+            wsTunnel.handleTunnelResponse(data);
+          }
         }
 
         if (wsData.type === 'browser' && (wsData as any).userId) {
@@ -313,6 +353,9 @@ const server = Bun.serve({
       if (d.type === 'runner' && d.runnerId) {
         import('./services/ws-relay.js').then((wsRelay) => {
           wsRelay.removeRunnerClient(d.runnerId);
+        });
+        import('./services/ws-tunnel.js').then((wsTunnel) => {
+          wsTunnel.cancelPendingRequests(d.runnerId);
         });
       }
     },

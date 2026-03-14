@@ -879,6 +879,42 @@ export function invalidateStatusCache(cwd?: string): void {
 const MAX_UNTRACKED_TO_COUNT = 200;
 const MAX_UNTRACKED_FILE_SIZE = 512 * 1024; // 512 KB
 
+/**
+ * Batch-check `.gitattributes` for a list of paths, returning the set of
+ * paths that should be treated as binary (binary=set OR diff=unset).
+ *
+ * Uses `git check-attr -z --stdin` for NUL-separated I/O to handle paths
+ * with special characters. One process spawn for all files.
+ */
+async function getBinaryAttrPaths(cwd: string, paths: string[]): Promise<Set<string>> {
+  if (paths.length === 0) return new Set();
+
+  const result = await gitRead(['check-attr', '-z', '--stdin', 'binary', 'diff'], {
+    cwd,
+    reject: false,
+    stdin: paths.join('\0'),
+  });
+
+  const binaryPaths = new Set<string>();
+  if (result.exitCode !== 0 || !result.stdout) return binaryPaths;
+
+  // NUL-separated output format: path\0attr\0value\0path\0attr\0value\0...
+  const parts = result.stdout.split('\0');
+  for (let i = 0; i + 2 < parts.length; i += 3) {
+    const path = parts[i];
+    const attr = parts[i + 1];
+    const value = parts[i + 2];
+
+    if (attr === 'binary' && value === 'set') {
+      binaryPaths.add(path);
+    } else if (attr === 'diff' && value === 'unset') {
+      binaryPaths.add(path);
+    }
+  }
+
+  return binaryPaths;
+}
+
 /** Unquote a path from git's porcelain output (C-style escaping inside double quotes). */
 function unquoteGitPath(raw: string): string {
   if (!raw.startsWith('"') || !raw.endsWith('"')) return raw;
@@ -1004,14 +1040,18 @@ export function getStatusSummary(
           : untrackedPaths;
       if (expandedUntrackedPaths.length > 0) {
         const filesToCount = expandedUntrackedPaths.slice(0, MAX_UNTRACKED_TO_COUNT);
+        // Check .gitattributes for binary markers before counting lines
+        const attrBinaryPaths = await getBinaryAttrPaths(worktreeCwd, filesToCount);
         const counts = await Promise.all(
           filesToCount.map(async (relPath) => {
             try {
+              // Skip files marked as binary in .gitattributes
+              if (attrBinaryPaths.has(relPath)) return 0;
               const file = Bun.file(join(worktreeCwd, relPath));
               const size = file.size;
               if (size === 0 || size > MAX_UNTRACKED_FILE_SIZE) return 0;
               const buffer = new Uint8Array(await file.arrayBuffer());
-              // Binary detection: null bytes in first 8KB
+              // Binary detection fallback: null bytes in first 8KB
               const checkLen = Math.min(buffer.length, 8192);
               for (let i = 0; i < checkLen; i++) {
                 if (buffer[i] === 0) return 0;

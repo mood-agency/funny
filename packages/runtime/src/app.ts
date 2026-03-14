@@ -31,7 +31,7 @@ import { initPostgres } from './db/index.js';
 import { autoMigrate } from './db/migrate.js';
 import { log } from './lib/logger.js';
 import './db/index.js'; // triggers self-registration with shutdownManager
-import { authMiddleware } from './middleware/auth.js';
+import { authMiddleware, forwardedAuthMiddleware } from './middleware/auth.js';
 import { handleError } from './middleware/error-handler.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { tracingMiddleware } from './middleware/tracing.js';
@@ -151,7 +151,8 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
   app.use('/api/*', tracingMiddleware);
   app.route('/api/ingest', ingestRoutes);
 
-  app.use('/api/*', authMiddleware);
+  // Auth middleware: forwarded (server handles auth) or standalone (runtime handles auth)
+  app.use('/api/*', options.skipAuthSetup ? forwardedAuthMiddleware : authMiddleware);
 
   // Health check
   app.get('/api/health', (c) => {
@@ -209,8 +210,8 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
     return c.json({});
   });
 
-  // Mount Better Auth routes
-  {
+  // Mount Better Auth routes (only in standalone mode — server handles auth when mounted)
+  if (!options.skipAuthSetup) {
     const { auth } = await import('./lib/auth.js');
     app.on(['POST', 'GET'], '/api/auth/*', (c) => auth.handler(c.req.raw));
   }
@@ -277,9 +278,10 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
     if (!options.skipAuthSetup) {
       const { initBetterAuth } = await import('./lib/auth.js');
       await initBetterAuth();
+      log.info('Auth: Better Auth (standalone)', { namespace: 'server' });
+    } else {
+      log.info('Auth: forwarded from server', { namespace: 'server' });
     }
-
-    log.info('Auth: Better Auth (always multi-user)', { namespace: 'server' });
     await logProviderStatus();
 
     // Mark stale threads
@@ -306,8 +308,11 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
         });
         process.exit(1);
       }
-      const { initTeamMode, setBrowserWSHandler } = await import('./services/team-client.js');
+      const { initTeamMode, setBrowserWSHandler, setLocalApp } =
+        await import('./services/team-client.js');
       await initTeamMode(process.env.TEAM_SERVER_URL);
+      // Register the local app so tunnel:request messages can be forwarded to it
+      setLocalApp(app);
 
       setBrowserWSHandler(async (userId, data, respond) => {
         const parsed = data as { type: string; data: any };
@@ -328,7 +333,7 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
       const { auth } = await import('./lib/auth.js');
       const session = await auth.api.getSession({ headers: req.headers });
       if (!session) return null;
-      return { userId: session.user.id, isTranscribe: true };
+      return { userId: session.user.id, organizationId: null, isTranscribe: true };
     }
 
     // Browser WebSocket

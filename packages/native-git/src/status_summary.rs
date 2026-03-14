@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use gix::bstr::BString;
+use gix::bstr::{BStr, BString, ByteSlice};
+use gix::worktree::stack::state::attributes::Source as AttrSource;
 
 const MAX_UNTRACKED_TO_COUNT: usize = 200;
 const MAX_UNTRACKED_FILE_SIZE: u64 = 512 * 1024; // 512 KB
@@ -102,6 +103,42 @@ impl gix::diff::blob::Sink for LineCounter {
   }
 }
 
+/// Check `.gitattributes` to determine if a file should be treated as binary.
+/// Returns true if `binary` is Set or `diff` is Unset (i.e. `-diff`).
+fn is_binary_by_attr(
+  attr_stack: &mut gix::worktree::Stack,
+  outcome: &mut gix::attrs::search::Outcome,
+  rel_path: &str,
+  objects: &dyn gix::objs::Find,
+) -> bool {
+  let platform = match attr_stack.at_entry(rel_path.as_bytes().as_bstr(), None, objects) {
+    Ok(p) => p,
+    Err(_) => return false,
+  };
+
+  if !platform.matching_attributes(outcome) {
+    return false;
+  }
+
+  for m in outcome.iter() {
+    match m.assignment.name.as_str() {
+      "binary" => {
+        if matches!(m.assignment.state, gix::attrs::StateRef::Set) {
+          return true;
+        }
+      }
+      "diff" => {
+        if matches!(m.assignment.state, gix::attrs::StateRef::Unset) {
+          return true;
+        }
+      }
+      _ => {}
+    }
+  }
+
+  false
+}
+
 #[napi]
 pub async fn get_status_summary(
   worktree_cwd: String,
@@ -129,6 +166,22 @@ pub async fn get_status_summary(
   let head_tree = head_commit.tree()
     .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD tree: {e}")))?;
 
+  // ── Set up attribute stack for .gitattributes binary detection ──
+  // Use detach() to release the repo borrow so we can use repo.objects later.
+  let (mut attr_stack, mut attr_outcome) = match repo.open_index() {
+    Ok(index) => {
+      match repo.attributes_only(&index, AttrSource::WorktreeThenIdMapping) {
+        Ok(attr_handle) => {
+          let outcome = attr_handle.selected_attribute_matches(["binary", "diff"]);
+          let stack = attr_handle.detach();
+          (Some(stack), Some(outcome))
+        }
+        Err(_) => (None, None),
+      }
+    }
+    Err(_) => (None, None),
+  };
+
   // ── Phase 1: Status (dirty files, untracked, line counting) ──
 
   let status_platform = repo
@@ -144,6 +197,7 @@ pub async fn get_status_summary(
 
   let mut dirty_file_count: u32 = 0;
   let mut untracked_paths: Vec<PathBuf> = Vec::new();
+  let mut untracked_rel_paths: Vec<String> = Vec::new();
   let mut modified_rel_paths: Vec<String> = Vec::new();
   let mut lines_added: u32 = 0;
   let mut lines_deleted: u32 = 0;
@@ -162,6 +216,7 @@ pub async fn get_status_summary(
         // Untracked file
         let rel_str = dir_entry.rela_path.to_string();
         untracked_paths.push(worktree_path.join(&rel_str));
+        untracked_rel_paths.push(rel_str);
       }
       gix::status::index_worktree::Item::Rewrite { .. } => {
         // Renamed file - counts as dirty but line counting not needed
@@ -171,15 +226,27 @@ pub async fn get_status_summary(
 
   // Count lines for modified tracked files
   for rel_path_str in &modified_rel_paths {
+    // Check .gitattributes first — skip binary-marked files
+    if let (Some(ref mut stack), Some(ref mut outcome)) = (&mut attr_stack, &mut attr_outcome) {
+      if is_binary_by_attr(stack, outcome, rel_path_str, &repo.objects) {
+        continue;
+      }
+    }
     let (added, deleted) = count_lines_for_entry(&repo, &worktree_path, rel_path_str, &head_tree);
     lines_added += added;
     lines_deleted += deleted;
   }
 
   // Count lines for untracked files
-  for (i, path) in untracked_paths.iter().enumerate() {
+  for (i, (path, rel_path)) in untracked_paths.iter().zip(untracked_rel_paths.iter()).enumerate() {
     if i >= MAX_UNTRACKED_TO_COUNT {
       break;
+    }
+    // Check .gitattributes first — skip binary-marked files
+    if let (Some(ref mut stack), Some(ref mut outcome)) = (&mut attr_stack, &mut attr_outcome) {
+      if is_binary_by_attr(stack, outcome, rel_path, &repo.objects) {
+        continue;
+      }
     }
     if let Ok(meta) = std::fs::metadata(path) {
       if meta.len() == 0 || meta.len() > MAX_UNTRACKED_FILE_SIZE {

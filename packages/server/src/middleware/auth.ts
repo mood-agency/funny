@@ -1,7 +1,11 @@
 /**
- * Auth middleware for the central server.
+ * Auth middleware for the server.
  * Always uses Better Auth sessions for browser requests.
  * Runner auth via bearer token or X-Runner-Auth header.
+ *
+ * The auth instance is injected via `setAuthInstance()` at startup,
+ * allowing standalone mode to use the runtime's auth (SQLite+PG)
+ * and team mode to use the server's own auth (PG-only).
  */
 
 import type { Context, Next } from 'hono';
@@ -11,6 +15,14 @@ import type { ServerEnv } from '../lib/types.js';
 const PUBLIC_PATHS = new Set(['/api/health', '/api/bootstrap', '/api/setup/status']);
 
 const PUBLIC_PREFIXES = ['/api/invite-links/verify/', '/api/invite-links/register'];
+
+// Auth instance — set at startup via setAuthInstance()
+let _auth: any = null;
+
+/** Set the Better Auth instance used by middleware. Called once at startup. */
+export function setAuthInstance(auth: any): void {
+  _auth = auth;
+}
 
 export async function authMiddleware(c: Context<ServerEnv>, next: Next) {
   const path = new URL(c.req.url).pathname;
@@ -51,8 +63,13 @@ export async function authMiddleware(c: Context<ServerEnv>, next: Next) {
   }
 
   // ── Better Auth session ────────────────────────────────────────
-  const { auth } = await import('../lib/auth.js');
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (!_auth) {
+    // Fallback: import from server's auth module (team mode)
+    const { auth } = await import('../lib/auth.js');
+    _auth = auth;
+  }
+
+  const session = await _auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
 
   c.set('userId', session.user.id);

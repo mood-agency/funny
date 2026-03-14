@@ -17,13 +17,16 @@ import {
 import { Hono } from 'hono';
 import { err } from 'neverthrow';
 
+import { log } from '../lib/logger.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { isAgentRunning, stopAgent, cleanupThreadState } from '../services/agent-runner.js';
 import { startCommand, stopCommand, isCommandRunning } from '../services/command-runner.js';
 import * as pc from '../services/project-config-service.js';
 import * as ph from '../services/project-hooks-service.js';
 import * as pm from '../services/project-manager.js';
 import * as sc from '../services/startup-commands-service.js';
 import { assignProjectToRunner } from '../services/team-client.js';
+import { listThreads } from '../services/thread-manager.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { requireProject } from '../utils/route-helpers.js';
@@ -138,6 +141,26 @@ projectRoutes.delete('/:id', async (c) => {
   // Intentionally NO orgId — only the owner should be able to delete a project
   const projectResult = await requireProject(id, userId);
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  // Stop all running agents for this project's threads before cascade-deleting.
+  // Without this, in-memory agent processes would keep running as orphans.
+  const threads = await listThreads({ projectId: id, userId, includeArchived: true });
+  await Promise.allSettled(
+    threads
+      .filter((t) => isAgentRunning(t.id))
+      .map(async (t) => {
+        try {
+          await stopAgent(t.id);
+        } catch (e) {
+          log.warn('Failed to stop agent during project delete', {
+            namespace: 'cleanup',
+            threadId: t.id,
+            error: String(e),
+          });
+        }
+        cleanupThreadState(t.id);
+      }),
+  );
 
   await pm.deleteProject(id);
   return c.json({ ok: true });

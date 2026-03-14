@@ -7,14 +7,14 @@ import { cn } from '@/lib/utils';
 import { getToolLabel } from './tool-cards/utils';
 import { ToolCallCard } from './ToolCallCard';
 
-interface ToolCallItem {
+export interface ToolCallItem {
   id: string;
   name: string;
   input: string | Record<string, unknown>;
   output?: string;
 }
 
-interface ToolCallGroupProps {
+export interface ToolCallGroupProps {
   name: string;
   calls: ToolCallItem[];
   onRespond?: (answer: string) => void;
@@ -41,7 +41,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
   const isTodo = name === 'TodoWrite';
 
   return (
-    <div className="max-w-full overflow-hidden text-sm">
+    <div className="max-w-full overflow-hidden rounded-lg border border-border text-sm">
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent/30"

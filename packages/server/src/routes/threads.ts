@@ -10,31 +10,93 @@ import { Hono } from 'hono';
 
 import { log } from '../lib/logger.js';
 import type { ServerEnv } from '../lib/types.js';
-import { findRunnerForProject, getRunnerHttpUrl } from '../services/runner-manager.js';
+import { findRunnerForProject } from '../services/runner-manager.js';
 import * as runnerResolver from '../services/runner-resolver.js';
+import type { ResolvedRunner } from '../services/runner-resolver.js';
 import * as threadRegistry from '../services/thread-registry.js';
+import { tunnelFetch } from '../services/ws-tunnel.js';
 
 const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET!;
 
 /**
- * Resolve a runner URL for a project, falling back to DEFAULT_RUNNER_URL
- * when no runner is registered in the DB.
+ * Resolve a runner for a project, returning runnerId and optional httpUrl.
  */
-async function resolveRunnerUrlForProject(
-  projectId: string,
-): Promise<{ httpUrl: string; runnerId: string | null } | null> {
+async function resolveRunnerForProject(projectId: string): Promise<ResolvedRunner | null> {
   // Try DB-registered runner first
   const runnerResult = await findRunnerForProject(projectId);
   if (runnerResult) {
-    const httpUrl = await getRunnerHttpUrl(runnerResult.runner.runnerId);
-    if (httpUrl) return { httpUrl, runnerId: runnerResult.runner.runnerId };
+    return {
+      runnerId: runnerResult.runner.runnerId,
+      httpUrl: runnerResult.runner.httpUrl ?? null,
+    };
   }
 
-  // Fallback to the resolver (which checks DEFAULT_RUNNER_URL)
-  const fallbackUrl = await runnerResolver.resolveRunnerUrl('/api/threads', { projectId });
-  if (fallbackUrl) return { httpUrl: fallbackUrl, runnerId: null };
+  // Fallback to the resolver (which checks DEFAULT_RUNNER_URL and any online runner)
+  return await runnerResolver.resolveRunner('/api/threads', { projectId });
+}
 
-  return null;
+/**
+ * Send a request to a runner — tunnel-first, fallback to direct HTTP.
+ */
+async function fetchFromRunner(
+  resolved: ResolvedRunner,
+  path: string,
+  opts: { method: string; headers: Record<string, string>; body?: string },
+): Promise<{ ok: boolean; status: number; body: string }> {
+  // For __default__ runnerId (DEFAULT_RUNNER_URL), always use direct HTTP
+  if (resolved.runnerId === '__default__' && resolved.httpUrl) {
+    return await directFetch(resolved.httpUrl, path, opts);
+  }
+
+  // Try tunnel first
+  try {
+    const resp = await tunnelFetch(resolved.runnerId, {
+      method: opts.method,
+      path,
+      headers: opts.headers,
+      body: opts.body ?? null,
+    });
+    return {
+      ok: resp.status >= 200 && resp.status < 400,
+      status: resp.status,
+      body: resp.body ?? '',
+    };
+  } catch (tunnelErr) {
+    // Fallback to direct HTTP if available
+    if (resolved.httpUrl) {
+      log.warn('Tunnel failed, falling back to direct HTTP', {
+        namespace: 'threads',
+        runnerId: resolved.runnerId,
+        error: (tunnelErr as Error).message,
+      });
+      return await directFetch(resolved.httpUrl, path, opts);
+    }
+    throw tunnelErr;
+  }
+}
+
+async function directFetch(
+  baseUrl: string,
+  path: string,
+  opts: { method: string; headers: Record<string, string>; body?: string },
+): Promise<{ ok: boolean; status: number; body: string }> {
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: opts.method,
+    headers: opts.headers,
+    body: opts.method !== 'GET' && opts.method !== 'HEAD' ? opts.body : undefined,
+  });
+  const body = await res.text();
+  return { ok: res.ok, status: res.status, body };
+}
+
+function buildForwardHeaders(userId: string, orgId?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Forwarded-User': userId,
+    'X-Runner-Auth': RUNNER_AUTH_SECRET,
+  };
+  if (orgId) headers['X-Forwarded-Org'] = orgId;
+  return headers;
 }
 
 export const threadRoutes = new Hono<ServerEnv>();
@@ -54,43 +116,32 @@ threadRoutes.post('/', async (c) => {
     return c.json({ error: 'projectId is required' }, 400);
   }
 
-  // Find a runner for this project (with DEFAULT_RUNNER_URL fallback)
-  const resolved = await resolveRunnerUrlForProject(projectId);
+  const resolved = await resolveRunnerForProject(projectId);
   if (!resolved) {
     return c.json({ error: 'No online runner found for this project' }, 502);
   }
 
-  const { httpUrl: runnerHttpUrl, runnerId } = resolved;
-
-  // Proxy the thread creation to the runner
   try {
-    const runnerResponse = await fetch(`${runnerHttpUrl}/api/threads`, {
+    const headers = buildForwardHeaders(userId, c.get('organizationId') as string | undefined);
+    const result = await fetchFromRunner(resolved, '/api/threads', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-User': userId,
-        'X-Runner-Auth': RUNNER_AUTH_SECRET,
-        ...(c.get('organizationId')
-          ? { 'X-Forwarded-Org': c.get('organizationId') as string }
-          : {}),
-      },
+      headers,
       body: JSON.stringify(body),
     });
 
-    if (!runnerResponse.ok) {
-      const errorBody = await runnerResponse.text();
-      return c.json({ error: `Runner error: ${errorBody}` }, runnerResponse.status as any);
+    if (!result.ok) {
+      return c.json({ error: `Runner error: ${result.body}` }, result.status as any);
     }
 
-    const threadData = (await runnerResponse.json()) as any;
+    const threadData = JSON.parse(result.body);
 
     // Register the thread in the central DB
     const threadId = threadData.id || threadData.thread?.id;
-    if (threadId && runnerId) {
+    if (threadId && resolved.runnerId !== '__default__') {
       await threadRegistry.registerThread({
         id: threadId,
         projectId,
-        runnerId,
+        runnerId: resolved.runnerId,
         userId,
         title: body.title || threadData.title,
         model: body.model,
@@ -98,7 +149,7 @@ threadRoutes.post('/', async (c) => {
         branch: body.branch,
       });
 
-      runnerResolver.cacheThreadRunner(threadId, runnerId, runnerHttpUrl);
+      runnerResolver.cacheThreadRunner(threadId, resolved.runnerId, resolved.httpUrl);
     }
 
     return c.json(threadData, 201);
@@ -113,7 +164,6 @@ threadRoutes.post('/', async (c) => {
 
 /**
  * POST /api/threads/idle — Create an idle thread.
- * Same logic as POST /api/threads but for the idle thread endpoint.
  */
 threadRoutes.post('/idle', async (c) => {
   const userId = c.get('userId') as string;
@@ -124,40 +174,31 @@ threadRoutes.post('/idle', async (c) => {
     return c.json({ error: 'projectId is required' }, 400);
   }
 
-  const resolved = await resolveRunnerUrlForProject(projectId);
+  const resolved = await resolveRunnerForProject(projectId);
   if (!resolved) {
     return c.json({ error: 'No online runner found for this project' }, 502);
   }
 
-  const { httpUrl: runnerHttpUrl, runnerId } = resolved;
-
   try {
-    const runnerResponse = await fetch(`${runnerHttpUrl}/api/threads/idle`, {
+    const headers = buildForwardHeaders(userId, c.get('organizationId') as string | undefined);
+    const result = await fetchFromRunner(resolved, '/api/threads/idle', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Forwarded-User': userId,
-        'X-Runner-Auth': RUNNER_AUTH_SECRET,
-        ...(c.get('organizationId')
-          ? { 'X-Forwarded-Org': c.get('organizationId') as string }
-          : {}),
-      },
+      headers,
       body: JSON.stringify(body),
     });
 
-    if (!runnerResponse.ok) {
-      const errorBody = await runnerResponse.text();
-      return c.json({ error: `Runner error: ${errorBody}` }, runnerResponse.status as any);
+    if (!result.ok) {
+      return c.json({ error: `Runner error: ${result.body}` }, result.status as any);
     }
 
-    const threadData = (await runnerResponse.json()) as any;
+    const threadData = JSON.parse(result.body);
 
     const threadId = threadData.id || threadData.thread?.id;
-    if (threadId && runnerId) {
+    if (threadId && resolved.runnerId !== '__default__') {
       await threadRegistry.registerThread({
         id: threadId,
         projectId,
-        runnerId,
+        runnerId: resolved.runnerId,
         userId,
         title: body.title || threadData.title,
         model: body.model,
@@ -165,7 +206,7 @@ threadRoutes.post('/idle', async (c) => {
         branch: body.branch,
       });
 
-      runnerResolver.cacheThreadRunner(threadId, runnerId, runnerHttpUrl);
+      runnerResolver.cacheThreadRunner(threadId, resolved.runnerId, resolved.httpUrl);
     }
 
     return c.json(threadData, 201);
@@ -180,7 +221,6 @@ threadRoutes.post('/idle', async (c) => {
 
 /**
  * DELETE /api/threads/:id — Delete a thread.
- * Unregister from the central DB, then proxy the delete to the runner.
  */
 threadRoutes.delete('/:id', async (c) => {
   const threadId = c.req.param('id');
@@ -195,16 +235,15 @@ threadRoutes.delete('/:id', async (c) => {
 
   // Proxy the delete to the runner
   if (runnerInfo) {
+    const resolved: ResolvedRunner = {
+      runnerId: runnerInfo.runnerId,
+      httpUrl: runnerInfo.httpUrl,
+    };
     try {
-      await fetch(`${runnerInfo.httpUrl}/api/threads/${threadId}`, {
+      const headers = buildForwardHeaders(userId, c.get('organizationId') as string | undefined);
+      await fetchFromRunner(resolved, `/api/threads/${threadId}`, {
         method: 'DELETE',
-        headers: {
-          'X-Forwarded-User': userId,
-          'X-Runner-Auth': RUNNER_AUTH_SECRET,
-          ...(c.get('organizationId')
-            ? { 'X-Forwarded-Org': c.get('organizationId') as string }
-            : {}),
-        },
+        headers,
       });
     } catch {
       // Runner may be offline — that's ok, we already cleaned up the central DB

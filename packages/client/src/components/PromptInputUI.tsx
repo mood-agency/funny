@@ -1,5 +1,4 @@
 import type { ImageAttachment, QueuedMessage, Skill } from '@funny/shared';
-import type { JSONContent } from '@tiptap/core';
 import {
   ArrowUp,
   ArrowLeft,
@@ -313,7 +312,7 @@ export const PromptInputUI = memo(function PromptInputUI({
   setPromptRef,
   editorRef: externalEditorRef,
   editorContainerRef: externalEditorContainerRef,
-  initialPrompt,
+  initialPrompt: _initialPrompt,
   initialImages,
   onEditorChange,
   onEditorPaste,
@@ -326,6 +325,7 @@ export const PromptInputUI = memo(function PromptInputUI({
   const internalEditorContainerRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = externalEditorContainerRef ?? internalEditorContainerRef;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const promptBoxRef = useRef<HTMLDivElement>(null);
 
   // ── Local UI state ──
   const [images, setImages] = useState<ImageAttachment[]>(initialImages ?? []);
@@ -460,6 +460,21 @@ export const PromptInputUI = memo(function PromptInputUI({
     setImages((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const handleEditorPaste = useCallback(
+    (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) addImageFile(file);
+        }
+      }
+      onEditorPaste?.(e);
+    },
+    [addImageFile, onEditorPaste],
+  );
+
   // ── Drag & Drop ──
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -478,12 +493,15 @@ export const PromptInputUI = memo(function PromptInputUI({
     e.stopPropagation();
     setIsDragging(false);
     if (loading) return;
-    const items = e.dataTransfer?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) await addImageFile(file);
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        await addImageFile(file);
+      } else {
+        // Non-image files → insert as file mention in the editor
+        const filePath = (file as any).path || file.name;
+        editorRef.current?.insertFileMention(filePath, 'file');
       }
     }
   };
@@ -562,7 +580,7 @@ export const PromptInputUI = memo(function PromptInputUI({
                 <img
                   src={`data:${img.source.media_type};base64,${img.source.data}`}
                   alt={`Attachment ${idx + 1}`}
-                  className="h-20 max-w-48 cursor-pointer rounded border border-input object-contain transition-opacity hover:opacity-80"
+                  className="max-h-20 max-w-48 cursor-pointer rounded border border-input object-cover transition-opacity hover:opacity-80"
                   onClick={() => {
                     setLightboxIndex(idx);
                     setLightboxOpen(true);
@@ -726,6 +744,7 @@ export const PromptInputUI = memo(function PromptInputUI({
 
         {/* Editor + bottom toolbar */}
         <div
+          ref={promptBoxRef}
           className={cn(
             'relative rounded-md border bg-input/80',
             isDragging
@@ -750,9 +769,10 @@ export const PromptInputUI = memo(function PromptInputUI({
               onSubmit={handleSubmit}
               onCycleMode={handleCycleMode}
               onChange={handleEditorChange}
-              onPaste={onEditorPaste}
+              onPaste={handleEditorPaste}
               cwd={editorCwd}
               loadSkills={loadSkills}
+              containerRef={promptBoxRef}
             />
           </div>
           {/* Bottom toolbar */}

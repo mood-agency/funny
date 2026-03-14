@@ -2,8 +2,8 @@
  * HTTP reverse proxy middleware for the central server.
  *
  * Any /api/* route not handled by native server routes gets forwarded
- * to the appropriate runner. The runner is resolved by extracting
- * projectId or threadId from the request.
+ * to the appropriate runner. Uses WebSocket tunnel as the primary transport
+ * (works behind NAT), with direct HTTP as a fallback when httpUrl is available.
  *
  * Headers added to proxied requests:
  * - X-Forwarded-User: userId from the authenticated session
@@ -15,7 +15,8 @@ import type { Context } from 'hono';
 
 import { log } from '../lib/logger.js';
 import type { ServerEnv } from '../lib/types.js';
-import { resolveRunnerUrl } from '../services/runner-resolver.js';
+import { resolveRunner } from '../services/runner-resolver.js';
+import { tunnelFetch } from '../services/ws-tunnel.js';
 
 const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET!;
 
@@ -34,9 +35,9 @@ export async function proxyToRunner(c: Context<ServerEnv>): Promise<Response> {
   const query = Object.fromEntries(url.searchParams.entries());
 
   // Resolve which runner should handle this request
-  const runnerUrl = await resolveRunnerUrl(path, query);
+  const resolved = await resolveRunner(path, query);
 
-  if (!runnerUrl) {
+  if (!resolved) {
     return c.json(
       {
         error:
@@ -46,40 +47,104 @@ export async function proxyToRunner(c: Context<ServerEnv>): Promise<Response> {
     );
   }
 
-  // Build the target URL: runner base URL + original path + query
-  const targetUrl = `${runnerUrl}${path}${url.search}`;
+  const { runnerId, httpUrl } = resolved;
 
+  // Build forwarded headers
+  const forwardedHeaders: Record<string, string> = {
+    'X-Forwarded-User': userId,
+    'X-Runner-Auth': RUNNER_AUTH_SECRET,
+    'content-type': c.req.header('content-type') || 'application/json',
+  };
+
+  const orgId = c.get('organizationId') as string | undefined;
+  if (orgId) {
+    forwardedHeaders['X-Forwarded-Org'] = orgId;
+  }
+
+  const userRole = c.get('userRole') as string | undefined;
+  if (userRole) {
+    forwardedHeaders['X-Forwarded-Role'] = userRole;
+  }
+
+  // Read body for non-GET/HEAD requests
+  let body: string | null = null;
+  if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+    try {
+      body = await c.req.text();
+    } catch {
+      body = null;
+    }
+  }
+
+  // Special case: __default__ runnerId means we're using DEFAULT_RUNNER_URL (always direct HTTP)
+  if (runnerId === '__default__' && httpUrl) {
+    return await directHttpFetch(c, httpUrl, path, url.search, forwardedHeaders, body);
+  }
+
+  // Primary: try WebSocket tunnel
   try {
-    // Forward the request to the runner
-    const headers = new Headers(c.req.raw.headers);
-    headers.set('X-Forwarded-User', userId);
-    headers.set('X-Runner-Auth', RUNNER_AUTH_SECRET);
+    const tunnelResp = await tunnelFetch(runnerId, {
+      method: c.req.method,
+      path: `${path}${url.search}`,
+      headers: forwardedHeaders,
+      body,
+    });
 
-    const orgId = c.get('organizationId') as string | undefined;
-    if (orgId) {
-      headers.set('X-Forwarded-Org', orgId);
+    const responseHeaders = new Headers(tunnelResp.headers);
+    return new Response(tunnelResp.body, {
+      status: tunnelResp.status,
+      headers: responseHeaders,
+    });
+  } catch (tunnelErr) {
+    log.warn('Tunnel request failed, trying direct HTTP fallback', {
+      namespace: 'proxy',
+      runnerId,
+      error: (tunnelErr as Error).message,
+    });
+
+    // Fallback: direct HTTP (only if httpUrl is set)
+    if (httpUrl) {
+      return await directHttpFetch(c, httpUrl, path, url.search, forwardedHeaders, body);
     }
 
-    // Remove cookie/auth headers — the runner uses X-Forwarded-User instead
+    return c.json({ error: 'Runner unreachable (no tunnel connection and no direct URL)' }, 502);
+  }
+}
+
+/**
+ * Direct HTTP fetch to a runner (fallback when tunnel fails or for __default__).
+ */
+async function directHttpFetch(
+  c: Context<ServerEnv>,
+  httpUrl: string,
+  path: string,
+  search: string,
+  forwardedHeaders: Record<string, string>,
+  body: string | null,
+): Promise<Response> {
+  const targetUrl = `${httpUrl}${path}${search}`;
+
+  try {
+    const headers = new Headers(c.req.raw.headers);
+    for (const [key, value] of Object.entries(forwardedHeaders)) {
+      headers.set(key, value);
+    }
     headers.delete('cookie');
     headers.delete('authorization');
 
     const runnerResponse = await fetch(targetUrl, {
       method: c.req.method,
       headers,
-      body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
-      // @ts-expect-error - Bun supports duplex
-      duplex: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? 'half' : undefined,
+      body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? body : undefined,
     });
 
-    // Relay the response back to the browser
     return new Response(runnerResponse.body, {
       status: runnerResponse.status,
       statusText: runnerResponse.statusText,
       headers: runnerResponse.headers,
     });
   } catch (err) {
-    log.error('Failed to proxy request to runner', {
+    log.error('Failed to proxy request to runner via direct HTTP', {
       namespace: 'proxy',
       targetUrl,
       error: (err as Error).message,

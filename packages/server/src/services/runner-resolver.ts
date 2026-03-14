@@ -15,57 +15,79 @@ import { runnerProjectAssignments, runners } from '../db/schema.js';
 import { log } from '../lib/logger.js';
 import { getRunnerForThread } from './thread-registry.js';
 
+export interface ResolvedRunner {
+  runnerId: string;
+  /** Null if the runner has no direct HTTP URL (behind NAT — use tunnel) */
+  httpUrl: string | null;
+}
+
 // In-memory cache: threadId → { runnerId, httpUrl }
-const threadRunnerCache = new Map<string, { runnerId: string; httpUrl: string }>();
+const threadRunnerCache = new Map<string, ResolvedRunner>();
 
 // Fallback: if a default runner URL is configured, use it when no runner is registered
 const DEFAULT_RUNNER_URL = process.env.DEFAULT_RUNNER_URL || null;
 
 /**
- * Resolve which runner should handle a request, returning its httpUrl.
+ * Resolve which runner should handle a request.
+ * Returns { runnerId, httpUrl } where httpUrl may be null (use tunnel).
  * Returns null if no runner can be determined.
  */
-export async function resolveRunnerUrl(
+export async function resolveRunner(
   path: string,
   query: Record<string, string>,
-): Promise<string | null> {
-  // Try to extract projectId or threadId from the path
+): Promise<ResolvedRunner | null> {
   const projectId = extractProjectId(path, query);
   const threadId = extractThreadId(path);
 
   // Strategy 1: Thread-based resolution (cached from thread creation)
   if (threadId) {
     const cached = threadRunnerCache.get(threadId);
-    if (cached) return cached.httpUrl;
+    if (cached) return cached;
   }
 
   // Strategy 2: Project-based resolution
   if (projectId) {
-    const url = await resolveByProject(projectId);
-    if (url) return url;
+    const resolved = await resolveByProject(projectId);
+    if (resolved) return resolved;
   }
 
   // Strategy 3: Thread registry DB lookup (fallback when cache misses)
   if (threadId) {
     const fromDb = await getRunnerForThread(threadId);
     if (fromDb) {
-      // Populate the cache for next time
-      threadRunnerCache.set(threadId, fromDb);
-      return fromDb.httpUrl;
+      const resolved: ResolvedRunner = {
+        runnerId: fromDb.runnerId,
+        httpUrl: fromDb.httpUrl ?? null,
+      };
+      threadRunnerCache.set(threadId, resolved);
+      return resolved;
     }
     log.warn('No runner found for thread', { namespace: 'proxy', threadId });
   }
 
   // Strategy 4: Fallback to any online runner (or DEFAULT_RUNNER_URL)
-  // In a typical deployment there is a single Runtime instance. This ensures
-  // all routes can reach it even without project/thread-specific assignments.
   return await resolveAnyOnlineRunner();
+}
+
+/**
+ * @deprecated Use resolveRunner() instead. Kept for backward compatibility during migration.
+ */
+export async function resolveRunnerUrl(
+  path: string,
+  query: Record<string, string>,
+): Promise<string | null> {
+  const resolved = await resolveRunner(path, query);
+  return resolved?.httpUrl ?? null;
 }
 
 /**
  * Cache a thread → runner mapping (called when threads are created).
  */
-export function cacheThreadRunner(threadId: string, runnerId: string, httpUrl: string): void {
+export function cacheThreadRunner(
+  threadId: string,
+  runnerId: string,
+  httpUrl: string | null,
+): void {
   threadRunnerCache.set(threadId, { runnerId, httpUrl });
 }
 
@@ -80,22 +102,14 @@ export function uncacheThread(threadId: string): void {
 
 /**
  * Extract projectId from URL path or query params.
- *
- * Matches patterns like:
- * - /api/git/project/:projectId/...
- * - /api/threads?projectId=xxx
- * - /api/projects/:projectId/branches
  */
 function extractProjectId(path: string, query: Record<string, string>): string | null {
-  // /api/git/project/:projectId/...
   const gitProjectMatch = path.match(/\/api\/git\/project\/([^/]+)/);
   if (gitProjectMatch) return gitProjectMatch[1];
 
-  // /api/projects/:projectId/... (but not /api/projects itself)
   const projectMatch = path.match(/\/api\/projects\/([^/]+)/);
   if (projectMatch) return projectMatch[1];
 
-  // Query param: ?projectId=xxx
   if (query.projectId) return query.projectId;
 
   return null;
@@ -103,18 +117,11 @@ function extractProjectId(path: string, query: Record<string, string>): string |
 
 /**
  * Extract threadId from URL path.
- *
- * Matches patterns like:
- * - /api/threads/:threadId
- * - /api/threads/:threadId/...
- * - /api/git/:threadId/...  (where threadId is NOT "project")
  */
 function extractThreadId(path: string): string | null {
-  // /api/threads/:threadId/... (but not /api/threads itself or /api/threads?...)
   const threadMatch = path.match(/\/api\/threads\/([^/?]+)/);
   if (threadMatch) return threadMatch[1];
 
-  // /api/git/:threadId/... (when it's not /api/git/project/...)
   const gitMatch = path.match(/\/api\/git\/([^/]+)/);
   if (gitMatch && gitMatch[1] !== 'project' && gitMatch[1] !== 'status') {
     return gitMatch[1];
@@ -123,26 +130,26 @@ function extractThreadId(path: string): string | null {
   return null;
 }
 
-async function resolveAnyOnlineRunner(): Promise<string | null> {
+async function resolveAnyOnlineRunner(): Promise<ResolvedRunner | null> {
   const onlineRunners = await db
-    .select({ httpUrl: runners.httpUrl })
+    .select({ id: runners.id, httpUrl: runners.httpUrl })
     .from(runners)
     .where(ne(runners.status, 'offline'));
 
-  const withUrl = onlineRunners.filter((r) => r.httpUrl);
-  if (withUrl.length > 0) return withUrl[0].httpUrl!;
+  if (onlineRunners.length > 0) {
+    return { runnerId: onlineRunners[0].id, httpUrl: onlineRunners[0].httpUrl ?? null };
+  }
 
-  // Fallback to configured default runner URL (useful for dev when runtime hasn't registered yet)
+  // Fallback to configured default runner URL (useful for dev)
   if (DEFAULT_RUNNER_URL) {
     log.debug('Using DEFAULT_RUNNER_URL fallback', { namespace: 'proxy', url: DEFAULT_RUNNER_URL });
-    return DEFAULT_RUNNER_URL;
+    return { runnerId: '__default__', httpUrl: DEFAULT_RUNNER_URL };
   }
 
   return null;
 }
 
-async function resolveByProject(projectId: string): Promise<string | null> {
-  // Find all runner assignments for this project
+async function resolveByProject(projectId: string): Promise<ResolvedRunner | null> {
   const assignments = await db
     .select({
       runnerId: runnerProjectAssignments.runnerId,
@@ -153,13 +160,12 @@ async function resolveByProject(projectId: string): Promise<string | null> {
     .innerJoin(runners, eq(runners.id, runnerProjectAssignments.runnerId))
     .where(eq(runnerProjectAssignments.projectId, projectId));
 
-  // Filter to online runners with httpUrl
-  const online = assignments.filter((a) => a.status !== 'offline' && a.httpUrl);
+  // Filter to online runners
+  const online = assignments.filter((a) => a.status !== 'offline');
   if (online.length === 0) {
     log.warn('No online runner found for project', { namespace: 'proxy', projectId });
     return null;
   }
 
-  // Return the first online runner's httpUrl
-  return online[0].httpUrl!;
+  return { runnerId: online[0].runnerId, httpUrl: online[0].httpUrl ?? null };
 }
