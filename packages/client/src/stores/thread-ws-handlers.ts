@@ -494,6 +494,12 @@ export function handleWSQueueUpdate(
   }
 
   if (activeThread?.id === threadId) {
+    wsLog.info('handleWSQueueUpdate: setting queuedCount on activeThread', {
+      threadId,
+      queuedCount: String(data.queuedCount),
+      nextMessage: data.nextMessage?.slice(0, 50) ?? 'none',
+      prevQueuedCount: String((activeThread as any).queuedCount ?? 'undefined'),
+    });
     set({
       activeThread: {
         ...activeThread,
@@ -501,6 +507,12 @@ export function handleWSQueueUpdate(
         queuedNextMessage: data.nextMessage,
       },
     } as any);
+  } else {
+    wsLog.warn('handleWSQueueUpdate: activeThread mismatch — event dropped', {
+      threadId,
+      activeThreadId: activeThread?.id ?? 'null',
+      queuedCount: String(data.queuedCount),
+    });
   }
 }
 

@@ -762,7 +762,10 @@ const MemoizedMessageList = memo(
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Avatar className="mt-0.5">
-                          <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+                          <AvatarFallback
+                            className="text-xs font-medium text-primary"
+                            name={msg.author}
+                          >
                             {msg.author.slice(0, 2).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
@@ -1467,6 +1470,37 @@ export function ThreadView() {
         if (!threadIsRunning) {
           useThreadStore.getState().rollbackOptimisticMessage(thread.id);
         }
+        // Immediately update queuedCount from the API response so the queue
+        // indicator appears without waiting for the WS event (which may be delayed).
+        const responseQueuedCount = (result.value as any).queuedCount;
+        tvLog.info('handleSend: message queued', {
+          threadId: thread.id,
+          responseQueuedCount: String(responseQueuedCount ?? 'undefined'),
+          threadIsRunning: String(threadIsRunning),
+        });
+        if (typeof responseQueuedCount === 'number') {
+          const current = useThreadStore.getState().activeThread;
+          if (current?.id === thread.id) {
+            useThreadStore.setState({
+              activeThread: { ...current, queuedCount: responseQueuedCount } as any,
+            });
+            tvLog.info('handleSend: queuedCount set on activeThread', {
+              threadId: thread.id,
+              queuedCount: String(responseQueuedCount),
+              activeThreadId: current.id,
+            });
+          } else {
+            tvLog.warn('handleSend: activeThread mismatch — queuedCount NOT set', {
+              threadId: thread.id,
+              activeThreadId: current?.id ?? 'null',
+            });
+          }
+        } else {
+          tvLog.warn('handleSend: responseQueuedCount not a number', {
+            threadId: thread.id,
+            rawValue: JSON.stringify(result.value),
+          });
+        }
         toast.success(t('thread.messageQueued'));
       }
       setSending(false);
@@ -1534,6 +1568,22 @@ export function ThreadView() {
         // Only roll back if we added an optimistic message (interrupt path)
         if (action === 'interrupt') {
           useThreadStore.getState().rollbackOptimisticMessage(thread.id);
+        }
+        // Immediately update queuedCount from the API response so the queue
+        // indicator appears without waiting for the WS event (which may be delayed).
+        const responseQueuedCount = (result.value as any).queuedCount;
+        tvLog.info('handleFollowUpAction: message queued', {
+          threadId: thread.id,
+          action,
+          responseQueuedCount: String(responseQueuedCount ?? 'undefined'),
+        });
+        if (typeof responseQueuedCount === 'number') {
+          const current = useThreadStore.getState().activeThread;
+          if (current?.id === thread.id) {
+            useThreadStore.setState({
+              activeThread: { ...current, queuedCount: responseQueuedCount } as any,
+            });
+          }
         }
         toast.success(t('thread.messageQueued'));
       }
@@ -1636,6 +1686,17 @@ export function ThreadView() {
   const isRunning = activeThread.status === 'running' || uiQueuedCount > 0;
   const isExternal = activeThread.provider === 'external';
   const isIdle = activeThread.status === 'idle' && uiQueuedCount === 0;
+
+  // Debug: trace queuedCount at render time
+  if (uiQueuedCount > 0) {
+    tvLog.info('ThreadView render: queuedCount > 0', {
+      threadId: activeThread.id,
+      uiQueuedCount: String(uiQueuedCount),
+      status: activeThread.status,
+      isRunning: String(isRunning),
+      isIdle: String(isIdle),
+    });
+  }
   const currentProject = useProjectStore
     .getState()
     .projects.find((p) => p.id === activeThread.projectId);

@@ -33,6 +33,9 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    optimizeDeps: {
+      include: ['decimal.js-light'],
+    },
     server: {
       host: env.VITE_HOST || 'localhost',
       port: clientPort,

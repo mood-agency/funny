@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 
 import { useDictation } from '@/hooks/use-dictation';
 import { api } from '@/lib/api';
+import { createClientLogger } from '@/lib/client-logger';
 import { getUnifiedModelOptions } from '@/lib/providers';
 import { useDraftStore } from '@/stores/draft-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -18,6 +19,8 @@ import { useThreadStore } from '@/stores/thread-store';
 
 import type { PromptEditorHandle } from './prompt-editor/PromptEditor';
 import { PromptInputUI } from './PromptInputUI';
+
+const piLog = createClientLogger('PromptInput');
 
 // ── Props (unchanged external API) ──────────────────────────────
 
@@ -405,9 +408,18 @@ export const PromptInput = memo(function PromptInput({
       lastQueueFetchRef.current.threadId === key.threadId &&
       lastQueueFetchRef.current.queuedCount === key.queuedCount
     ) {
+      piLog.info('queue effect: skipped (dedup)', {
+        threadId: effectiveThreadId,
+        queuedCount: String(queuedCount),
+      });
       return;
     }
     lastQueueFetchRef.current = key;
+
+    piLog.info('queue effect: fetching queue', {
+      threadId: effectiveThreadId,
+      queuedCount: String(queuedCount),
+    });
 
     let cancelled = false;
     setQueueLoading(true);
@@ -416,8 +428,16 @@ export const PromptInput = memo(function PromptInput({
       const result = await api.listQueue(effectiveThreadId);
       if (cancelled) return;
       if (result.isOk()) {
+        piLog.info('queue effect: fetched queue', {
+          threadId: effectiveThreadId,
+          messageCount: String(result.value.length),
+        });
         setQueuedMessages(result.value);
       } else {
+        piLog.warn('queue effect: fetch failed', {
+          threadId: effectiveThreadId,
+          error: result.error.message,
+        });
         setQueuedMessages([]);
       }
       setQueueLoading(false);

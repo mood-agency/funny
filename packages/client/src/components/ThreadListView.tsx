@@ -3,6 +3,7 @@ import { Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { type ReactNode, useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { BranchBadge } from '@/components/BranchBadge';
 import { Button } from '@/components/ui/button';
 import { HighlightText, normalize } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
@@ -168,7 +169,7 @@ export function ThreadListView({
             <select
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="cursor-pointer rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="cursor-pointer rounded-md border border-input bg-background px-2 py-1.5 text-xs text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {pageSizeOptions.map((size) => (
                 <option key={size} value={size}>
@@ -223,19 +224,23 @@ export function ThreadListView({
                     query={search}
                     className="block truncate text-xs font-medium"
                   />
-                  {contentSnippets?.get(thread.id) && search && !normalize(thread.title).includes(normalize(search)) && (
-                    <HighlightText
-                      text={contentSnippets.get(thread.id)!}
-                      query={search}
-                      className="block truncate text-[11px] italic text-muted-foreground"
-                    />
-                  )}
+                  {contentSnippets?.get(thread.id) &&
+                    search &&
+                    !normalize(thread.title).includes(normalize(search)) && (
+                      <HighlightText
+                        text={contentSnippets.get(thread.id)!}
+                        query={search}
+                        className="block truncate text-[11px] italic text-muted-foreground"
+                      />
+                    )}
                   <div className="mt-0.5 flex items-center gap-2">
                     {renderExtraBadges?.(thread)}
                     {(thread.branch || thread.baseBranch) && (
-                      <span className="max-w-[150px] truncate rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
-                        {thread.branch || thread.baseBranch}
-                      </span>
+                      <BranchBadge
+                        branch={(thread.branch || thread.baseBranch)!}
+                        size="xs"
+                        className="max-w-[150px]"
+                      />
                     )}
                     <span className="text-xs text-muted-foreground">
                       {statusLabels[thread.status as ThreadStatus]}

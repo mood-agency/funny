@@ -233,7 +233,7 @@ export function WorktreeSettings() {
                   branches={branches}
                   selected={baseBranch}
                   onChange={setBaseBranch}
-                  triggerClassName="flex h-8 w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-xs transition-colors hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                  triggerClassName="flex h-8 w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   side="bottom"
                   align="start"
                   showCopy={false}

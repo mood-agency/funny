@@ -6,15 +6,17 @@ import {
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import type { Thread, ThreadStage, Project, GitStatusInfo } from '@funny/shared';
 import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
-import { GitBranch, Pin, Plus, Search, Trash2, Chrome, Bot, Webhook, Terminal } from 'lucide-react';
+import { Pin, Plus, Search, Trash2, Chrome, Bot, Webhook, Terminal, User } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback, memo, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { BranchBadge } from '@/components/BranchBadge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DiffStats } from '@/components/DiffStats';
 import { SlideUpPrompt } from '@/components/SlideUpPrompt';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { HighlightText, normalize } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -25,6 +27,7 @@ import { stageConfig, statusConfig, timeAgo } from '@/lib/thread-utils';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
+import { useAuthStore } from '@/stores/auth-store';
 import { useGitStatusStore, branchKey as computeBranchKey } from '@/stores/git-status-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -47,7 +50,43 @@ const SOURCE_ICON: Record<string, typeof Chrome | undefined> = {
   ingest: Webhook,
 };
 
-const KanbanCard = memo(function KanbanCard({
+const AUTOMATED_SOURCES = new Set(['automation', 'pipeline', 'external', '__local__']);
+
+function ThreadAvatar({ thread }: { thread: Thread }) {
+  const authUser = useAuthStore((s) => s.user);
+
+  // Automated/non-user creator → bot icon
+  if (thread.createdBy && AUTOMATED_SOURCES.has(thread.createdBy)) {
+    return (
+      <Avatar size="sm" className="mt-0.5 shrink-0" data-testid={`kanban-card-avatar-${thread.id}`}>
+        <AvatarFallback className="bg-muted text-xs text-muted-foreground">
+          <Bot className="h-4 w-4" />
+        </AvatarFallback>
+      </Avatar>
+    );
+  }
+
+  // Current user's thread → show initials
+  const initials = authUser?.displayName
+    ?.split(' ')
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+  return (
+    <Avatar size="sm" className="mt-0.5 shrink-0" data-testid={`kanban-card-avatar-${thread.id}`}>
+      <AvatarFallback
+        className="text-xs font-medium text-primary"
+        name={authUser?.displayName || undefined}
+      >
+        {initials || <User className="h-4 w-4" />}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+export const KanbanCard = memo(function KanbanCard({
   thread,
   projectInfo,
   onDelete,
@@ -164,16 +203,17 @@ const KanbanCard = memo(function KanbanCard({
         </button>
       </div>
 
-      {projectInfo && (
-        <ProjectChip name={projectInfo.name} color={projectInfo.color} size="sm" className="mb-1" />
-      )}
-
-      {displayBranch && (
-        <div className="mb-1 flex min-w-0 items-center gap-1" aria-label="Branch information">
-          <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span className="truncate text-xs text-muted-foreground" title={displayBranch}>
-            {displayBranch}
-          </span>
+      {(projectInfo || displayBranch) && (
+        <div className="mb-1 flex min-w-0 items-center gap-1.5">
+          {projectInfo && (
+            <ProjectChip
+              name={projectInfo.name}
+              color={projectInfo.color}
+              size="sm"
+              className="flex-shrink-0"
+            />
+          )}
+          {displayBranch && <BranchBadge branch={displayBranch} size="xs" />}
           {gitStatusProp &&
             (gitStatusProp.linesAdded > 0 ||
               gitStatusProp.linesDeleted > 0 ||
@@ -182,18 +222,20 @@ const KanbanCard = memo(function KanbanCard({
                 linesAdded={gitStatusProp.linesAdded}
                 linesDeleted={gitStatusProp.linesDeleted}
                 dirtyFileCount={gitStatusProp.dirtyFileCount}
-                size="xs"
-                className="ml-auto"
+                size="xxs"
               />
             )}
         </div>
       )}
 
-      <HighlightText
-        text={thread.title}
-        query={search || ''}
-        className="mb-1 line-clamp-3 pr-5 text-xs font-medium"
-      />
+      <div className="mb-1 flex items-start gap-1.5 pr-5">
+        <ThreadAvatar thread={thread} />
+        <HighlightText
+          text={thread.title}
+          query={search || ''}
+          className="line-clamp-3 text-xs font-medium"
+        />
+      </div>
       {contentSnippet && search && !normalize(thread.title).includes(normalize(search)) && (
         <HighlightText
           text={contentSnippet}
@@ -495,16 +537,18 @@ export function KanbanView({
     gitState: string;
   } | null>(null);
   const _statusByBranch = useGitStatusStore((s) => s.statusByBranch);
-  // Resolve branch-keyed statuses to a threadId-keyed map for child components
-  // using client-side branchKey so all threads immediately share cached status.
+  const _threadToBranchKey = useGitStatusStore((s) => s.threadToBranchKey);
+  // Resolve branch-keyed statuses to a threadId-keyed map for child components.
+  // Prefer server-provided threadToBranchKey mapping (stable across thread data
+  // refreshes) and fall back to client-side computation for threads not yet mapped.
   const statusByThread = useMemo(() => {
     const result: Record<string, GitStatusInfo> = {};
     for (const t of threads) {
-      const bk = computeBranchKey(t);
+      const bk = _threadToBranchKey[t.id] || computeBranchKey(t);
       if (_statusByBranch[bk]) result[t.id] = _statusByBranch[bk];
     }
     return result;
-  }, [threads, _statusByBranch]);
+  }, [threads, _statusByBranch, _threadToBranchKey]);
 
   // Highlight the card the user came from, then fade it out
   const [highlightThreadId, setHighlightThreadId] = useState<string | undefined>(
@@ -739,7 +783,7 @@ export function KanbanView({
 
   return (
     <>
-      <div ref={boardRef} className="flex h-full gap-3 overflow-x-auto p-4">
+      <div ref={boardRef} className="flex h-full gap-3 overflow-x-auto px-4 py-2">
         {STAGES.map((stage) => (
           <KanbanColumn
             key={stage}

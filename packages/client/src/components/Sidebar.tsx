@@ -391,96 +391,94 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="offcanvas" className="select-none">
       {/* Header with collapse toggle */}
-      <SidebarHeader className="group/header flex-row items-center justify-between px-3 py-2">
-        <div className="ml-auto flex items-center gap-0.5">
-          <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/header:opacity-100">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  tabIndex={-1}
-                  data-testid="sidebar-search"
-                  onClick={() => {
-                    navigate(buildPath('/list'));
-                  }}
-                  className="text-muted-foreground"
-                >
-                  <Search className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('sidebar.search', 'Search')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  tabIndex={-1}
-                  data-testid="sidebar-kanban"
-                  onClick={() => {
-                    navigate(buildPath('/kanban'));
-                  }}
-                  className="text-muted-foreground"
-                >
-                  <Columns3 className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Kanban</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  tabIndex={-1}
-                  data-testid="sidebar-grid"
-                  onClick={() => navigate(buildPath('/grid'))}
-                  className="text-muted-foreground"
-                >
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Grid</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  tabIndex={-1}
-                  data-testid="sidebar-analytics"
-                  onClick={() => navigate(buildPath('/analytics'))}
-                  className="text-muted-foreground"
-                >
-                  <BarChart3 className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('sidebar.analytics')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  tabIndex={-1}
-                  data-testid="sidebar-collapse"
-                  onClick={toggleSidebar}
-                  className="text-muted-foreground"
-                >
-                  <PanelLeftClose className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {t('sidebar.collapse', 'Collapse sidebar')}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+      <SidebarHeader className="group/header flex-row items-center justify-between px-2 py-2">
+        <div className="min-w-0 flex-1">
+          <OrgSwitcher />
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/header:opacity-100">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                data-testid="sidebar-search"
+                onClick={() => {
+                  navigate(buildPath('/list'));
+                }}
+                className="text-muted-foreground"
+              >
+                <Search className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('sidebar.search', 'Search')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                data-testid="sidebar-kanban"
+                onClick={() => {
+                  navigate(buildPath('/kanban'));
+                }}
+                className="text-muted-foreground"
+              >
+                <Columns3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Kanban</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                data-testid="sidebar-grid"
+                onClick={() => navigate(buildPath('/grid'))}
+                className="text-muted-foreground"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Grid</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                data-testid="sidebar-analytics"
+                onClick={() => navigate(buildPath('/analytics'))}
+                className="text-muted-foreground"
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('sidebar.analytics')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={-1}
+                data-testid="sidebar-collapse"
+                onClick={toggleSidebar}
+                className="text-muted-foreground"
+              >
+                <PanelLeftClose className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {t('sidebar.collapse', 'Collapse sidebar')}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </SidebarHeader>
-
-      {/* Organization switcher (multi-user mode only) */}
-      <OrgSwitcher />
 
       {/* Active threads section (own scroll) */}
       <div className="flex max-h-[40%] min-h-[5rem] shrink-0 flex-col contain-paint">
@@ -576,7 +574,7 @@ export function AppSidebar() {
           {authUser ? (
             <>
               <Avatar size="sm">
-                <AvatarFallback className="text-xs">
+                <AvatarFallback className="text-xs" name={authUser.displayName || undefined}>
                   {authUser.displayName
                     ?.split(' ')
                     .map((n) => n[0])

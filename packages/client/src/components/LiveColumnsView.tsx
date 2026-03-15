@@ -1,15 +1,6 @@
 import type { Thread } from '@funny/shared';
 import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
-import {
-  Loader2,
-  Columns3,
-  Grid2x2,
-  Plus,
-  Search,
-  GitBranch,
-  FileText,
-  FolderOpen,
-} from 'lucide-react';
+import { Loader2, Columns3, Grid2x2, Plus, Search, FileText, FolderOpen } from 'lucide-react';
 import { useReducedMotion } from 'motion/react';
 import {
   useState,
@@ -26,11 +17,11 @@ import ReactMarkdown from 'react-markdown';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-import { Badge } from '@/components/ui/badge';
+import { BranchBadge } from '@/components/BranchBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { colorFromName } from '@/components/ui/project-chip';
+import { ProjectChip, colorFromName } from '@/components/ui/project-chip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { api } from '@/lib/api';
@@ -207,11 +198,11 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
   }, [handleScroll]);
 
   const threadProjectId = thread?.projectId;
-  const projectName = useMemo(() => {
-    if (!threadProjectId) return '';
-    const p = projects.find((p) => p.id === threadProjectId);
-    return p?.name ?? '';
+  const threadProject = useMemo(() => {
+    if (!threadProjectId) return null;
+    return projects.find((p) => p.id === threadProjectId) ?? null;
   }, [threadProjectId, projects]);
+  const projectName = threadProject?.name ?? '';
 
   const [sending, setSending] = useState(false);
 
@@ -313,15 +304,19 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-1.5">
           {projectName && (
-            <Badge variant="outline" className="h-4 shrink-0 px-1.5 py-0 text-[10px] font-normal">
-              {projectName}
-            </Badge>
+            <ProjectChip
+              name={projectName}
+              color={threadProject?.color}
+              size="sm"
+              className="flex-shrink-0"
+            />
           )}
           {(thread.branch || thread.baseBranch) && (
-            <span className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[10px] text-muted-foreground">
-              <GitBranch className="h-3 w-3 shrink-0" />
-              <span className="truncate">{thread.branch || thread.baseBranch}</span>
-            </span>
+            <BranchBadge
+              branch={(thread.branch || thread.baseBranch)!}
+              size="xs"
+              className="min-w-0 flex-1"
+            />
           )}
         </div>
       </div>
@@ -688,21 +683,6 @@ export function LiveColumnsView() {
       <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <Columns3 className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">{t('live.title', 'Grid')}</span>
-        <Badge
-          variant="outline"
-          className="h-4 px-1.5 py-0 text-[10px]"
-          data-testid="grid-active-count"
-        >
-          {activeThreads.filter((t) => ACTIVE_STATUSES.has(t.status)).length}{' '}
-          {t('live.active', 'active')}
-          {activeThreads.some((t) => FINISHED_STATUSES.has(t.status)) && (
-            <span className="ml-1 text-muted-foreground">
-              + {activeThreads.filter((t) => FINISHED_STATUSES.has(t.status)).length}{' '}
-              {t('live.recent', 'recent')}
-            </span>
-          )}
-        </Badge>
-
         {/* Add thread */}
         <Popover
           open={projectPickerOpen}

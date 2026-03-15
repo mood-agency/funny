@@ -18,15 +18,23 @@ import {
   Pencil,
   Trash2,
   Check,
-  ChevronDown,
 } from 'lucide-react';
-import { useState, useRef, useCallback, useMemo, memo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -37,7 +45,7 @@ import { PromptEditor } from './prompt-editor/PromptEditor';
 import { serializeEditorContent } from './prompt-editor/serialize';
 import { BranchPicker } from './SearchablePicker';
 
-// ── Lightweight Popover-based selectors ──────────────────────────
+// ── Selectors ────────────────────────────────────────────────────
 
 export const ModeSelect = memo(function ModeSelect({
   value,
@@ -48,43 +56,24 @@ export const ModeSelect = memo(function ModeSelect({
   onChange: (v: string) => void;
   modes: { value: string; label: string }[];
 }) {
-  const [open, setOpen] = useState(false);
-  const currentLabel = modes.find((m) => m.value === value)?.label ?? value;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          data-testid="prompt-mode-select"
-          tabIndex={-1}
-          className="flex h-7 cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        >
-          <span>{currentLabel}</span>
-          <ChevronDown className="h-3 w-3 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        className="w-auto min-w-[8rem] p-1 data-[state=closed]:animate-none data-[state=open]:animate-none"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        data-testid="prompt-mode-select"
+        tabIndex={-1}
+        size="xs"
+        className="w-auto border-none bg-transparent shadow-none"
       >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent side="top" align="start">
         {modes.map((m) => (
-          <button
-            key={m.value}
-            className={cn(
-              'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground',
-              m.value === value && 'bg-accent text-accent-foreground',
-            )}
-            onClick={() => {
-              onChange(m.value);
-              setOpen(false);
-            }}
-          >
+          <SelectItem key={m.value} value={m.value} size="xs">
             {m.label}
-          </button>
+          </SelectItem>
         ))}
-      </PopoverContent>
-    </Popover>
+      </SelectContent>
+    </Select>
   );
 });
 
@@ -103,57 +92,30 @@ export const ModelSelect = memo(function ModelSelect({
   onChange: (v: string) => void;
   groups: ModelSelectGroup[];
 }) {
-  const [open, setOpen] = useState(false);
-  let currentLabel = value;
-  for (const g of groups) {
-    const found = g.models.find((m) => m.value === value);
-    if (found) {
-      currentLabel = found.label;
-      break;
-    }
-  }
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          data-testid="prompt-model-select"
-          tabIndex={-1}
-          className="flex h-7 cursor-pointer items-center gap-1 rounded-md bg-transparent px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        >
-          <span>{currentLabel}</span>
-          <ChevronDown className="h-3 w-3 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="end"
-        className="w-auto min-w-[10rem] p-1 data-[state=closed]:animate-none data-[state=open]:animate-none"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        data-testid="prompt-model-select"
+        tabIndex={-1}
+        size="xs"
+        className="w-auto border-none bg-transparent shadow-none"
       >
-        {groups.map((group) => (
-          <div key={group.provider}>
-            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-              {group.providerLabel}
-            </div>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent side="top" align="end">
+        {groups.map((group, idx) => (
+          <SelectGroup key={group.provider}>
+            {idx > 0 && <SelectSeparator />}
+            <SelectLabel>{group.providerLabel}</SelectLabel>
             {group.models.map((m) => (
-              <button
-                key={m.value}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground',
-                  m.value === value && 'bg-accent text-accent-foreground',
-                )}
-                onClick={() => {
-                  onChange(m.value);
-                  setOpen(false);
-                }}
-              >
+              <SelectItem key={m.value} value={m.value} size="xs">
                 {m.label}
-              </button>
+              </SelectItem>
             ))}
-          </div>
+          </SelectGroup>
         ))}
-      </PopoverContent>
-    </Popover>
+      </SelectContent>
+    </Select>
   );
 });
 
@@ -319,6 +281,7 @@ export const PromptInputUI = memo(function PromptInputUI({
   onCheckoutPreflight,
 }: PromptInputUIProps) {
   const { t } = useTranslation();
+
   // ── Internal refs ──
   const internalEditorRef = useRef<PromptEditorHandle>(null);
   const editorRef = externalEditorRef ?? internalEditorRef;
@@ -597,7 +560,7 @@ export const PromptInputUI = memo(function PromptInputUI({
                 <img
                   src={`data:${img.source.media_type};base64,${img.source.data}`}
                   alt={`Attachment ${idx + 1}`}
-                  className="max-h-20 max-w-48 cursor-pointer rounded border border-input object-cover transition-opacity hover:opacity-80"
+                  className="max-h-10 max-w-24 cursor-pointer rounded border border-input object-cover transition-opacity hover:opacity-80"
                   onClick={() => {
                     setLightboxIndex(idx);
                     setLightboxOpen(true);
@@ -631,7 +594,7 @@ export const PromptInputUI = memo(function PromptInputUI({
         {(queuedCount > 0 || queuedMessagesProp.length > 0) && (
           <div
             data-testid="queue-indicator"
-            className="space-y-2 rounded-md border border-border/40 px-2.5 py-2"
+            className="mb-2 space-y-2 rounded-md border border-border/40 px-2.5 py-2"
           >
             <div className="flex items-center gap-1.5">
               <ListOrdered className="h-3 w-3 shrink-0 text-muted-foreground" />

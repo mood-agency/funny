@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { closePreviewForCommand } from '@/hooks/use-preview-window';
 import { createClientLogger } from '@/lib/client-logger';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
+import { useGitStatusStore, _resetCooldowns } from '@/stores/git-status-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { useThreadStore } from '@/stores/thread-store';
 
@@ -276,9 +277,7 @@ function handleMessage(e: MessageEvent) {
       break;
     }
     case 'git:status': {
-      import('@/stores/git-status-store').then(({ useGitStatusStore }) => {
-        useGitStatusStore.getState().updateFromWS(data.statuses);
-      });
+      useGitStatusStore.getState().updateFromWS(data.statuses);
       // Bridge: also refresh ReviewPane diff when git status changes
       import('@/stores/review-pane-store').then(({ useReviewPaneStore }) => {
         useReviewPaneStore.getState().notifyDirty(threadId);
@@ -529,6 +528,14 @@ function setupWS(ws: WebSocket) {
     // Always re-sync loaded threads on connect — events may have been lost
     // while disconnected (e.g. agent:result emitted when 0 clients were connected)
     useThreadStore.getState().refreshAllLoadedThreads();
+    // Also re-sync git status for all loaded projects so diff stats stay in sync
+    // with the refreshed thread data (avoids branchKey mismatches after reconnect).
+    // Reset cooldowns first so the fetch isn't throttled after a disconnect.
+    _resetCooldowns();
+    const loadedProjectIds = Object.keys(useThreadStore.getState().threadsByProject);
+    for (const pid of loadedProjectIds) {
+      useGitStatusStore.getState().fetchForProject(pid);
+    }
     _wasConnected = true;
 
     // Reset sessions-checked flag so persisted tabs don't show "(exited)" prematurely

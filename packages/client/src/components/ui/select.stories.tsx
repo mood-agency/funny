@@ -3,7 +3,10 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -127,6 +130,38 @@ export const AllSizes: Story = {
   ),
 };
 
+export const WithGroups: Story = {
+  render: () => (
+    <Select>
+      <SelectTrigger data-testid="select-groups" className="w-56">
+        <SelectValue placeholder="Select a fruit" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectLabel>Tropical</SelectLabel>
+          <SelectItem value="mango">Mango</SelectItem>
+          <SelectItem value="pineapple">Pineapple</SelectItem>
+          <SelectItem value="coconut">Coconut</SelectItem>
+        </SelectGroup>
+        <SelectSeparator />
+        <SelectGroup>
+          <SelectLabel>Berries</SelectLabel>
+          <SelectItem value="strawberry">Strawberry</SelectItem>
+          <SelectItem value="blueberry">Blueberry</SelectItem>
+          <SelectItem value="raspberry">Raspberry</SelectItem>
+        </SelectGroup>
+        <SelectSeparator />
+        <SelectGroup>
+          <SelectLabel>Citrus</SelectLabel>
+          <SelectItem value="orange">Orange</SelectItem>
+          <SelectItem value="lemon">Lemon</SelectItem>
+          <SelectItem value="grapefruit">Grapefruit</SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  ),
+};
+
 export const WithDisabledItems: Story = {
   render: () => (
     <Select>
@@ -139,6 +174,72 @@ export const WithDisabledItems: Story = {
           Disabled
         </SelectItem>
         <SelectItem value="option3">Enabled</SelectItem>
+      </SelectContent>
+    </Select>
+  ),
+};
+
+export const WithPreselectedValue: Story = {
+  render: () => (
+    <Select defaultValue="sonnet">
+      <SelectTrigger data-testid="select-preselected" className="w-48">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="haiku">Haiku</SelectItem>
+        <SelectItem value="sonnet">Sonnet</SelectItem>
+        <SelectItem value="opus">Opus</SelectItem>
+      </SelectContent>
+    </Select>
+  ),
+};
+
+export const Disabled: Story = {
+  render: () => (
+    <Select disabled>
+      <SelectTrigger data-testid="select-disabled" className="w-48">
+        <SelectValue placeholder="Disabled select" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="option1">Option 1</SelectItem>
+        <SelectItem value="option2">Option 2</SelectItem>
+      </SelectContent>
+    </Select>
+  ),
+};
+
+export const ManyOptions: Story = {
+  render: () => (
+    <Select>
+      <SelectTrigger data-testid="select-many-options" className="w-56">
+        <SelectValue placeholder="Select a timezone" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectLabel>Americas</SelectLabel>
+          <SelectItem value="est">Eastern (UTC-5)</SelectItem>
+          <SelectItem value="cst">Central (UTC-6)</SelectItem>
+          <SelectItem value="mst">Mountain (UTC-7)</SelectItem>
+          <SelectItem value="pst">Pacific (UTC-8)</SelectItem>
+          <SelectItem value="akst">Alaska (UTC-9)</SelectItem>
+          <SelectItem value="hst">Hawaii (UTC-10)</SelectItem>
+        </SelectGroup>
+        <SelectSeparator />
+        <SelectGroup>
+          <SelectLabel>Europe</SelectLabel>
+          <SelectItem value="gmt">GMT (UTC+0)</SelectItem>
+          <SelectItem value="cet">CET (UTC+1)</SelectItem>
+          <SelectItem value="eet">EET (UTC+2)</SelectItem>
+          <SelectItem value="msk">Moscow (UTC+3)</SelectItem>
+        </SelectGroup>
+        <SelectSeparator />
+        <SelectGroup>
+          <SelectLabel>Asia</SelectLabel>
+          <SelectItem value="ist">India (UTC+5:30)</SelectItem>
+          <SelectItem value="cst-asia">China (UTC+8)</SelectItem>
+          <SelectItem value="jst">Japan (UTC+9)</SelectItem>
+          <SelectItem value="kst">Korea (UTC+9)</SelectItem>
+        </SelectGroup>
       </SelectContent>
     </Select>
   ),
