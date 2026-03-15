@@ -19,7 +19,7 @@ import {
   Trash2,
   Check,
 } from 'lucide-react';
-import { useState, useRef, useCallback, useMemo, useEffect, memo } from 'react';
+import { useState, useRef, useCallback, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
