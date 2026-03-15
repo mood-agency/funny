@@ -13,6 +13,7 @@ import { useDictation } from '@/hooks/use-dictation';
 import { api } from '@/lib/api';
 import { createClientLogger } from '@/lib/client-logger';
 import { getUnifiedModelOptions } from '@/lib/providers';
+import { toastError } from '@/lib/toast-error';
 import { useDraftStore } from '@/stores/draft-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -456,7 +457,7 @@ export const PromptInput = memo(function PromptInput({
       if (result.isOk()) {
         setQueuedMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, content } : m)));
       } else {
-        toast.error(result.error.message);
+        toastError(result.error);
       }
     },
     [effectiveThreadId],
@@ -469,7 +470,7 @@ export const PromptInput = memo(function PromptInput({
       if (result.isOk()) {
         setQueuedMessages((prev) => prev.filter((m) => m.id !== messageId));
       } else {
-        toast.error(result.error.message);
+        toastError(result.error);
       }
     },
     [effectiveThreadId],

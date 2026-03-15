@@ -121,19 +121,24 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
   _loadingProjectStatus: new Set(),
 
   fetchForProject: async (projectId) => {
-    if (get().loadingProjects.has(projectId)) return;
+    if (get().loadingProjects.has(projectId)) {
+      return;
+    }
     // Skip if fetched recently (prevents duplicate calls during cascading state updates)
     const now = Date.now();
     const lastFetch = _lastFetchByProject.get(projectId) ?? 0;
-    if (now - lastFetch < FETCH_COOLDOWN_MS) return;
+    if (now - lastFetch < FETCH_COOLDOWN_MS) {
+      return;
+    }
     _lastFetchByProject.set(projectId, now);
     set((s) => ({ loadingProjects: new Set([...s.loadingProjects, projectId]) }));
 
     const result = await api.getGitStatuses(projectId);
     if (result.isOk()) {
+      const statuses = result.value.statuses;
       const updates: Record<string, GitStatusInfo> = {};
       const keyMap: Record<string, string> = {};
-      for (const s of result.value.statuses) {
+      for (const s of statuses) {
         updates[s.branchKey] = s;
         keyMap[s.threadId] = s.branchKey;
       }
@@ -170,7 +175,9 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
     const pendingKey = `pending:${threadId}`;
     const cooldownKey = bk || pendingKey;
 
-    if (bk && get()._loadingBranchKeys.has(bk)) return;
+    if (bk && get()._loadingBranchKeys.has(bk)) {
+      return;
+    }
     // Skip if fetched recently (shared cooldown per branch).
     // Check both the resolved key and the pending key to prevent duplicates
     // when the branchKey becomes known mid-flight (race between pending and resolved).
@@ -179,7 +186,9 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
       _lastFetchByBranch.get(cooldownKey) ?? 0,
       bk ? (_lastFetchByBranch.get(pendingKey) ?? 0) : 0,
     );
-    if (now - lastFetch < BRANCH_FETCH_COOLDOWN_MS) return;
+    if (now - lastFetch < BRANCH_FETCH_COOLDOWN_MS) {
+      return;
+    }
     _lastFetchByBranch.set(cooldownKey, now);
     // Also stamp the pending key so a concurrent call using the other key sees the cooldown
     if (bk) _lastFetchByBranch.set(pendingKey, now);

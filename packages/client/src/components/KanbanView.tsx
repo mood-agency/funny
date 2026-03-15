@@ -24,6 +24,7 @@ import { ProjectChip, colorFromName } from '@/components/ui/project-chip';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { stageConfig, statusConfig, timeAgo } from '@/lib/thread-utils';
+import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
@@ -636,7 +637,7 @@ export function KanbanView({
         });
 
         if (result.isErr()) {
-          toast.error(result.error.message);
+          toastError(result.error);
           setCreating(false);
           return false;
         }
@@ -662,7 +663,7 @@ export function KanbanView({
         });
 
         if (result.isErr()) {
-          toast.error(result.error.message);
+          toastError(result.error);
           setCreating(false);
           return false;
         }

@@ -19,6 +19,7 @@ import {
   EllipsisVertical,
   Trash2,
   FolderOpen,
+  FlaskConical,
 } from 'lucide-react';
 import { memo, useState, useEffect, useCallback, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -436,6 +437,8 @@ export const ProjectHeader = memo(function ProjectHeader() {
   const projects = useProjectStore((s) => s.projects);
   const setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
+  const setTestPaneOpen = useUIStore((s) => s.setTestPaneOpen);
+  const rightPaneTab = useUIStore((s) => s.rightPaneTab);
   const kanbanContext = useUIStore((s) => s.kanbanContext);
   const { openPreview, isTauri } = usePreviewWindow();
   const toggleTerminalPanel = useTerminalStore((s) => s.togglePanel);
@@ -696,9 +699,17 @@ export const ProjectHeader = memo(function ProjectHeader() {
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  onClick={() => startTransition(() => setReviewPaneOpen(!reviewPaneOpen))}
+                  onClick={() =>
+                    startTransition(() => {
+                      if (reviewPaneOpen && rightPaneTab === 'review') {
+                        setReviewPaneOpen(false);
+                      } else {
+                        setReviewPaneOpen(true);
+                      }
+                    })
+                  }
                   data-testid="header-toggle-review"
-                  className={`${showGitStats ? 'h-8 px-2' : 'h-8 w-8'} ${reviewPaneOpen ? 'text-foreground' : 'text-muted-foreground'}`}
+                  className={`${showGitStats ? 'h-8 px-2' : 'h-8 w-8'} ${reviewPaneOpen && rightPaneTab === 'review' ? 'text-foreground' : 'text-muted-foreground'}`}
                 >
                   {showGitStats ? (
                     <DiffStats
@@ -715,6 +726,32 @@ export const ProjectHeader = memo(function ProjectHeader() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('review.title')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() =>
+                    startTransition(() => {
+                      if (reviewPaneOpen && rightPaneTab === 'tests') {
+                        setTestPaneOpen(false);
+                      } else {
+                        setTestPaneOpen(true);
+                      }
+                    })
+                  }
+                  data-testid="header-toggle-tests"
+                  className={
+                    reviewPaneOpen && rightPaneTab === 'tests'
+                      ? 'text-foreground'
+                      : 'text-muted-foreground'
+                  }
+                >
+                  <FlaskConical className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('tests.title', 'Tests')}</TooltipContent>
             </Tooltip>
             {activeThreadId && <MoreActionsMenu />}
           </div>

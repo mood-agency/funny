@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { PROVIDERS, getModelOptions } from '@/lib/providers';
+import { toastError } from '@/lib/toast-error';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -131,7 +132,7 @@ export function NewThreadDialog() {
     });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error, 'createThread');
       setCreating(false);
       return;
     }

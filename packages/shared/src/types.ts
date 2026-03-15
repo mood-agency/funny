@@ -291,6 +291,9 @@ export interface ThreadWithMessages extends Thread {
   messages: (Message & { toolCalls?: ToolCall[] })[];
   hasMore?: boolean;
   initInfo?: { tools: string[]; cwd: string; model: string };
+  /** Last user message — always included even when messages are paginated,
+   *  so the UI can show the sticky prompt without loading all messages. */
+  lastUserMessage?: Message & { toolCalls?: ToolCall[] };
 }
 
 export interface PaginatedMessages {

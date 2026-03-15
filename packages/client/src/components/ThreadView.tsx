@@ -11,7 +11,7 @@ import {
   ShieldQuestion,
   ChevronRight,
 } from 'lucide-react';
-import { motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   useState,
   useRef,
@@ -74,6 +74,7 @@ import { GitEventCard } from './thread/GitEventCard';
 import { NewThreadInput } from './thread/NewThreadInput';
 import { ProjectHeader } from './thread/ProjectHeader';
 import { PromptTimeline } from './thread/PromptTimeline';
+import { StickyUserMessage } from './thread/StickyUserMessage';
 import { WorkflowEventGroup } from './thread/WorkflowEventGroup';
 import { ToolCallCard } from './ToolCallCard';
 import { ToolCallGroup } from './ToolCallGroup';
@@ -848,7 +849,7 @@ const MemoizedMessageList = memo(
       (item: Extract<RenderItem, { type: 'message' }>) => {
         const msg = item.msg;
         return (
-          <div className="sticky top-0 z-20 pb-3 pt-3">
+          <div className="sticky top-0 z-20 pb-3 pt-3" data-user-msg={msg.id}>
             <UserMessageCard
               data-testid={`user-message-${msg.id}`}
               content={msg.content}
@@ -938,6 +939,9 @@ export function ThreadView() {
   const messageListRef = useRef<MemoizedMessageListHandle>(null);
   const pinnedPromptIdRef = useRef<string | null>(null);
   const [visibleMessageId, setVisibleMessageId] = useState<string | null>(null);
+  // Tracks whether the last user message card is visible in the viewport.
+  // When true, we hide the StickyUserMessage banner to avoid duplication.
+  const [lastUserCardVisible, setLastUserCardVisible] = useState(true);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<{ src: string; alt: string }[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -1118,14 +1122,21 @@ export function ThreadView() {
     !!activeThread?.initInfo, // trigger scroll-to-bottom when initInfo arrives (prevents CLS)
   ].join(':');
 
-  // Ref tracking the last user message ID (avoids DOM queries in scroll handler)
+  // Ref tracking the last user message ID (avoids DOM queries in scroll handler).
+  // Prefer activeThread.lastUserMessage (always available from the server,
+  // even when messages are paginated) over scanning the messages array.
   const lastUserMsgIdRef = useRef<string | null>(null);
   useEffect(() => {
-    const last = activeThread?.messages
-      ?.filter((m: any) => m.role === 'user' && m.content?.trim())
-      .at(-1);
-    lastUserMsgIdRef.current = last?.id ?? null;
-  }, [activeThread?.messages]);
+    const fromField = activeThread?.lastUserMessage;
+    if (fromField?.content?.trim()) {
+      lastUserMsgIdRef.current = fromField.id;
+    } else {
+      const last = activeThread?.messages
+        ?.filter((m: any) => m.role === 'user' && m.content?.trim())
+        .at(-1);
+      lastUserMsgIdRef.current = last?.id ?? null;
+    }
+  }, [activeThread?.lastUserMessage, activeThread?.messages]);
 
   useEffect(() => {
     const viewport = scrollViewportRef.current;
@@ -1209,6 +1220,56 @@ export function ThreadView() {
       clearTimeout(debounceTimer);
     };
   }, [activeThread?.id, scheduleIdle]);
+
+  // IntersectionObserver: track whether the *last* user message card is visible
+  // in the viewport. When it scrolls off-screen, show the StickyUserMessage banner.
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport || !activeThread?.id) return;
+
+    const lastId = lastUserMsgIdRef.current;
+    if (!lastId) {
+      setLastUserCardVisible(true);
+      return;
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setLastUserCardVisible(entry.isIntersecting);
+        }
+      },
+      { root: viewport, threshold: 0 },
+    );
+
+    const observe = () => {
+      io.disconnect();
+      const curId = lastUserMsgIdRef.current;
+      if (!curId) return;
+      const el = viewport.querySelector<HTMLElement>(`[data-user-msg="${curId}"]`);
+      if (el) {
+        io.observe(el);
+      } else {
+        // Element not yet rendered — assume visible until proven otherwise
+        setLastUserCardVisible(true);
+      }
+    };
+    observe();
+
+    // Re-observe when DOM changes (new messages may add/change the last user card)
+    let debounceTimer: ReturnType<typeof setTimeout>;
+    const mo = new MutationObserver(() => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(observe, 200);
+    });
+    mo.observe(viewport, { childList: true, subtree: true });
+
+    return () => {
+      io.disconnect();
+      mo.disconnect();
+      clearTimeout(debounceTimer);
+    };
+  }, [activeThread?.id, stableMessages]);
 
   // Only re-pin the user prompt when a *new user message* appears (the user
   // sent a prompt) or on thread switch.  Agent-side updates (tool calls,
@@ -1757,7 +1818,17 @@ export function ThreadView() {
       {/* Messages + Timeline */}
       <div className="thread-container flex min-h-0 flex-1">
         {/* Messages column + input */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Sticky banner showing last user prompt when scrolled away from it */}
+          <AnimatePresence>
+            {activeThread?.lastUserMessage && !lastUserCardVisible && (
+              <StickyUserMessage
+                content={activeThread.lastUserMessage.content}
+                images={activeThread.lastUserMessage.images as any}
+                onScrollTo={() => pinUserMessageToTop(null, true)}
+              />
+            )}
+          </AnimatePresence>
           <div
             className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
             ref={scrollViewportRef}
@@ -1984,6 +2055,7 @@ export function ThreadView() {
             messages={activeThread.messages}
             activeMessageId={
               visibleMessageId ??
+              activeThread.lastUserMessage?.id ??
               activeThread.messages.filter((m) => m.role === 'user' && m.content?.trim()).at(-1)?.id
             }
             threadStatus={activeThread.status}

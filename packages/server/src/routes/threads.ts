@@ -150,7 +150,11 @@ threadRoutes.get('/archived', async (c) => {
 // GET /api/threads/:id — get thread with messages
 threadRoutes.get('/:id', async (c) => {
   const id = c.req.param('id');
-  const result = await messageRepo.getThreadWithMessages(id);
+  const limitParam = c.req.query('messageLimit');
+  const messageLimit = limitParam
+    ? Math.min(200, Math.max(1, parseInt(limitParam, 10)))
+    : undefined;
+  const result = await messageRepo.getThreadWithMessages(id, messageLimit);
   if (!result) return c.json({ error: 'Thread not found' }, 404);
   return c.json(result);
 });

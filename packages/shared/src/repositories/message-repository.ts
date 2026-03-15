@@ -61,7 +61,8 @@ export function createMessageRepository(deps: MessageRepositoryDeps) {
 
   /** Get a thread with its messages and tool calls.
    *  When messageLimit is provided, returns only the N most recent messages
-   *  plus a hasMore flag. */
+   *  plus a hasMore flag.  Always includes `lastUserMessage` so the UI can
+   *  show the sticky prompt without loading all messages. */
   async function getThreadWithMessages(id: string, messageLimit?: number) {
     const thread = await dbGet(db.select().from(schema.threads).where(eq(schema.threads.id, id)));
     if (!thread) return null;
@@ -91,10 +92,23 @@ export function createMessageRepository(deps: MessageRepositoryDeps) {
       );
     }
 
+    // Always fetch the last user message separately — it may not be in the
+    // paginated window when the agent produced many tool calls after it.
+    const lastUserRow = await dbGet(
+      db
+        .select()
+        .from(schema.messages)
+        .where(and(eq(schema.messages.threadId, id), eq(schema.messages.role, 'user')))
+        .orderBy(desc(schema.messages.timestamp))
+        .limit(1),
+    );
+    const [lastUserMessage] = lastUserRow ? await enrichMessages([lastUserRow]) : [undefined];
+
     return {
       ...thread,
       messages: await enrichMessages(messages),
       hasMore,
+      lastUserMessage,
       initInfo: thread.initTools
         ? {
             tools: JSON.parse(thread.initTools) as string[],

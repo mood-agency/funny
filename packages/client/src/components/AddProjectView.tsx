@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
 import { useAppStore } from '@/stores/app-store';
 
@@ -39,13 +40,13 @@ export function AddProjectView() {
     setIsCreating(true);
     const initResult = await api.gitInit(newProjectPath);
     if (initResult.isErr()) {
-      toast.error(initResult.error.message);
+      toastError(initResult.error);
       setIsCreating(false);
       return;
     }
     const retryResult = await api.createProject(newProjectName, newProjectPath);
     if (retryResult.isErr()) {
-      toast.error(retryResult.error.message);
+      toastError(retryResult.error);
       setIsCreating(false);
       return;
     }
@@ -71,7 +72,7 @@ export function AddProjectView() {
         setGitInitDialogOpen(true);
         return;
       }
-      toast.error(result.error.message);
+      toastError(result.error);
       setIsCreating(false);
       return;
     }

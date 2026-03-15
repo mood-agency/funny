@@ -115,7 +115,6 @@ export function App() {
   const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
   const setReviewPaneWidth = useUIStore((s) => s.setReviewPaneWidth);
   const rightPaneTab = useUIStore((s) => s.rightPaneTab);
-  const setRightPaneTab = useUIStore((s) => s.setRightPaneTab);
   const settingsOpen = useUIStore((s) => s.settingsOpen);
   const generalSettingsOpen = useUIStore((s) => s.generalSettingsOpen);
   const allThreadsProjectId = useUIStore((s) => s.allThreadsProjectId);
@@ -282,35 +281,7 @@ export function App() {
                 : {}),
             }}
           >
-            {/* Tab bar */}
-            <div className="flex shrink-0 border-b border-border">
-              <button
-                data-testid="right-pane-tab-review"
-                onClick={() => setRightPaneTab('review')}
-                className={cn(
-                  'flex-1 px-3 py-1.5 text-xs font-medium transition-colors',
-                  rightPaneTab === 'review'
-                    ? 'border-b-2 border-primary text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Review
-              </button>
-              <button
-                data-testid="right-pane-tab-tests"
-                onClick={() => setRightPaneTab('tests')}
-                className={cn(
-                  'flex-1 px-3 py-1.5 text-xs font-medium transition-colors',
-                  rightPaneTab === 'tests'
-                    ? 'border-b-2 border-primary text-foreground'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Tests
-              </button>
-            </div>
-
-            {/* Tab content */}
+            {/* Pane content — controlled by header toggle buttons */}
             <div className="min-h-0 flex-1 overflow-hidden">
               <Suspense>{rightPaneTab === 'review' ? <ReviewPane /> : <TestRunnerPane />}</Suspense>
             </div>

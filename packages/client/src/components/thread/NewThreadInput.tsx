@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
 import { useProjectStore } from '@/stores/project-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
@@ -63,7 +64,7 @@ export function NewThreadInput() {
       });
 
       if (result.isErr()) {
-        toast.error(result.error.message);
+        toastError(result.error, 'createThread');
         setCreating(false);
         return false;
       }
@@ -95,7 +96,7 @@ export function NewThreadInput() {
     });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error, 'createThread');
       setCreating(false);
       return false;
     }

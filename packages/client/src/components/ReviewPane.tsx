@@ -6,7 +6,6 @@ import {
   FilePlus,
   FileX,
   PanelRightClose,
-  Maximize2,
   Search,
   X,
   GitCommit,
@@ -65,6 +64,7 @@ import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { api } from '@/lib/api';
 import { openFileInEditor, getEditorLabel } from '@/lib/editor-utils';
 import { FileExtensionIcon } from '@/lib/file-icons';
+import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
 import { useCommitProgressStore } from '@/stores/commit-progress-store';
 import { useDraftStore } from '@/stores/draft-store';
@@ -650,7 +650,7 @@ export function ReviewPane() {
     });
   }, []);
 
-  const selectedDiffContent = selectedFile ? diffCache.get(selectedFile) : undefined;
+  // selectedDiffContent removed — diffs now only shown in expanded modal
 
   const checkedCount = checkedFiles.size;
   const totalCount = summaries.length;
@@ -734,7 +734,7 @@ export function ReviewPane() {
 
       const result = await api.startWorkflow(effectiveThreadId, params);
       if (result.isErr()) {
-        toast.error(result.error.message);
+        toastError(result.error);
         setActionInProgress(null);
         commitLockRef.current = false;
         return;
@@ -762,7 +762,7 @@ export function ReviewPane() {
     const result = await api.projectStartWorkflow(projectModeId!, params);
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
       setActionInProgress(null);
       commitLockRef.current = false;
       return;
@@ -836,7 +836,7 @@ export function ReviewPane() {
       : await api.projectStartWorkflow(projectModeId!, { action: 'push' });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
       setPushInProgress(false);
     }
     // pushInProgress will be cleared by the useEffect watching commitEntry
@@ -851,7 +851,7 @@ export function ReviewPane() {
       : await api.projectStartWorkflow(projectModeId!, { action: 'merge', cleanup: true });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
       setMergeInProgress(false);
     }
     // mergeInProgress will be cleared by the useEffect watching commitEntry
@@ -874,7 +874,7 @@ export function ReviewPane() {
         });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
       setPrInProgress(false);
       return;
     }
@@ -898,7 +898,7 @@ export function ReviewPane() {
     });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
       return;
     }
 
@@ -1091,79 +1091,9 @@ export function ReviewPane() {
         </Tooltip>
       </div>
 
-      {/* Two-column layout: diff left, files right */}
+      {/* File list panel */}
       <div className="flex min-h-0 flex-1">
-        {/* Left: Diff viewer */}
         <div className="flex min-w-0 flex-1 flex-col">
-          {selectedFile && (
-            <div className="flex flex-shrink-0 items-center gap-2 border-b border-sidebar-border px-3 py-1.5">
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  const fullPath = basePath ? `${basePath}/${selectedFile}` : selectedFile;
-                  openFileInEditor(fullPath);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    const fullPath = basePath ? `${basePath}/${selectedFile}` : selectedFile;
-                    openFileInEditor(fullPath);
-                  }
-                }}
-                className="min-w-0 flex-1 cursor-pointer truncate font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
-                title={selectedFile}
-                style={{ direction: 'rtl', textAlign: 'left' }}
-                data-testid="review-open-selected-file"
-              >
-                {selectedFile}
-              </span>
-              {selectedDiffContent && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => setExpandedFile(selectedFile)}
-                      className="flex-shrink-0 text-muted-foreground hover:text-foreground"
-                      data-testid="review-expand-diff"
-                    >
-                      <Maximize2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left">{t('review.expand', 'Expand')}</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          )}
-          <ScrollArea className="w-full flex-1">
-            {selectedFile ? (
-              loadingDiff === selectedFile ? (
-                <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Loading diff\u2026
-                </div>
-              ) : selectedDiffContent ? (
-                <div className="relative text-xs [&_.diff-container]:font-mono [&_table]:w-max [&_td:last-child]:w-auto [&_td:last-child]:min-w-0">
-                  <Suspense
-                    fallback={
-                      <div className="p-2 text-xs text-muted-foreground">Loading diff\u2026</div>
-                    }
-                  >
-                    <MemoizedDiffView diff={selectedDiffContent} />
-                  </Suspense>
-                </div>
-              ) : (
-                <p className="p-2 text-xs text-muted-foreground">{t('review.binaryOrNoDiff')}</p>
-              )
-            ) : (
-              <p className="p-2 text-xs text-muted-foreground">{t('review.selectFile')}</p>
-            )}
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
-        </div>
-
-        {/* Right: File list panel */}
-        <div className="flex w-[352px] flex-shrink-0 flex-col border-l border-sidebar-border">
           {/* Truncation warning */}
           {truncatedInfo.truncated && (
             <div className="border-b border-sidebar-border bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-600 dark:text-yellow-400">
@@ -1447,7 +1377,10 @@ export function ReviewPane() {
                           ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                           : 'hover:bg-sidebar-accent/50 text-muted-foreground',
                       )}
-                      onClick={() => setSelectedFile(f.path)}
+                      onClick={() => {
+                        setSelectedFile(f.path);
+                        setExpandedFile(f.path);
+                      }}
                     >
                       <button
                         role="checkbox"

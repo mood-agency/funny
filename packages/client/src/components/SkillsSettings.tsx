@@ -19,6 +19,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input';
 import { colorFromName } from '@/components/ui/project-chip';
 import { api } from '@/lib/api';
+import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
 
@@ -245,7 +246,7 @@ export function SkillsSettings() {
     if (result.isOk()) {
       setSkills(result.value.skills);
     } else {
-      toast.error(result.error.message);
+      toastError(result.error);
     }
     setLoading(false);
   }, [projectPath]);
@@ -284,7 +285,7 @@ export function SkillsSettings() {
     setRemovingName(name);
     const result = await api.removeSkill(name);
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
     } else {
       await loadSkills();
       toast.success(`Skill "${name}" removed`);
@@ -296,7 +297,7 @@ export function SkillsSettings() {
     setInstallingId(skill.identifier);
     const result = await api.addSkill(skill.identifier);
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
     } else {
       await loadSkills();
       toast.success(`Skill "${skill.name}" installed successfully`);
@@ -310,7 +311,7 @@ export function SkillsSettings() {
     setAddingCustom(true);
     const result = await api.addSkill(id);
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
     } else {
       await loadSkills();
       toast.success(`Skill "${id}" installed successfully`);

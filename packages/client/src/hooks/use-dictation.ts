@@ -11,6 +11,7 @@ import { Result } from 'neverthrow';
 import { useCallback, useRef, useState } from 'react';
 
 import { api } from '@/lib/api';
+import { toastError } from '@/lib/toast-error';
 
 const ASSEMBLYAI_WS_BASE = 'wss://streaming.assemblyai.com/v3/ws';
 
@@ -124,7 +125,9 @@ export function useDictation({ onPartial, onFinal, onError }: UseDictationOption
       // 2. Get temporary token from our server (API key stays server-side)
       const tokenResult = await api.getTranscribeToken();
       if (tokenResult.isErr()) {
-        throw new Error(tokenResult.error.message || 'Failed to get transcription token');
+        toastError(tokenResult.error, 'transcribeToken');
+        cleanup();
+        return;
       }
       const { token } = tokenResult.value;
 

@@ -28,6 +28,7 @@ import type { DomainError } from '@funny/shared/errors';
 import { internal, processError } from '@funny/shared/errors';
 import { ResultAsync } from 'neverthrow';
 
+import i18n from '@/i18n/config';
 import { startSpan, metric } from '@/lib/telemetry';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
 
@@ -67,7 +68,11 @@ function request<T>(path: string, init?: RequestInit): ResultAsync<T, DomainErro
       // Fail fast if circuit is open
       if (cb.state === 'open') {
         span.end('ERROR');
-        throw internal('Server unavailable (circuit open)');
+        const err = internal('Server unavailable (circuit open)');
+        err.friendlyMessage = i18n.t('errors.networkError', {
+          defaultValue: 'Unable to reach the server. Check your connection and try again.',
+        });
+        throw err;
       }
 
       const headers: Record<string, string> = {
@@ -94,7 +99,11 @@ function request<T>(path: string, init?: RequestInit): ResultAsync<T, DomainErro
           type: 'gauge',
           attributes: { method, path, status: '0' },
         });
-        throw internal(String(networkError));
+        const err = internal(String(networkError));
+        err.friendlyMessage = i18n.t('errors.networkError', {
+          defaultValue: 'Unable to reach the server. Check your connection and try again.',
+        });
+        throw err;
       }
 
       const durationMs = performance.now() - t0;

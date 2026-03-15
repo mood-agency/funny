@@ -11,6 +11,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { useWS } from '@/hooks/use-ws';
 import { api } from '@/lib/api';
 import { resolveModelLabel } from '@/lib/thread-utils';
+import { toastError } from '@/lib/toast-error';
 import { cn, TOAST_DURATION } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
 import { selectLastMessage } from '@/stores/thread-selectors';
@@ -260,7 +261,7 @@ function NewThreadView({
     });
 
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error);
       setCreating(false);
       return false;
     }

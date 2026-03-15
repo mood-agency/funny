@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { api } from '@/lib/api';
+import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
@@ -215,7 +216,7 @@ export function CloneRepoView() {
   const startDeviceFlow = async () => {
     const result = await api.githubStartDevice();
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error, 'cloneRepo');
       return;
     }
 
@@ -283,7 +284,7 @@ export function CloneRepoView() {
 
     const result = await api.cloneRepo(selectedRepo.clone_url, destinationPath, projectName);
     if (result.isErr()) {
-      toast.error(result.error.message);
+      toastError(result.error, 'cloneRepo');
       setIsCloning(false);
       setView('clone-config');
       return;

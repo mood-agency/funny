@@ -206,8 +206,8 @@ export const ProjectItem = memo(function ProjectItem({
     ),
   );
   // Derive the actual status objects only when the fingerprint changes
-  const { statusByBranch } = useGitStatusStore.getState();
   const gitStatusForThreads = useMemo(() => {
+    const { statusByBranch } = useGitStatusStore.getState();
     const result: Record<string, import('@funny/shared').GitStatusInfo> = {};
     for (const [id, bk] of threadBranchKeys) {
       if (statusByBranch[bk]) result[id] = statusByBranch[bk];
@@ -215,6 +215,7 @@ export const ProjectItem = memo(function ProjectItem({
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadBranchKeys, gitStatusFingerprint]);
+
   // Read selectedThreadId from the store directly, scoped to this project's
   // thread IDs. This avoids passing selectedThreadId as a prop from the parent,
   // which caused *every* ProjectItem to re-render on any thread selection.
@@ -242,6 +243,20 @@ export const ProjectItem = memo(function ProjectItem({
       })
       .slice(0, 5);
   }, [threads]);
+
+  // Eagerly fetch git status for visible threads that don't have it yet.
+  // Without this, threads only get git status from fetchForProject (called on
+  // project expand/select) which may be throttled by cooldowns or may not have
+  // completed yet when the component first renders.
+  useEffect(() => {
+    const { fetchForThread, statusByBranch: sbb } = useGitStatusStore.getState();
+    for (const thread of visibleThreads) {
+      const bk = computeBranchKey(thread);
+      if (!sbb[bk]) {
+        fetchForThread(thread.id);
+      }
+    }
+  }, [visibleThreads]);
 
   const dragRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);

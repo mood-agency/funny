@@ -1,13 +1,19 @@
 // ─── Domain Errors ──────────────────────────────────────
 
 export type DomainError =
-  | { type: 'NOT_FOUND'; message: string }
-  | { type: 'BAD_REQUEST'; message: string }
-  | { type: 'FORBIDDEN'; message: string }
-  | { type: 'VALIDATION'; message: string }
-  | { type: 'PROCESS_ERROR'; message: string; exitCode?: number; stderr?: string }
-  | { type: 'CONFLICT'; message: string }
-  | { type: 'INTERNAL'; message: string };
+  | { type: 'NOT_FOUND'; message: string; friendlyMessage?: string }
+  | { type: 'BAD_REQUEST'; message: string; friendlyMessage?: string }
+  | { type: 'FORBIDDEN'; message: string; friendlyMessage?: string }
+  | { type: 'VALIDATION'; message: string; friendlyMessage?: string }
+  | {
+      type: 'PROCESS_ERROR';
+      message: string;
+      exitCode?: number;
+      stderr?: string;
+      friendlyMessage?: string;
+    }
+  | { type: 'CONFLICT'; message: string; friendlyMessage?: string }
+  | { type: 'INTERNAL'; message: string; friendlyMessage?: string };
 
 export type DomainErrorType = DomainError['type'];
 

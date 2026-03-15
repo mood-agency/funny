@@ -29,6 +29,7 @@ interface UIState {
   timelineVisible: boolean;
   kanbanContext: { projectId?: string; search?: string; threadId?: string } | null;
   setReviewPaneOpen: (open: boolean) => void;
+  setTestPaneOpen: (open: boolean) => void;
   setReviewPaneWidth: (width: number) => void;
   setRightPaneTab: (tab: RightPaneTab) => void;
   setSettingsOpen: (open: boolean) => void;
@@ -80,7 +81,18 @@ export const useUIStore = create<UIState>((set) => ({
     }
   })(),
   kanbanContext: null,
-  setReviewPaneOpen: (open) => set({ reviewPaneOpen: open }),
+  setReviewPaneOpen: (open) =>
+    set(
+      open
+        ? { reviewPaneOpen: true, rightPaneTab: 'review' as RightPaneTab }
+        : { reviewPaneOpen: false },
+    ),
+  setTestPaneOpen: (open) =>
+    set(
+      open
+        ? { reviewPaneOpen: true, rightPaneTab: 'tests' as RightPaneTab }
+        : { reviewPaneOpen: false },
+    ),
   setRightPaneTab: (tab) => set({ rightPaneTab: tab, reviewPaneOpen: true }),
   setReviewPaneWidth: (width) => {
     const clamped = Math.max(MIN_REVIEW_PANE_WIDTH, Math.min(MAX_REVIEW_PANE_WIDTH, width));

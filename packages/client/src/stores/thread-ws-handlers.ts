@@ -86,21 +86,28 @@ export function handleWSMessage(
       });
     }
 
+    const newMsg = {
+      id: messageId || crypto.randomUUID(),
+      threadId,
+      role: data.role as MessageRole,
+      content: data.content,
+      timestamp: new Date().toISOString(),
+      ...(data.author ? { author: data.author } : {}),
+    };
+
+    // Update lastUserMessage when a dequeued user message or user-role WS message arrives
+    const lastUserMessage =
+      extraMessages.length > 0
+        ? extraMessages[extraMessages.length - 1]
+        : data.role === 'user'
+          ? newMsg
+          : activeThread.lastUserMessage;
+
     set({
       activeThread: {
         ...activeThread,
-        messages: [
-          ...activeThread.messages,
-          ...extraMessages,
-          {
-            id: messageId || crypto.randomUUID(),
-            threadId,
-            role: data.role as MessageRole,
-            content: data.content,
-            timestamp: new Date().toISOString(),
-            ...(data.author ? { author: data.author } : {}),
-          },
-        ],
+        lastUserMessage,
+        messages: [...activeThread.messages, ...extraMessages, newMsg],
       },
     });
   } else if (selectedThreadId === threadId) {

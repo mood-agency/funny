@@ -29,6 +29,7 @@ import { remarkPlugins, baseMarkdownComponents } from '@/lib/markdown-components
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 import { buildGroupedRenderItems, type ToolItem } from '@/lib/render-items';
 import { statusConfig } from '@/lib/thread-utils';
+import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -511,7 +512,7 @@ export function LiveColumnsView() {
           images,
         });
         if (result.isErr()) {
-          toast.error(result.error.message);
+          toastError(result.error);
           setCreating(false);
           return false;
         }
@@ -535,7 +536,7 @@ export function LiveColumnsView() {
         images,
       });
       if (result.isErr()) {
-        toast.error(result.error.message);
+        toastError(result.error);
         setCreating(false);
         return false;
       }

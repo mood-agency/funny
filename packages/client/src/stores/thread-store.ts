@@ -104,6 +104,8 @@ export interface ThreadWithMessages extends Thread {
   compactionEvents?: CompactionEvent[];
   /** Setup progress steps for threads in setting_up status */
   setupProgress?: import('@/components/GitProgressModal').GitProgressStep[];
+  /** Last user message — always available even when messages are paginated */
+  lastUserMessage?: import('@funny/shared').Message & { toolCalls?: any[] };
 }
 
 export interface ThreadState {
@@ -707,6 +709,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           pendingPermission: undefined,
           permissionMode: permissionMode || activeThread.permissionMode,
           messages: nextMessages,
+          lastUserMessage: newMessage,
         },
         threadsByProject: nextThreadsByProject,
       });
@@ -728,10 +731,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     if (lastUserIdx < 0) return;
 
     const nextMessages = activeThread.messages.filter((_, i) => i !== lastUserIdx);
+    // Restore lastUserMessage to the previous user message after rollback
+    const prevUserMsg = [...nextMessages].reverse().find((m) => m.role === 'user');
     set({
       activeThread: {
         ...activeThread,
         messages: nextMessages,
+        lastUserMessage: prevUserMsg ?? activeThread.lastUserMessage,
       },
     });
   },

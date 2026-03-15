@@ -25,7 +25,7 @@ export function getTelemetryConfig(): TelemetryConfig {
     _config = {
       endpoint,
       enabled: !!process.env.OTLP_ENDPOINT,
-      serverServiceName: 'funny-server',
+      serverServiceName: 'funny-runtime',
     };
   }
   return _config;

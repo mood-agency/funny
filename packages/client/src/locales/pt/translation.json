@@ -845,5 +845,41 @@
     "noTestRunning": "Nenhum teste em execução",
     "connectingBrowser": "Conectando ao navegador...",
     "outputPlaceholder": "A saída do teste aparecerá aqui..."
+  },
+  "errors": {
+    "generic": {
+      "NOT_FOUND": "O recurso solicitado não foi encontrado.",
+      "BAD_REQUEST": "A solicitação não pôde ser processada. Verifique os dados informados.",
+      "FORBIDDEN": "Você não tem permissão para realizar esta ação.",
+      "VALIDATION": "Verifique o formulário e tente novamente.",
+      "PROCESS_ERROR": "A operação falhou. Tente novamente.",
+      "CONFLICT": "Ocorreu um conflito. O recurso pode ter sido modificado.",
+      "INTERNAL": "Ocorreu um erro inesperado. Tente novamente mais tarde.",
+      "unknown": "Algo deu errado. Tente novamente."
+    },
+    "networkError": "Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.",
+    "transcribeToken": {
+      "BAD_REQUEST": "A transcrição de voz não está configurada. Configure sua chave API do AssemblyAI em Configurações > Perfil.",
+      "INTERNAL": "O serviço de transcrição de voz está temporariamente indisponível. Tente novamente mais tarde."
+    },
+    "gitPush": {
+      "PROCESS_ERROR": "O push falhou. Pode ser necessário fazer pull primeiro.",
+      "FORBIDDEN": "O push falhou. Verifique suas credenciais do GitHub em Configurações > Perfil."
+    },
+    "gitCommit": {
+      "PROCESS_ERROR": "O commit falhou. Verifique os detalhes do erro e tente novamente."
+    },
+    "createPR": {
+      "PROCESS_ERROR": "A criação do Pull Request falhou. Certifique-se de que suas alterações foram enviadas.",
+      "FORBIDDEN": "Não é possível criar o PR. Verifique suas credenciais do GitHub em Configurações > Perfil."
+    },
+    "cloneRepo": {
+      "INTERNAL": "Falha ao clonar o repositório. Verifique a URL e tente novamente.",
+      "FORBIDDEN": "Não é possível acessar este repositório. Verifique suas credenciais do GitHub."
+    },
+    "createThread": {
+      "INTERNAL": "Falha ao criar a thread. O servidor pode estar com problemas.",
+      "BAD_REQUEST": "Não foi possível criar a thread. Verifique suas configurações."
+    }
   }
 }

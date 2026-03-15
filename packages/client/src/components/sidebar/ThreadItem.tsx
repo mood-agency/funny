@@ -29,6 +29,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { api } from '@/lib/api';
 import { threadsVisuallyEqual } from '@/lib/shallow-compare';
 import { statusConfig, gitSyncStateConfig, timeAgo } from '@/lib/thread-utils';
+import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
 
 export interface ThreadItemProps {
@@ -282,7 +283,7 @@ export const ThreadItem = memo(function ThreadItem({
                     const folderPath = thread.worktreePath || projectPath;
                     const result = await api.openDirectory(folderPath);
                     if (result.isErr()) {
-                      toast.error(result.error.message || 'Failed to open directory');
+                      toastError(result.error);
                     }
                   }}
                 >
@@ -295,7 +296,7 @@ export const ThreadItem = memo(function ThreadItem({
                     const folderPath = thread.worktreePath || projectPath;
                     const result = await api.openTerminal(folderPath);
                     if (result.isErr()) {
-                      toast.error(result.error.message || 'Failed to open terminal');
+                      toastError(result.error);
                     }
                   }}
                 >

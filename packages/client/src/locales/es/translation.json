@@ -855,5 +855,41 @@
     "noTestRunning": "Ninguna prueba en ejecución",
     "connectingBrowser": "Conectando al navegador...",
     "outputPlaceholder": "La salida de la prueba aparecerá aquí..."
+  },
+  "errors": {
+    "generic": {
+      "NOT_FOUND": "No se encontró el recurso solicitado.",
+      "BAD_REQUEST": "No se pudo procesar la solicitud. Revisa los datos ingresados.",
+      "FORBIDDEN": "No tienes permiso para realizar esta acción.",
+      "VALIDATION": "Revisa el formulario e intenta de nuevo.",
+      "PROCESS_ERROR": "La operación falló. Intenta de nuevo.",
+      "CONFLICT": "Ocurrió un conflicto. El recurso pudo haber sido modificado.",
+      "INTERNAL": "Ocurrió un error inesperado. Intenta de nuevo más tarde.",
+      "unknown": "Algo salió mal. Intenta de nuevo."
+    },
+    "networkError": "No se puede conectar con el servidor. Revisa tu conexión e intenta de nuevo.",
+    "transcribeToken": {
+      "BAD_REQUEST": "La transcripción de voz no está configurada. Configura tu API key de AssemblyAI en Configuración > Perfil.",
+      "INTERNAL": "El servicio de transcripción de voz no está disponible temporalmente. Intenta de nuevo más tarde."
+    },
+    "gitPush": {
+      "PROCESS_ERROR": "El push falló. Es posible que necesites hacer pull primero.",
+      "FORBIDDEN": "El push falló. Revisa tus credenciales de GitHub en Configuración > Perfil."
+    },
+    "gitCommit": {
+      "PROCESS_ERROR": "El commit falló. Revisa los detalles del error e intenta de nuevo."
+    },
+    "createPR": {
+      "PROCESS_ERROR": "La creación del Pull Request falló. Asegúrate de que tus cambios estén pusheados.",
+      "FORBIDDEN": "No se puede crear el PR. Revisa tus credenciales de GitHub en Configuración > Perfil."
+    },
+    "cloneRepo": {
+      "INTERNAL": "Error al clonar el repositorio. Revisa la URL e intenta de nuevo.",
+      "FORBIDDEN": "No se puede acceder a este repositorio. Revisa tus credenciales de GitHub."
+    },
+    "createThread": {
+      "INTERNAL": "Error al crear el hilo. El servidor puede estar experimentando problemas.",
+      "BAD_REQUEST": "No se pudo crear el hilo. Revisa tu configuración."
+    }
   }
 }
