@@ -12,7 +12,6 @@
  *   3. Null fallback (reports error to client)
  */
 
-import { sqlite } from '../db/index.js';
 import { log } from '../lib/logger.js';
 import type { PtyBackend } from './pty-backend.js';
 import { wsBroker } from './ws-broker.js';
@@ -195,59 +194,9 @@ backend.init({
   },
 });
 
-// ── DB helpers for persistent sessions ──────────────────────────────
-
-function savePtySession(
-  id: string,
-  tmuxSession: string,
-  userId: string,
-  cwd: string,
-  projectId: string | undefined,
-  label: string | undefined,
-  shell: string | undefined,
-  cols: number,
-  rows: number,
-  terminalState?: string | null,
-): void {
-  if (!sqlite) return;
-  try {
-    sqlite
-      .prepare(
-        `INSERT OR REPLACE INTO pty_sessions (id, tmux_session, user_id, cwd, project_id, label, shell, cols, rows, terminal_state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        id,
-        tmuxSession,
-        userId,
-        cwd,
-        projectId ?? null,
-        label ?? null,
-        shell ?? null,
-        cols,
-        rows,
-        terminalState ?? null,
-        new Date().toISOString(),
-      );
-  } catch (err: any) {
-    log.error('Failed to save PTY session to DB', {
-      namespace: 'pty-manager',
-      error: err?.message ?? String(err),
-    });
-  }
-}
-
-function removePtySession(id: string): void {
-  if (!sqlite) return;
-  try {
-    sqlite.prepare(`DELETE FROM pty_sessions WHERE id = ?`).run(id);
-  } catch (err: any) {
-    log.error('Failed to remove PTY session from DB', {
-      namespace: 'pty-manager',
-      error: err?.message ?? String(err),
-    });
-  }
-}
+// ── In-memory session persistence (replaces SQLite) ─────────────────
+// PTY sessions are process-local — they only need to survive hot-reloads
+// (via globalThis), not across full restarts. An in-memory Map is sufficient.
 
 interface PtySessionRow {
   id: string;
@@ -262,32 +211,45 @@ interface PtySessionRow {
   terminal_state: string | null;
 }
 
+const sessionStore: Map<string, PtySessionRow> = (globalThis as any).__ptySessionStore ?? new Map();
+(globalThis as any).__ptySessionStore = sessionStore;
+
+function savePtySession(
+  id: string,
+  tmuxSession: string,
+  userId: string,
+  cwd: string,
+  projectId: string | undefined,
+  label: string | undefined,
+  shell: string | undefined,
+  cols: number,
+  rows: number,
+  terminalState?: string | null,
+): void {
+  sessionStore.set(id, {
+    id,
+    tmux_session: tmuxSession,
+    user_id: userId,
+    cwd,
+    project_id: projectId ?? null,
+    label: label ?? null,
+    shell: shell ?? null,
+    cols,
+    rows,
+    terminal_state: terminalState ?? null,
+  });
+}
+
+function removePtySession(id: string): void {
+  sessionStore.delete(id);
+}
+
 function loadPtySessions(): PtySessionRow[] {
-  if (!sqlite) return [];
-  try {
-    return sqlite.prepare(`SELECT * FROM pty_sessions`).all() as PtySessionRow[];
-  } catch (err: any) {
-    log.error('Failed to load PTY sessions from DB', {
-      namespace: 'pty-manager',
-      error: err?.message ?? String(err),
-    });
-    return [];
-  }
+  return Array.from(sessionStore.values());
 }
 
 function loadPtySessionsForUser(userId: string): PtySessionRow[] {
-  if (!sqlite) return [];
-  try {
-    return sqlite
-      .prepare(`SELECT * FROM pty_sessions WHERE user_id = ?`)
-      .all(userId) as PtySessionRow[];
-  } catch (err: any) {
-    log.error('Failed to load PTY sessions for user', {
-      namespace: 'pty-manager',
-      error: err?.message ?? String(err),
-    });
-    return [];
-  }
+  return Array.from(sessionStore.values()).filter((s) => s.user_id === userId);
 }
 
 // ── Public API ────────────────────────────────────────────────────────

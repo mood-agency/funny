@@ -16,7 +16,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 
 import { log } from '../lib/logger.js';
-import { getProject, listProjects } from './project-manager.js';
+import { getServices } from './service-registry.js';
 import { shutdownManager, ShutdownPhase } from './shutdown-manager.js';
 import { threadEventBus } from './thread-event-bus.js';
 import { listThreads } from './thread-manager.js';
@@ -135,7 +135,7 @@ function onGitChange(projectId: string): void {
 
 /** Emit `git:changed` for every non-archived thread in this project */
 async function emitForAllThreads(projectId: string, pw: ProjectWatcher): Promise<void> {
-  const project = await getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return;
 
   // Query all active threads for this project once
@@ -194,7 +194,7 @@ export function closeAllWatchers(): void {
  * changes would go unnoticed for all pre-existing threads.
  */
 export async function rehydrateWatchers(): Promise<void> {
-  const projects = await listProjects('__local__');
+  const projects = await getServices().projects.listProjects('__local__');
   let total = 0;
 
   for (const project of projects) {

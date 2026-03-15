@@ -14,7 +14,7 @@ import { DEFAULT_MODEL } from '@funny/shared/models';
 import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
-import * as pm from './project-manager.js';
+import { getServices } from './service-registry.js';
 import { shutdownManager, ShutdownPhase } from './shutdown-manager.js';
 import * as tm from './thread-manager.js';
 import { wsBroker } from './ws-broker.js';
@@ -128,7 +128,7 @@ function decodeUnicodeEscapes(str: string): string {
  */
 async function resolveProjectId(workingPath: string): Promise<string | null> {
   const normalised = workingPath.replace(/\\/g, '/').toLowerCase();
-  const projects = await pm.listProjects('__local__');
+  const projects = await getServices().projects.listProjects('__local__');
 
   // First pass: exact prefix match (project path is prefix of working path)
   for (const project of projects) {
@@ -174,7 +174,7 @@ function parseOwnerRepo(remoteUrl: string): string | null {
  */
 async function resolveProjectByRepo(repoFullName: string): Promise<string | null> {
   const target = repoFullName.toLowerCase();
-  const projects = await pm.listProjects('__local__');
+  const projects = await getServices().projects.listProjects('__local__');
 
   for (const project of projects) {
     const result = await getRemoteUrl(project.path);
@@ -333,7 +333,7 @@ async function onAccepted(event: IngestEvent): Promise<string | undefined> {
     (data.branch ? `Pipeline: ${data.branch}` : `External: ${request_id.slice(0, 8)}`);
   // Resolve branch: prefer explicit value from event, fall back to current branch
   // so local-mode threads share branchKey with siblings on the same branch.
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   let branch = (data.branch as string) ?? null;
   if (!branch && project) {
     const branchResult = await getCurrentBranch(project.path);

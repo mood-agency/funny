@@ -14,8 +14,8 @@ import type { WSEvent, ThreadStatus } from '@funny/shared';
 import { log } from '../lib/logger.js';
 import type { AgentStateTracker } from './agent-state.js';
 import type { IThreadManager, IWSBroker } from './server-interfaces.js';
+import { getServices } from './service-registry.js';
 import { threadEventBus } from './thread-event-bus.js';
-import { saveThreadEvent } from './thread-event-service.js';
 import { transitionStatus } from './thread-status-machine.js';
 
 /**
@@ -45,11 +45,11 @@ export class AgentMessageHandler {
     this._getProject = getProject;
   }
 
-  /** Lazy-load project-manager to avoid importing the singleton DB in tests */
+  /** Lazy-load project lookup to avoid importing the singleton DB in tests */
   private async getProject(id: string): Promise<{ path: string; [key: string]: any } | undefined> {
     if (!this._getProject) {
-      const pm = require('./project-manager.js');
-      this._getProject = pm.getProject;
+      const { getServices } = require('./service-registry.js');
+      this._getProject = getServices().projects.getProject;
     }
     return this._getProject!(id);
   }
@@ -142,17 +142,19 @@ export class AgentMessageHandler {
       });
 
       // Persist to thread_events so it survives page refreshes
-      saveThreadEvent(threadId, 'compact_boundary', {
-        trigger: msg.trigger,
-        preTokens: msg.preTokens,
-        timestamp,
-      }).catch((err) => {
-        log.error('Failed to persist compact_boundary event', {
-          namespace: 'agent',
-          threadId,
-          error: err,
+      getServices()
+        .threadEvents.saveThreadEvent(threadId, 'compact_boundary', {
+          trigger: msg.trigger,
+          preTokens: msg.preTokens,
+          timestamp,
+        })
+        .catch((err) => {
+          log.error('Failed to persist compact_boundary event', {
+            namespace: 'agent',
+            threadId,
+            error: err,
+          });
         });
-      });
       return;
     }
 

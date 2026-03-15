@@ -62,7 +62,7 @@ import {
   buildCorrectorPrompt,
   buildTestFixerPrompt,
 } from './pipeline-prompts.js';
-import * as pm from './project-manager.js';
+import { getServices } from './service-registry.js';
 import { threadEventBus } from './thread-event-bus.js';
 import * as tm from './thread-manager.js';
 import { createAndStartThread } from './thread-service.js';
@@ -571,7 +571,7 @@ async function fixNode(ctx: GitPipelineContext, signal: AbortSignal): Promise<Gi
 async function applyPatchNode(ctx: GitPipelineContext): Promise<GitPipelineContext> {
   const parentThread = ctx.threadId ? await tm.getThread(ctx.threadId) : null;
   const parentCwd = parentThread?.worktreePath || parentThread?.initCwd;
-  const project = ctx.projectId ? await pm.getProject(ctx.projectId) : null;
+  const project = ctx.projectId ? await getServices().projects.getProject(ctx.projectId) : null;
   const targetCwd = parentCwd || project?.path || ctx.cwd;
 
   if (!ctx.patchDiff) throw new Error('No patch diff available');
@@ -595,7 +595,7 @@ async function commitFixNode(ctx: GitPipelineContext): Promise<GitPipelineContex
 
   const parentThread = await tm.getThread(ctx.threadId);
   const parentCwd = parentThread?.worktreePath || parentThread?.initCwd;
-  const project = ctx.projectId ? await pm.getProject(ctx.projectId) : null;
+  const project = ctx.projectId ? await getServices().projects.getProject(ctx.projectId) : null;
   const targetCwd = parentCwd || project?.path || ctx.cwd;
 
   const commitMessage = `fix: address review findings (iteration ${ctx.iteration})`;

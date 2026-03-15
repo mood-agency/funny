@@ -30,7 +30,7 @@ import type {
 import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
-import { listProjects } from './project-manager.js';
+import { getServices } from './service-registry.js';
 import { wsBroker } from './ws-broker.js';
 
 export type BrowserWSHandler = (
@@ -150,25 +150,19 @@ async function register(): Promise<boolean> {
 
 /**
  * Retry registration with exponential backoff.
- * The central server may not be ready when the runtime starts.
+ * Retries indefinitely — the server may not be ready when the runner starts.
  */
-async function registerWithRetry(maxAttempts = 10): Promise<boolean> {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+async function registerWithRetry(): Promise<boolean> {
+  for (let attempt = 1; ; attempt++) {
     const ok = await register();
     if (ok) return true;
 
-    if (attempt < maxAttempts) {
-      const delay = Math.min(2000 * attempt, 15_000); // 2s, 4s, 6s, ... up to 15s
-      log.warn(
-        `Registration failed, retrying in ${delay / 1000}s (attempt ${attempt}/${maxAttempts})`,
-        {
-          namespace: 'runner',
-        },
-      );
-      await new Promise((r) => setTimeout(r, delay));
-    }
+    const delay = Math.min(2000 * attempt, 15_000); // 2s, 4s, 6s, ... cap at 15s
+    log.warn(`Registration failed, retrying in ${delay / 1000}s (attempt ${attempt})`, {
+      namespace: 'runner',
+    });
+    await new Promise((r) => setTimeout(r, delay));
   }
-  return false;
 }
 
 // ── Heartbeat ────────────────────────────────────────────
@@ -220,7 +214,7 @@ async function assignLocalProjects(): Promise<void> {
 
   try {
     // Query all local projects (using '__local__' to get all in local DB)
-    const projects = await listProjects('__local__');
+    const projects = await getServices().projects.listProjects('__local__');
 
     for (const project of projects) {
       try {
@@ -512,6 +506,18 @@ function handleDataResponse(data: any): void {
     case 'data:find_tool_call_response':
       pending.resolve(data.toolCall);
       break;
+    case 'data:get_project_response':
+      pending.resolve(data.project);
+      break;
+    case 'data:list_projects_response':
+      pending.resolve(data.projects);
+      break;
+    case 'data:resolve_project_path_response':
+      pending.resolve({ ok: data.ok, path: data.path, error: data.error });
+      break;
+    case 'data:enqueue_message_response':
+      pending.resolve(data.queued);
+      break;
     default:
       pending.resolve(data);
   }
@@ -660,6 +666,81 @@ export async function remoteFindToolCall(
     type: 'data:find_tool_call',
     requestId,
     payload: { messageId, name, input },
+  });
+}
+
+// ── Project operations ──────────────────────────────────
+
+/** Get a project from the server by ID */
+export async function remoteGetProject(projectId: string): Promise<any> {
+  const requestId = nanoid();
+  return sendDataMessage({
+    type: 'data:get_project',
+    requestId,
+    projectId,
+  });
+}
+
+/** List projects for a user on the server */
+export async function remoteListProjects(userId: string): Promise<any[]> {
+  const requestId = nanoid();
+  const result = await sendDataMessage({
+    type: 'data:list_projects',
+    requestId,
+    userId,
+  });
+  return result ?? [];
+}
+
+/** Resolve project path for a user on the server */
+export async function remoteResolveProjectPath(
+  projectId: string,
+  userId: string,
+): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const requestId = nanoid();
+  return sendDataMessage({
+    type: 'data:resolve_project_path',
+    requestId,
+    projectId,
+    userId,
+  });
+}
+
+// ── Thread creation/deletion ────────────────────────────
+
+/** Create a thread record on the server */
+export async function remoteCreateThread(data: Record<string, any>): Promise<void> {
+  const requestId = nanoid();
+  await sendDataMessage({
+    type: 'data:create_thread',
+    requestId,
+    payload: data,
+  });
+}
+
+/** Delete a thread on the server */
+export async function remoteDeleteThread(threadId: string): Promise<void> {
+  const requestId = nanoid();
+  await sendDataMessage({
+    type: 'data:delete_thread',
+    requestId,
+    threadId,
+  });
+}
+
+// ── Message queue ───────────────────────────────────────
+
+/** Enqueue a message on the server */
+export async function remoteEnqueueMessage(
+  threadId: string,
+  data: Record<string, any>,
+): Promise<any> {
+  const requestId = nanoid();
+  return sendDataMessage({
+    type: 'data:enqueue_message',
+    requestId,
+    threadId,
+    payload: data,
   });
 }
 

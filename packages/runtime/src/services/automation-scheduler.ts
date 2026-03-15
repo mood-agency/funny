@@ -14,7 +14,7 @@ import { nanoid } from 'nanoid';
 import { log } from '../lib/logger.js';
 import { startAgent } from './agent-runner.js';
 import * as am from './automation-manager.js';
-import * as pm from './project-manager.js';
+import { getServices } from './service-registry.js';
 import * as tm from './thread-manager.js';
 import { wsBroker } from './ws-broker.js';
 
@@ -44,7 +44,7 @@ export async function triggerAutomationRun(automation: {
   permissionMode: string;
   baseBranch: string | null;
 }): Promise<void> {
-  const project = await pm.getProject(automation.projectId);
+  const project = await getServices().projects.getProject(automation.projectId);
   if (!project) {
     log.warn('Project not found for automation', {
       namespace: 'automation',

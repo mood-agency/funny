@@ -364,6 +364,16 @@ export async function purgeOfflineRunners(olderThanMs = 60_000): Promise<number>
   return stale.length;
 }
 
+/**
+ * Mark ALL runners as offline on server startup.
+ * When the server restarts, no runner has an active WebSocket connection,
+ * so any "online" status from a previous session is stale.
+ */
+export async function markAllRunnersOffline(): Promise<void> {
+  await db.update(runners).set({ status: 'offline', lastHeartbeatAt: new Date().toISOString() });
+  log.info('Marked all runners as offline (server restart)', { namespace: 'runner' });
+}
+
 /** List only the runners owned by a specific user. */
 export async function listRunnersByUser(userId: string): Promise<RunnerInfo[]> {
   const rows = await db.select().from(runners).where(eq(runners.userId, userId));

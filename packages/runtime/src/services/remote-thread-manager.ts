@@ -5,17 +5,19 @@
  * @domain layer: infrastructure
  *
  * Remote thread manager — delegates persistence to the central server
- * via WebSocket when running in team mode, otherwise falls back to local DB.
+ * via WebSocket when running in team mode, otherwise falls back to
+ * the injected service provider.
  *
  * Implements IThreadManager so it can be passed to AgentMessageHandler
  * without any changes to the handler logic.
  */
 
 import type { IThreadManager } from './server-interfaces.js';
+import { getServices } from './service-registry.js';
 
 /**
  * Creates a thread manager that delegates to the remote server in team mode,
- * or falls back to local DB operations.
+ * or falls back to the injected service provider.
  */
 export function createRemoteThreadManager(): IThreadManager {
   return {
@@ -25,8 +27,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteGetThread } = await import('./team-client.js');
         return remoteGetThread(id);
       }
-      const { getThread } = await import('./thread-repository.js');
-      return getThread(id);
+      return getServices().threads.getThread(id);
     },
 
     async updateThread(id: string, updates: Record<string, any>) {
@@ -35,14 +36,11 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteUpdateThread } = await import('./team-client.js');
         return remoteUpdateThread(id, updates);
       }
-      const { updateThread } = await import('./thread-repository.js');
-      return updateThread(id, updates);
+      return getServices().threads.updateThread(id, updates);
     },
 
     async getThreadWithMessages(id: string) {
-      // Read-heavy operation — works through local DB or HTTP tunnel in both modes
-      const { getThreadWithMessages } = await import('./message-repository.js');
-      return getThreadWithMessages(id);
+      return getServices().threads.getThreadWithMessages(id);
     },
 
     async insertMessage(data) {
@@ -51,8 +49,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteInsertMessage } = await import('./team-client.js');
         return remoteInsertMessage(data);
       }
-      const { insertMessage } = await import('./message-repository.js');
-      return insertMessage(data);
+      return getServices().threads.insertMessage(data);
     },
 
     async updateMessage(id: string, content: string) {
@@ -61,8 +58,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteUpdateMessage } = await import('./team-client.js');
         return remoteUpdateMessage(id, content);
       }
-      const { updateMessage } = await import('./message-repository.js');
-      return updateMessage(id, content);
+      return getServices().threads.updateMessage(id, content);
     },
 
     async insertToolCall(data) {
@@ -71,8 +67,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteInsertToolCall } = await import('./team-client.js');
         return remoteInsertToolCall(data);
       }
-      const { insertToolCall } = await import('./tool-call-repository.js');
-      return insertToolCall(data);
+      return getServices().threads.insertToolCall(data);
     },
 
     async updateToolCallOutput(id: string, output: string) {
@@ -81,8 +76,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteUpdateToolCallOutput } = await import('./team-client.js');
         return remoteUpdateToolCallOutput(id, output);
       }
-      const { updateToolCallOutput } = await import('./tool-call-repository.js');
-      return updateToolCallOutput(id, output);
+      return getServices().threads.updateToolCallOutput(id, output);
     },
 
     async findToolCall(messageId: string, name: string, input: string) {
@@ -91,8 +85,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteFindToolCall } = await import('./team-client.js');
         return remoteFindToolCall(messageId, name, input);
       }
-      const { findToolCall } = await import('./tool-call-repository.js');
-      return findToolCall(messageId, name, input);
+      return getServices().threads.findToolCall(messageId, name, input);
     },
 
     async getToolCall(id: string) {
@@ -101,8 +94,7 @@ export function createRemoteThreadManager(): IThreadManager {
         const { remoteGetToolCall } = await import('./team-client.js');
         return remoteGetToolCall(id);
       }
-      const { getToolCall } = await import('./tool-call-repository.js');
-      return getToolCall(id);
+      return getServices().threads.getToolCall(id);
     },
   };
 }

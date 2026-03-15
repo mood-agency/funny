@@ -20,8 +20,20 @@ import pg from 'pg';
 import { getDatabaseUrl } from '../db/db-mode.js';
 import { db, dbMode, dbRun } from '../db/index.js';
 import { DATA_DIR } from './data-dir.js';
-import { sendEmail } from './email.js';
 import { log } from './logger.js';
+
+// Email sending is handled by the server package now.
+// This stub exists for the Better Auth invitation plugin which requires
+// a sendEmail callback. In practice, the server's auth instance is used
+// for invitations, not this one.
+async function sendEmail(to: string, subject: string, _html: string): Promise<boolean> {
+  log.warn('sendEmail called on runtime auth — email should be sent via the server', {
+    namespace: 'auth',
+    to,
+    subject,
+  });
+  return false;
+}
 
 const SECRET_PATH = resolve(DATA_DIR, 'auth-secret');
 

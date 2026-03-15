@@ -1,11 +1,6 @@
 /**
- * @domain subdomain: Thread Management
- * @domain subdomain-type: core
- * @domain type: domain-service
- * @domain layer: domain
- * @domain depends: Database
- *
- * Thread content search (FTS5 + LIKE fallback).
+ * Thread content search backed by the server's database.
+ * Supports FTS5 (SQLite), tsvector (PostgreSQL), and LIKE fallback.
  */
 
 import { eq, and, like } from 'drizzle-orm';
@@ -13,13 +8,10 @@ import { sql } from 'drizzle-orm';
 
 import { db, dbAll, dbMode, schema } from '../db/index.js';
 
-/** Escape SQL LIKE wildcards so user input is treated as literal text */
 function escapeLike(value: string): string {
   return value.replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
-/** Escape FTS5 special characters so user input is treated as literal text.
- *  Wraps each term in double quotes to prevent FTS5 query syntax injection. */
 function escapeFts5Query(value: string): string {
   return value
     .trim()
@@ -28,9 +20,6 @@ function escapeFts5Query(value: string): string {
     .join(' ');
 }
 
-/** Search for thread IDs whose messages contain the given query string.
- *  Uses FTS5 full-text index for fast search. Falls back to LIKE if FTS fails.
- *  Returns a Map of threadId → snippet for matching threads. */
 export async function searchThreadIdsByContent(opts: {
   query: string;
   projectId?: string;
@@ -49,7 +38,6 @@ export async function searchThreadIdsByContent(opts: {
   }
 }
 
-/** Fast path: FTS5 search with snippet() for highlighted context. */
 function searchViaFts5(
   query: string,
   projectId: string | undefined,
@@ -82,13 +70,11 @@ function searchViaFts5(
   return result;
 }
 
-/** PostgreSQL path: tsvector/tsquery search with ts_headline for snippets. */
 function searchViaTsvector(
   query: string,
   projectId: string | undefined,
   userId: string,
 ): Map<string, string> {
-  // Escape single quotes and build tsquery from whitespace-separated terms
   const tsQuery = query
     .trim()
     .split(/\s+/)
@@ -121,7 +107,6 @@ function searchViaTsvector(
   return result;
 }
 
-/** Slow fallback: LIKE-based search (used if FTS table doesn't exist yet) */
 async function searchViaLike(
   query: string,
   projectId: string | undefined,

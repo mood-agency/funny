@@ -15,7 +15,7 @@ import { type Result, ok, err } from 'neverthrow';
 import WebSocket from 'ws';
 
 import { log } from '../lib/logger.js';
-import { getAssemblyaiApiKey } from './profile-service.js';
+import { getServices } from './service-registry.js';
 
 const API_ENDPOINT_BASE = 'wss://streaming.assemblyai.com/v3/ws';
 const TOKEN_URL = 'https://streaming.assemblyai.com/v3/token';
@@ -46,7 +46,7 @@ async function createTemporaryToken(apiKey: string): Promise<string> {
  * The API key never leaves the server — only the short-lived token is returned.
  */
 export async function createTranscribeToken(userId: string): Promise<Result<string, string>> {
-  const apiKey = await getAssemblyaiApiKey(userId);
+  const apiKey = await getServices().profile.getAssemblyaiApiKey(userId);
   if (!apiKey) {
     return err('AssemblyAI API key not configured');
   }
@@ -65,7 +65,7 @@ export async function createTranscribeToken(userId: string): Promise<Result<stri
  * Sets up the upstream AssemblyAI real-time connection.
  */
 export async function handleTranscribeWs(clientWs: any, userId: string) {
-  const apiKey = await getAssemblyaiApiKey(userId);
+  const apiKey = await getServices().profile.getAssemblyaiApiKey(userId);
   if (!apiKey) {
     clientWs.send(JSON.stringify({ type: 'error', message: 'AssemblyAI API key not configured' }));
     clientWs.close(4000, 'No API key');

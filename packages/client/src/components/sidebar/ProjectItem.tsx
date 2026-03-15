@@ -349,6 +349,7 @@ export const ProjectItem = memo(function ProjectItem({
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid={`project-more-actions-${project.id}`}
                   onClick={(e) => e.stopPropagation()}
                   className="text-muted-foreground hover:text-foreground"

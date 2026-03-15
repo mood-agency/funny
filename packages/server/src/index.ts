@@ -74,23 +74,34 @@ setAuthInstance(authInstance);
 
 log.info('Server DB and auth initialized', { namespace: 'server' });
 
-// Purge stale offline runners from previous sessions
-const { purgeOfflineRunners } = await import('./services/runner-manager.js');
+// On restart, mark all runners offline and purge stale ones.
+// No runner has an active WebSocket connection at this point.
+const { markAllRunnersOffline, purgeOfflineRunners } = await import('./services/runner-manager.js');
+await markAllRunnersOffline();
 await purgeOfflineRunners();
 
 // ── Start local runner if enabled ───────────────────────
 if (useLocalRunner) {
   const { createRuntimeApp } = await import('@ironmussa/funny-runtime/app');
   const { getConnection } = await import('./db/index.js');
+
+  // Build the service provider so the runtime accesses data through it
+  const { createRuntimeServiceProvider } = await import('./services/runtime-service-provider.js');
+  // The wsBroker is created by the runtime during init; pass a lazy reference
+  // that will be replaced once the runtime initializes its own broker.
+  // For now, we import the runtime's wsBroker since it shares the same process.
+  const { wsBroker } = await import('@ironmussa/funny-runtime/services/ws-broker');
+  const services = createRuntimeServiceProvider(wsBroker);
+
   runtimeApp = await createRuntimeApp({
     skipStaticServing: true, // Server handles static files
     skipAuthSetup: true, // Server handles all auth (Better Auth)
-    skipDbInit: true, // Server owns the DB now
     dbConnection: getConnection()!,
+    services,
   });
   await runtimeApp.init();
   const { setLocalRunnerFetch } = await import('./lib/local-runner.js');
-  setLocalRunnerFetch(runtimeApp.app.fetch.bind(runtimeApp.app));
+  setLocalRunnerFetch(async (req: Request) => runtimeApp!.app.fetch(req));
   log.info('Local runner started in-process', { namespace: 'server' });
 }
 
@@ -126,8 +137,8 @@ app.get('/api/bootstrap', (c) => {
 const { inviteLinkPublicRoutes, inviteLinkRoutes } = await import('./routes/invite-links.js');
 app.route('/api/invite-links', inviteLinkPublicRoutes);
 
-// Better Auth routes
-app.on(['POST', 'GET'], '/api/auth/*', (c) => authInstance.handler(c.req.raw));
+// Better Auth routes — use app.all to handle all HTTP methods (GET, POST, DELETE, etc.)
+app.all('/api/auth/*', (c) => authInstance.handler(c.req.raw));
 
 // Auth middleware for all API routes
 app.use('/api/*', authMiddleware);
@@ -143,6 +154,7 @@ const { settingsRoutes } = await import('./routes/settings.js');
 const { teamProjectRoutes } = await import('./routes/team-projects.js');
 const { teamSettingsRoutes } = await import('./routes/team-settings.js');
 const { analyticsRoutes } = await import('./routes/analytics.js');
+const { pipelineRoutes } = await import('./routes/pipelines.js');
 
 app.route('/api/auth', authRoutes);
 app.route('/api/projects', projectRoutes);
@@ -154,6 +166,7 @@ app.route('/api/settings', settingsRoutes);
 app.route('/api/team-projects', teamProjectRoutes);
 app.route('/api/team-settings', teamSettingsRoutes);
 app.route('/api/analytics', analyticsRoutes);
+app.route('/api/pipelines', pipelineRoutes);
 app.route('/api/invite-links', inviteLinkRoutes);
 
 // Setup status — delegate to local runner if available, otherwise stub

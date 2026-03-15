@@ -371,6 +371,7 @@
         "funny-server": "./bin/funny-server.js",
       },
       "dependencies": {
+        "@funny/core": "workspace:*",
         "@funny/shared": "workspace:*",
         "@ironmussa/funny-runtime": "workspace:*",
         "better-auth": "^1.4.18",

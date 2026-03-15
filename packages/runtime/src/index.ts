@@ -3,8 +3,15 @@
  * @domain type: bounded-context
  * @domain layer: infrastructure
  *
- * Standalone runtime entry point.
- * Creates the Hono app via createRuntimeApp() and starts Bun.serve().
+ * Standalone runtime entry point — stateless runner mode.
+ *
+ * The runtime is stateless: it has no database and no auth of its own.
+ * It connects to a central server via TEAM_SERVER_URL to receive work
+ * and proxy data persistence over WebSocket.
+ *
+ * Required env vars:
+ *   TEAM_SERVER_URL    — URL of the central server (e.g. https://funny.example.com)
+ *   RUNNER_AUTH_SECRET  — Shared secret for runner ↔ server authentication
  */
 
 // On Windows, bun --watch forks worker processes — each has its own globalThis.
@@ -17,11 +24,24 @@ import { createRuntimeApp } from './app.js';
 import { log } from './lib/logger.js';
 import { shutdownManager, ShutdownPhase } from './services/shutdown-manager.js';
 
-const port = Number(process.env.PORT) || 3001;
-const host = process.env.HOST || '127.0.0.1';
+// Validate required env vars
+if (!process.env.TEAM_SERVER_URL) {
+  console.error(
+    'ERROR: TEAM_SERVER_URL is required for standalone runner mode.\n' +
+      'The runtime is stateless and must connect to a central server.\n\n' +
+      'Example:\n' +
+      '  TEAM_SERVER_URL=http://localhost:3001 RUNNER_AUTH_SECRET=secret bun run src/index.ts\n',
+  );
+  process.exit(1);
+}
 
-// Create the runtime app
-const runtime = await createRuntimeApp();
+const port = Number(process.env.RUNNER_PORT) || 3003;
+const host = process.env.RUNNER_HOST || '0.0.0.0';
+
+// Create the runtime app — no services injected, auto-creates stateless runner provider
+const runtime = await createRuntimeApp({
+  skipAuthSetup: true,
+});
 
 // Clean up previous instance on bun --watch restarts.
 const prev = (globalThis as any).__bunServer;
@@ -32,7 +52,7 @@ if (prev) {
   log.info('Cleaned up previous instance (watch restart)', { namespace: 'server' });
 }
 
-// Initialize (DB, migrations, auth, handlers)
+// Initialize (service provider, handlers, team mode connection)
 await runtime.init();
 
 const server = Bun.serve({
@@ -58,9 +78,6 @@ const server = Bun.serve({
 
 // ── Shutdown registry ──────────────────────────────────────────
 shutdownManager.register('http-server', () => server.stop(true), ShutdownPhase.SERVER);
-
-import { destroyAllInstances } from '@funny/memory';
-shutdownManager.register('memory-shutdown', () => destroyAllInstances(), ShutdownPhase.SERVICES);
 
 shutdownManager.register(
   'process-exit',
@@ -89,11 +106,6 @@ async function shutdown() {
 
   const forceExit = setTimeout(() => {
     log.warn('Force exit after timeout', { namespace: 'server' });
-    if (process.platform === 'win32') {
-      try {
-        Bun.spawnSync(['cmd', '/c', `taskkill /F /T /PID ${process.pid}`]);
-      } catch {}
-    }
     process.exit(1);
   }, 5000);
 
@@ -120,8 +132,11 @@ process.on('unhandledRejection', (reason) => {
   });
 });
 
-log.info(`Listening on http://localhost:${server.port}`, {
-  namespace: 'server',
-  port: server.port,
-  host,
-});
+log.info(
+  `Runner listening on http://${host}:${server.port} (stateless, server: ${process.env.TEAM_SERVER_URL})`,
+  {
+    namespace: 'server',
+    port: server.port,
+    host,
+  },
+);

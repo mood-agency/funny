@@ -13,7 +13,7 @@ import { badRequest, internal, notFound } from '@funny/shared/errors';
 import { Hono } from 'hono';
 import { ResultAsync, err } from 'neverthrow';
 
-import * as pm from '../services/project-manager.js';
+import { getServices } from '../services/service-registry.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
 
@@ -29,7 +29,7 @@ async function isPathAllowed(targetPath: string, userId: string): Promise<boolea
   const home = normalize(resolve(homedir()));
   if (normalizedTarget.startsWith(home)) return true;
 
-  const projects = await pm.listProjects(userId);
+  const projects = await getServices().projects.listProjects(userId);
   for (const project of projects) {
     const projectPath = normalize(resolve(project.path));
     if (normalizedTarget.startsWith(projectPath)) return true;

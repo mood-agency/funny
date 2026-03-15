@@ -32,10 +32,8 @@ import { badRequest, internal, notFound } from '@funny/shared/errors';
 import { type Result, ResultAsync, err, errAsync, ok } from 'neverthrow';
 
 import { log } from '../lib/logger.js';
-import { getGitIdentity, getGithubToken } from './profile-service.js';
-import * as pm from './project-manager.js';
+import { getServices } from './service-registry.js';
 import { threadEventBus } from './thread-event-bus.js';
-import { saveThreadEvent } from './thread-event-service.js';
 import * as tm from './thread-manager.js';
 import { wsBroker } from './ws-broker.js';
 
@@ -45,8 +43,8 @@ import { wsBroker } from './ws-broker.js';
  * Resolve per-user git identity from the user's profile.
  */
 export async function resolveIdentity(userId: string): Promise<GitIdentityOptions | undefined> {
-  const author = (await getGitIdentity(userId)) ?? undefined;
-  const githubToken = (await getGithubToken(userId)) ?? undefined;
+  const author = (await getServices().profile.getGitIdentity(userId)) ?? undefined;
+  const githubToken = (await getServices().profile.getGithubToken(userId)) ?? undefined;
   if (!author && !githubToken) return undefined;
   return { author, githubToken };
 }
@@ -273,7 +271,7 @@ export function merge(params: MergeParams): ResultAsync<string, DomainError> {
         return { err: badRequest('Merge is only available for worktree threads') } as const;
       }
 
-      const project = await pm.getProject(thread.projectId);
+      const project = await getServices().projects.getProject(thread.projectId);
       if (!project) return { err: notFound('Project not found') } as const;
 
       return { thread, project } as const;
@@ -399,22 +397,24 @@ export function createPullRequest(params: CreatePRParams): ResultAsync<string, D
       ).andThen((prUrl) => {
         const prData = { title: params.title, url: prUrl };
         return ResultAsync.fromSafePromise(
-          saveThreadEvent(params.threadId, 'git:pr_created', prData).then(() => {
-            wsBroker.emitToUser(params.userId, {
-              type: 'thread:event',
-              threadId: params.threadId,
-              data: {
-                event: {
-                  id: crypto.randomUUID(),
-                  threadId: params.threadId,
-                  type: 'git:pr_created',
-                  data: JSON.stringify(prData),
-                  createdAt: new Date().toISOString(),
+          getServices()
+            .threadEvents.saveThreadEvent(params.threadId, 'git:pr_created', prData)
+            .then(() => {
+              wsBroker.emitToUser(params.userId, {
+                type: 'thread:event',
+                threadId: params.threadId,
+                data: {
+                  event: {
+                    id: crypto.randomUUID(),
+                    threadId: params.threadId,
+                    type: 'git:pr_created',
+                    data: JSON.stringify(prData),
+                    createdAt: new Date().toISOString(),
+                  },
                 },
-              },
-            });
-            return prUrl;
-          }),
+              });
+              return prUrl;
+            }),
         );
       }),
     ),

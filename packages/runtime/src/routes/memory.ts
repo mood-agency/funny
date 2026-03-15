@@ -11,7 +11,7 @@ import { getPaisleyPark } from '@funny/memory';
 import type { AddOptions, SearchFilters, TimelineOptions } from '@funny/shared';
 import { Hono } from 'hono';
 
-import * as pm from '../services/project-manager.js';
+import { getServices } from '../services/service-registry.js';
 
 export const memoryRoutes = new Hono();
 
@@ -24,7 +24,7 @@ memoryRoutes.get('/:projectId/memory/recall', async (c) => {
   const scope = (c.req.query('scope') as any) ?? 'all';
   const minConfidence = Number(c.req.query('minConfidence')) || 0.5;
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -52,7 +52,7 @@ memoryRoutes.post('/:projectId/memory/facts', async (c) => {
     return c.json({ error: 'content and type are required' }, 400);
   }
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -76,7 +76,7 @@ memoryRoutes.patch('/:projectId/memory/facts/:factId/invalidate', async (c) => {
   const factId = c.req.param('factId');
   const body = await c.req.json<{ reason?: string }>().catch(() => ({}));
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -95,7 +95,7 @@ memoryRoutes.patch('/:projectId/memory/facts/:factId/evolve', async (c) => {
 
   if (!body.update) return c.json({ error: 'update is required' }, 400);
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -115,7 +115,7 @@ memoryRoutes.get('/:projectId/memory/search', async (c) => {
   const validAt = c.req.query('validAt');
   const minConfidence = Number(c.req.query('minConfidence')) || undefined;
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -139,7 +139,7 @@ memoryRoutes.get('/:projectId/memory/timeline', async (c) => {
   const to = c.req.query('to');
   const type = c.req.query('type');
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -160,7 +160,7 @@ memoryRoutes.get('/:projectId/memory/operators/:operatorId', async (c) => {
   const projectId = c.req.param('projectId');
   const operatorId = c.req.param('operatorId');
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   const pp = getPaisleyPark(projectId, project.name);
@@ -176,7 +176,7 @@ memoryRoutes.get('/:projectId/memory/operators/:operatorId', async (c) => {
 memoryRoutes.post('/:projectId/memory/gc', async (c) => {
   const projectId = c.req.param('projectId');
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return c.json({ error: 'Project not found' }, 404);
 
   // Lazy import to avoid circular deps

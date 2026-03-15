@@ -11,8 +11,23 @@ import type { GitSyncState, ImageAttachment } from '@funny/shared';
 import type { DomainError } from '@funny/shared/errors';
 import type { ResultAsync } from 'neverthrow';
 
-import type { QueueEntry } from '../message-queue.js';
 import type { ThreadEventMap } from '../thread-event-bus.js';
+
+/** Queued follow-up message entry (inlined from deleted message-queue module). */
+interface QueueEntry {
+  id: string;
+  threadId: string;
+  content: string;
+  provider: string | null;
+  model: string | null;
+  permissionMode: string | null;
+  images: string | null;
+  allowedTools: string | null;
+  disallowedTools: string | null;
+  fileReferences: string | null;
+  sortOrder: number;
+  createdAt: string;
+}
 
 interface HandlerThread {
   id: string;

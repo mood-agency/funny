@@ -19,8 +19,7 @@ import { badRequest, conflict, internal } from '@funny/shared/errors';
 import { Hono } from 'hono';
 import { err } from 'neverthrow';
 
-import * as profileService from '../services/profile-service.js';
-import * as pm from '../services/project-manager.js';
+import { getServices } from '../services/service-registry.js';
 import { wsBroker } from '../services/ws-broker.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
@@ -67,13 +66,13 @@ githubRoutes.get('/status', async (c) => {
 
   // First check if a token row exists (without decrypting — decrypt can fail
   // if the encryption key rotated, but the token is still "configured").
-  const profile = await profileService.getProfile(userId);
+  const profile = await getServices().profile.getProfile(userId);
   if (!profile?.hasGithubToken) {
     return c.json({ connected: false });
   }
 
   // Token is configured — try to fetch login for display, but always report connected.
-  const token = await profileService.getGithubToken(userId);
+  const token = await getServices().profile.getGithubToken(userId);
   if (token) {
     try {
       const res = await githubApiFetch('/user', token);
@@ -191,7 +190,7 @@ githubRoutes.post('/oauth/poll', async (c) => {
 
     if (data.access_token) {
       // Store the token encrypted in the user's profile
-      await profileService.updateProfile(userId, { githubToken: data.access_token });
+      await getServices().profile.updateProfile(userId, { githubToken: data.access_token });
       return c.json({ status: 'success', scopes: data.scope });
     }
 
@@ -205,7 +204,7 @@ githubRoutes.post('/oauth/poll', async (c) => {
 
 githubRoutes.delete('/oauth/disconnect', async (c) => {
   const userId = c.get('userId') as string;
-  await profileService.updateProfile(userId, { githubToken: null });
+  await getServices().profile.updateProfile(userId, { githubToken: null });
   return c.json({ ok: true });
 });
 
@@ -213,7 +212,7 @@ githubRoutes.delete('/oauth/disconnect', async (c) => {
 
 githubRoutes.get('/user', async (c) => {
   const userId = c.get('userId') as string;
-  const token = await profileService.getGithubToken(userId);
+  const token = await getServices().profile.getGithubToken(userId);
   if (!token) {
     return c.json({ error: 'Not connected to GitHub' }, 401);
   }
@@ -231,7 +230,7 @@ githubRoutes.get('/user', async (c) => {
 
 githubRoutes.get('/repos', async (c) => {
   const userId = c.get('userId') as string;
-  const token = await profileService.getGithubToken(userId);
+  const token = await getServices().profile.getGithubToken(userId);
   if (!token) {
     return c.json({ error: 'Not connected to GitHub' }, 401);
   }
@@ -322,7 +321,7 @@ githubRoutes.post('/clone', async (c) => {
   }
 
   // Check for duplicate project name before cloning
-  if (await pm.projectNameExists(repoName, userId)) {
+  if (await getServices().projects.projectNameExists(repoName, userId)) {
     return resultToResponse(
       c,
       err(conflict(`A project with this name already exists: ${repoName}`)),
@@ -330,7 +329,7 @@ githubRoutes.post('/clone', async (c) => {
   }
 
   // Inject token into clone URL for private repo access
-  const token = await profileService.getGithubToken(userId);
+  const token = await getServices().profile.getGithubToken(userId);
   let authenticatedUrl = cloneUrl;
   if (token && cloneUrl.startsWith('https://github.com/')) {
     authenticatedUrl = cloneUrl.replace(
@@ -409,7 +408,7 @@ githubRoutes.post('/clone', async (c) => {
   }
 
   // Create the project
-  const result = await pm.createProject(repoName, clonePath, userId);
+  const result = await getServices().projects.createProject(repoName, clonePath, userId);
   if (result.isErr()) {
     return resultToResponse(c, result);
   }
@@ -426,7 +425,7 @@ githubRoutes.get('/issues', async (c) => {
     return c.json({ error: 'projectId is required' }, 400);
   }
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
   }
@@ -448,7 +447,7 @@ githubRoutes.get('/issues', async (c) => {
 
   try {
     const apiPath = `/repos/${parsed.owner}/${parsed.repo}/issues?state=${state}&page=${page}&per_page=${perPage}&sort=created&direction=desc`;
-    const token = await profileService.getGithubToken(userId);
+    const token = await getServices().profile.getGithubToken(userId);
 
     let res: Response;
     if (token) {

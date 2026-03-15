@@ -7,12 +7,9 @@
 
 import { randomBytes, createHash } from 'crypto';
 
-import { eq, and } from 'drizzle-orm';
-
-import { db, schema, dbRun } from '../db/index.js';
-import { encrypt } from '../lib/crypto.js';
 import { log } from '../lib/logger.js';
 import { addMcpServer, removeMcpServer } from './mcp-service.js';
+import { getServices } from './service-registry.js';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -295,43 +292,24 @@ export async function handleOAuthCallback(
 
     const tokens = (await tokenRes.json()) as TokenResponse;
 
-    // Store tokens in database
-    const now = new Date().toISOString();
-    const id = randomBytes(8).toString('hex');
+    // Store tokens in database via service provider
     const expiresAt = tokens.expires_in
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : undefined;
 
-    // Upsert: delete existing, then insert
-    await dbRun(
-      db
-        .delete(schema.mcpOauthTokens)
-        .where(
-          and(
-            eq(schema.mcpOauthTokens.serverName, pending.serverName),
-            eq(schema.mcpOauthTokens.projectPath, pending.projectPath),
-          ),
-        ),
-    );
-
-    await dbRun(
-      db.insert(schema.mcpOauthTokens).values({
-        id,
-        serverName: pending.serverName,
-        projectPath: pending.projectPath,
-        serverUrl: pending.serverUrl,
-        accessToken: encrypt(tokens.access_token),
-        refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
-        tokenType: tokens.token_type || 'Bearer',
-        expiresAt: expiresAt || null,
-        scope: tokens.scope || null,
-        tokenEndpoint: pending.tokenEndpoint,
-        clientId: pending.clientId,
-        clientSecret: pending.clientSecret ? encrypt(pending.clientSecret) : null,
-        createdAt: now,
-        updatedAt: now,
-      }),
-    );
+    await getServices().mcpOauth.upsertToken({
+      serverName: pending.serverName,
+      projectPath: pending.projectPath,
+      serverUrl: pending.serverUrl,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token ?? null,
+      tokenType: tokens.token_type || 'Bearer',
+      expiresAt: expiresAt ?? null,
+      scope: tokens.scope ?? null,
+      tokenEndpoint: pending.tokenEndpoint,
+      clientId: pending.clientId,
+      clientSecret: pending.clientSecret ?? null,
+    });
 
     // Update Claude CLI config: remove and re-add with Authorization header
     await removeMcpServer({ name: pending.serverName, projectPath: pending.projectPath });

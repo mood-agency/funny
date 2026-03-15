@@ -23,6 +23,7 @@
     "start": "bun run dist/index.js"
   },
   "dependencies": {
+    "@funny/core": "workspace:*",
     "@funny/shared": "workspace:*",
     "@ironmussa/funny-runtime": "workspace:*",
     "better-auth": "^1.4.18",

@@ -27,7 +27,13 @@
   "exports": {
     ".": "./dist/index.js",
     "./app": "./src/app.ts",
-    "./lib/auth": "./src/lib/auth.ts"
+    "./lib/auth": "./src/lib/auth.ts",
+    "./services/server-interfaces": "./src/services/server-interfaces.ts",
+    "./services/service-provider": "./src/services/service-provider.ts",
+    "./services/service-registry": "./src/services/service-registry.ts",
+    "./services/automation-manager": "./src/services/automation-manager.ts",
+    "./services/mcp-oauth": "./src/services/mcp-oauth.ts",
+    "./services/ws-broker": "./src/services/ws-broker.ts"
   },
   "publishConfig": {
     "access": "public"

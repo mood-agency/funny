@@ -267,6 +267,7 @@ export const ThreadItem = memo(function ThreadItem({
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid={`thread-item-more-${thread.id}`}
                   onClick={(e) => e.stopPropagation()}
                   className="text-muted-foreground hover:text-foreground"

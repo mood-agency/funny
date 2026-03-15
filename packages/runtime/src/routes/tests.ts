@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 
-import * as pm from '../services/project-manager.js';
+import { getServices } from '../services/service-registry.js';
 import { discoverTestFiles, runTest, stopTest } from '../services/test-runner.js';
 import type { HonoEnv } from '../types/hono-env.js';
 
@@ -11,7 +11,7 @@ testRoutes.get('/:projectId/files', async (c) => {
   const projectId = c.req.param('projectId');
   const userId = c.get('userId');
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
   }
@@ -30,7 +30,7 @@ testRoutes.post('/:projectId/run', async (c) => {
   const projectId = c.req.param('projectId');
   const userId = c.get('userId');
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
   }
@@ -58,7 +58,7 @@ testRoutes.post('/:projectId/stop', async (c) => {
   const projectId = c.req.param('projectId');
   const userId = c.get('userId');
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) {
     return c.json({ error: 'Project not found' }, 404);
   }

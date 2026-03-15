@@ -18,7 +18,8 @@
 import { notFound, forbidden, type DomainError } from '@funny/shared/errors';
 import { ok, err, type Result } from 'neverthrow';
 
-import * as pm from '../services/project-manager.js';
+import type { IProjectRepository } from '../services/server-interfaces.js';
+import { getServices } from '../services/service-registry.js';
 import * as tm from '../services/thread-manager.js';
 
 /** Check that a thread belongs to the requesting user (multi-user mode) */
@@ -42,7 +43,10 @@ export async function requireThread(
     if (ownerCheck.isErr()) {
       // Ownership failed — check if the thread's project is shared with the org
       if (organizationId) {
-        const isTeam = await pm.isProjectInOrg(thread.projectId, organizationId);
+        const isTeam = await getServices().projects.isProjectInOrg(
+          thread.projectId,
+          organizationId,
+        );
         if (isTeam) return ok(thread);
       }
       return err(ownerCheck.error);
@@ -63,7 +67,10 @@ export async function requireThreadWithMessages(
     const ownerCheck = checkOwnership(result, userId);
     if (ownerCheck.isErr()) {
       if (organizationId) {
-        const isTeam = await pm.isProjectInOrg(result.projectId, organizationId);
+        const isTeam = await getServices().projects.isProjectInOrg(
+          result.projectId,
+          organizationId,
+        );
         if (isTeam) return ok(result);
       }
       return err(ownerCheck.error);
@@ -77,14 +84,16 @@ export async function requireProject(
   id: string,
   userId?: string,
   organizationId?: string,
-): Promise<Result<NonNullable<Awaited<ReturnType<typeof pm.getProject>>>, DomainError>> {
-  const project = await pm.getProject(id);
+): Promise<
+  Result<NonNullable<Awaited<ReturnType<IProjectRepository['getProject']>>>, DomainError>
+> {
+  const project = await getServices().projects.getProject(id);
   if (!project) return err(notFound('Project not found'));
   if (userId) {
     const ownerCheck = checkOwnership(project, userId);
     if (ownerCheck.isErr()) {
       if (organizationId) {
-        const isTeam = await pm.isProjectInOrg(project.id, organizationId);
+        const isTeam = await getServices().projects.isProjectInOrg(project.id, organizationId);
         if (isTeam) return ok(project);
       }
       return err(ownerCheck.error);
@@ -107,7 +116,7 @@ export async function requireThreadCwd(
   if (threadResult.isErr()) return err(threadResult.error);
   const thread = threadResult.value;
   if (thread.worktreePath) return ok(thread.worktreePath);
-  const project = await pm.getProject(thread.projectId);
+  const project = await getServices().projects.getProject(thread.projectId);
   if (!project) return err(notFound('Project not found'));
   return ok(project.path);
 }

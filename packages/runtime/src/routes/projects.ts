@@ -3,7 +3,11 @@
  * @domain subdomain-type: supporting
  * @domain type: adapter
  * @domain layer: infrastructure
- * @domain depends: ProjectManager, ProjectHooksService, StartupCommandsService, CommandRunner
+ * @domain depends: ProjectHooksService, StartupCommandsService, CommandRunner
+ *
+ * Runner-only project routes — filesystem, git, and process operations.
+ * Project CRUD (list, create, update, delete, reorder, resolve) is handled
+ * by the server package directly.
  */
 
 import {
@@ -15,25 +19,16 @@ import {
   ensureWeaveConfigured,
 } from '@funny/core/git';
 import { Hono } from 'hono';
-import { err } from 'neverthrow';
 
-import { log } from '../lib/logger.js';
-import { requireAdmin, requirePermission } from '../middleware/auth.js';
-import { isAgentRunning, stopAgent, cleanupThreadState } from '../services/agent-runner.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { startCommand, stopCommand, isCommandRunning } from '../services/command-runner.js';
 import * as pc from '../services/project-config-service.js';
 import * as ph from '../services/project-hooks-service.js';
-import * as pm from '../services/project-manager.js';
-import * as sc from '../services/startup-commands-service.js';
-import { assignProjectToRunner } from '../services/team-client.js';
-import { listThreads } from '../services/thread-manager.js';
+import { getServices } from '../services/service-registry.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { requireProject } from '../utils/route-helpers.js';
 import {
-  createProjectSchema,
-  updateProjectSchema,
-  reorderProjectsSchema,
   createCommandSchema,
   createHookSchema,
   updateHookSchema,
@@ -43,161 +38,7 @@ import {
 
 export const projectRoutes = new Hono<HonoEnv>();
 
-// GET /api/projects
-projectRoutes.get('/', async (c) => {
-  const userId = c.get('userId') as string;
-  const isPersonal = c.req.query('personal') === 'true';
-  const queryOrgId = c.req.query('orgId');
-  const sessionOrgId = c.get('organizationId');
-
-  const orgId = isPersonal ? null : queryOrgId || sessionOrgId;
-
-  if (orgId) {
-    // Org mode: only show projects associated with this organization
-    const teamProjects = await pm.listProjectsByOrg(orgId);
-
-    // Get the organization name from the forwarded header (set by server auth middleware)
-    const organizationName = c.get('organizationName') || undefined;
-    // For team projects not owned by the user, fetch their localPath
-    const sharedProjects = teamProjects.filter((p) => p.userId !== userId);
-    const localPaths = await Promise.all(
-      sharedProjects.map((p) => pm.getMemberLocalPath(p.id, userId)),
-    );
-    const localPathByProject = new Map(sharedProjects.map((p, i) => [p.id, localPaths[i]]));
-
-    const result = teamProjects.map((p) => {
-      if (p.userId === userId) {
-        return {
-          ...p,
-          isTeamProject: true as const,
-          organizationName,
-        };
-      }
-      const lp = localPathByProject.get(p.id) ?? null;
-      return {
-        ...p,
-        isTeamProject: true as const,
-        organizationName,
-        localPath: lp ?? undefined,
-        needsSetup: !lp,
-      };
-    });
-    return c.json(result);
-  }
-
-  const projects = await pm.listProjects(userId);
-  return c.json(projects);
-});
-
-// GET /api/projects/resolve?url=<url>
-// Returns the project matching the given URL pattern, or null if none match.
-projectRoutes.get('/resolve', async (c) => {
-  const userId = c.get('userId') as string;
-  const url = c.req.query('url');
-  if (!url) {
-    return c.json({ error: 'Missing required query parameter: url' }, 400);
-  }
-
-  const projects = await pm.listProjects(userId);
-  const matched = projects.find((p) => p.urls?.some((pattern) => url.startsWith(pattern)));
-
-  if (matched) {
-    return c.json({ project: matched, source: 'url_match' });
-  }
-  return c.json({ project: null, source: 'none' });
-});
-
-// POST /api/projects — requires project:create permission in org context
-projectRoutes.post('/', requirePermission('project', 'create'), async (c) => {
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const raw = await c.req.json();
-  const parsed = validate(createProjectSchema, raw);
-  if (parsed.isErr()) return resultToResponse(c, parsed);
-  const { name, path } = parsed.value;
-
-  // Early duplicate name check (scoped to org if active, otherwise to user)
-  const nameExists = await pm.projectNameExists(name, userId, orgId);
-  if (nameExists) {
-    return resultToResponse(
-      c,
-      err({ type: 'CONFLICT' as const, message: `A project named "${name}" already exists` }),
-    );
-  }
-
-  const result = await pm.createProject(name, path, userId, orgId);
-
-  if (result.isOk()) {
-    // Associate project with the active organization
-    if (orgId) {
-      await pm.addProjectToOrg(result.value.id, orgId);
-    }
-
-    // If in team mode, assign the new project to this runner on the central server
-    void assignProjectToRunner(result.value);
-  }
-
-  return resultToResponse(c, result, 201);
-});
-
-// PATCH /api/projects/:id
-projectRoutes.patch('/:id', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const projectResult = await requireProject(id, userId, orgId ?? undefined);
-  if (projectResult.isErr()) return resultToResponse(c, projectResult);
-
-  const raw = await c.req.json();
-  const parsed = validate(updateProjectSchema, raw);
-  if (parsed.isErr()) return resultToResponse(c, parsed);
-  const result = await pm.updateProject(id, parsed.value);
-  return resultToResponse(c, result);
-});
-
-// DELETE /api/projects/:id — only the owner can delete
-projectRoutes.delete('/:id', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  // Intentionally NO orgId — only the owner should be able to delete a project
-  const projectResult = await requireProject(id, userId);
-  if (projectResult.isErr()) return resultToResponse(c, projectResult);
-
-  // Stop all running agents for this project's threads before cascade-deleting.
-  // Without this, in-memory agent processes would keep running as orphans.
-  const threads = await listThreads({ projectId: id, userId, includeArchived: true });
-  await Promise.allSettled(
-    threads
-      .filter((t) => isAgentRunning(t.id))
-      .map(async (t) => {
-        try {
-          await stopAgent(t.id);
-        } catch (e) {
-          log.warn('Failed to stop agent during project delete', {
-            namespace: 'cleanup',
-            threadId: t.id,
-            error: String(e),
-          });
-        }
-        cleanupThreadState(t.id);
-      }),
-  );
-
-  await pm.deleteProject(id);
-  return c.json({ ok: true });
-});
-
-// PUT /api/projects/reorder
-projectRoutes.put('/reorder', async (c) => {
-  const userId = c.get('userId') as string;
-  const raw = await c.req.json();
-  const parsed = validate(reorderProjectsSchema, raw);
-  if (parsed.isErr()) return resultToResponse(c, parsed);
-  const { projectIds } = parsed.value;
-  const result = await pm.reorderProjects(userId, projectIds);
-  if (result.isErr()) return resultToResponse(c, result);
-  return c.json({ ok: true });
-});
+// ─── Git Operations ────────────────────────────────────
 
 // GET /api/projects/:id/branches
 projectRoutes.get('/:id/branches', async (c) => {
@@ -211,8 +52,6 @@ projectRoutes.get('/:id/branches', async (c) => {
     getCurrentBranch(project.path),
   ]);
 
-  // For empty repos (no commits), branches and currentBranch may fail.
-  // Return empty/null defaults instead of an error.
   return c.json({
     branches: branchesResult.isOk() ? branchesResult.value : [],
     defaultBranch: defaultBranchResult.isOk() ? defaultBranchResult.value : null,
@@ -221,7 +60,6 @@ projectRoutes.get('/:id/branches', async (c) => {
 });
 
 // GET /api/projects/:id/checkout-preflight?branch=<branch>
-// Pre-flight check: can we checkout the target branch without conflicts?
 projectRoutes.get('/:id/checkout-preflight', async (c) => {
   const projectResult = await requireProject(c.req.param('id'));
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
@@ -231,16 +69,13 @@ projectRoutes.get('/:id/checkout-preflight', async (c) => {
 
   const project = projectResult.value;
 
-  // Get current branch
   const currentBranchResult = await getCurrentBranch(project.path);
   const currentBranch = currentBranchResult.isOk() ? currentBranchResult.value : null;
 
-  // Same branch — no checkout needed
   if (currentBranch === targetBranch) {
     return c.json({ canCheckout: true, currentBranch });
   }
 
-  // Check for dirty files
   const statusResult = await git(['status', '--porcelain'], project.path);
   if (statusResult.isErr()) {
     return c.json({ canCheckout: false, currentBranch, reason: 'git_status_failed' });
@@ -252,15 +87,12 @@ projectRoutes.get('/:id/checkout-preflight', async (c) => {
     .map((l) => l.slice(3).trim());
 
   if (dirtyFiles.length === 0) {
-    // No dirty files — checkout is safe
     return c.json({ canCheckout: true, currentBranch });
   }
 
-  // Check which files differ between HEAD and target branch
   const diffResult = await git(['diff', '--name-only', `HEAD...${targetBranch}`], project.path);
 
   if (diffResult.isErr()) {
-    // Can't compare — assume checkout would fail with dirty files
     return c.json({
       canCheckout: false,
       currentBranch,
@@ -270,7 +102,6 @@ projectRoutes.get('/:id/checkout-preflight', async (c) => {
   }
 
   const changedInTarget = new Set(diffResult.value.split('\n').filter((l) => l.trim()));
-
   const conflicting = dirtyFiles.filter((f) => changedInTarget.has(f));
 
   if (conflicting.length > 0) {
@@ -282,7 +113,6 @@ projectRoutes.get('/:id/checkout-preflight', async (c) => {
     });
   }
 
-  // Dirty files exist but none conflict with the target branch
   return c.json({ canCheckout: true, currentBranch });
 });
 
@@ -291,7 +121,7 @@ projectRoutes.get('/:id/checkout-preflight', async (c) => {
 // GET /api/projects/:id/commands
 projectRoutes.get('/:id/commands', async (c) => {
   const id = c.req.param('id');
-  const commands = await sc.listCommands(id);
+  const commands = await getServices().startupCommands.listCommands(id);
   return c.json(commands);
 });
 
@@ -303,7 +133,7 @@ projectRoutes.post('/:id/commands', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
   const { label, command } = parsed.value;
 
-  const entry = await sc.createCommand({ projectId, label, command });
+  const entry = await getServices().startupCommands.createCommand({ projectId, label, command });
   return c.json(entry, 201);
 });
 
@@ -315,19 +145,18 @@ projectRoutes.put('/:id/commands/:cmdId', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
   const { label, command, port, portEnvVar } = parsed.value;
 
-  await sc.updateCommand(cmdId, { label, command, port, portEnvVar });
+  await getServices().startupCommands.updateCommand(cmdId, { label, command, port, portEnvVar });
   return c.json({ ok: true });
 });
 
 // DELETE /api/projects/:id/commands/:cmdId
 projectRoutes.delete('/:id/commands/:cmdId', async (c) => {
   const cmdId = c.req.param('cmdId');
-  await sc.deleteCommand(cmdId);
+  await getServices().startupCommands.deleteCommand(cmdId);
   return c.json({ ok: true });
 });
 
 // ─── Command Execution ─────────────────────────────────
-// Command execution is restricted to admin users since it runs arbitrary shell commands.
 
 // POST /api/projects/:id/commands/:cmdId/start
 projectRoutes.post('/:id/commands/:cmdId/start', requireAdmin, async (c) => {
@@ -338,7 +167,7 @@ projectRoutes.post('/:id/commands/:cmdId/start', requireAdmin, async (c) => {
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 
-  const cmd = await sc.getCommand(cmdId);
+  const cmd = await getServices().startupCommands.getCommand(cmdId);
   if (!cmd) return c.json({ error: 'Command not found' }, 404);
 
   await startCommand(cmdId, cmd.command, project.path, projectId, cmd.label);
@@ -417,8 +246,7 @@ projectRoutes.post('/:id/hooks', async (c) => {
   return c.json(entry, 201);
 });
 
-// PUT /api/projects/:id/hooks/reorder — reorder commands within a hook type
-// IMPORTANT: Must be registered before /:hookType/:index to avoid matching "reorder" as hookType
+// PUT /api/projects/:id/hooks/reorder
 projectRoutes.put('/:id/hooks/reorder', async (c) => {
   const projectId = c.req.param('id');
   const userId = c.get('userId');

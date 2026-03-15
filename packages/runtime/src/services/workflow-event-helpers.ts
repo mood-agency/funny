@@ -8,7 +8,7 @@
  * Used by both git-pipelines.ts and git-workflow-service.ts.
  */
 
-import { saveThreadEvent } from './thread-event-service.js';
+import { getServices } from './service-registry.js';
 import { wsBroker } from './ws-broker.js';
 
 /** Broadcast a thread event over WebSocket without persisting it. */
@@ -36,6 +36,6 @@ export async function emitWorkflowEvent(
   type: string,
   data: Record<string, unknown>,
 ) {
-  await saveThreadEvent(threadId, type, data);
+  await getServices().threadEvents.saveThreadEvent(threadId, type, data);
   broadcastThreadEvent(userId, threadId, type, data);
 }

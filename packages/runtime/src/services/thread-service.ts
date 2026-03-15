@@ -35,10 +35,9 @@ import { augmentPromptWithFiles, type FileRef } from '../utils/file-mentions.js'
 import { startAgent, stopAgent, isAgentRunning, cleanupThreadState } from './agent-runner.js';
 import { stopCommandsByCwd } from './command-runner.js';
 import { cleanupExternalThread } from './ingest-mapper.js';
-import * as mq from './message-queue.js';
 import { launchContainer, stopContainer } from './podman-service.js';
-import { getGithubToken } from './profile-service.js';
-import * as pm from './project-manager.js';
+import type { IProjectRepository } from './server-interfaces.js';
+import { getServices } from './service-registry.js';
 import { threadEventBus } from './thread-event-bus.js';
 import * as tm from './thread-manager.js';
 import { wsBroker } from './ws-broker.js';
@@ -143,11 +142,14 @@ export interface CreateIdleThreadParams {
 }
 
 export async function createIdleThread(params: CreateIdleThreadParams) {
-  const project = await pm.getProject(params.projectId);
+  const project = await getServices().projects.getProject(params.projectId);
   if (!project) throw new ThreadServiceError('Project not found', 404);
 
   // Resolve per-user path (owner uses project.path, member uses localPath)
-  const pathResult = await pm.resolveProjectPath(params.projectId, params.userId);
+  const pathResult = await getServices().projects.resolveProjectPath(
+    params.projectId,
+    params.userId,
+  );
   if (pathResult.isErr()) throw new ThreadServiceError(pathResult.error.message, 400);
   const projectPath = pathResult.value;
 
@@ -236,11 +238,14 @@ export interface CreateAndStartThreadParams {
 }
 
 export async function createAndStartThread(params: CreateAndStartThreadParams) {
-  const project = await pm.getProject(params.projectId);
+  const project = await getServices().projects.getProject(params.projectId);
   if (!project) throw new ThreadServiceError('Project not found', 404);
 
   // Resolve per-user path (owner uses project.path, member uses localPath)
-  const pathResult = await pm.resolveProjectPath(params.projectId, params.userId);
+  const pathResult = await getServices().projects.resolveProjectPath(
+    params.projectId,
+    params.userId,
+  );
   if (pathResult.isErr()) throw new ThreadServiceError(pathResult.error.message, 400);
   const projectPath = pathResult.value;
 
@@ -551,7 +556,7 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     }
 
     const branch = threadBranch || 'main';
-    const githubToken = await getGithubToken(params.userId);
+    const githubToken = await getServices().profile.getGithubToken(params.userId);
 
     // Launch container in background
     void (async () => {
@@ -674,7 +679,10 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
   if (thread.worktreePath) {
     cwd = thread.worktreePath;
   } else {
-    const pathResult = await pm.resolveProjectPath(thread.projectId, params.userId);
+    const pathResult = await getServices().projects.resolveProjectPath(
+      thread.projectId,
+      params.userId,
+    );
     if (pathResult.isErr()) throw new ThreadServiceError(pathResult.error.message, 400);
     cwd = pathResult.value;
   }
@@ -753,7 +761,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
 
   // Check if the agent is running and the project uses queue mode
   const agentRunning = isAgentRunning(params.threadId);
-  const project = await pm.getProject(thread.projectId);
+  const project = await getServices().projects.getProject(thread.projectId);
   const followUpMode = project?.followUpMode || DEFAULT_FOLLOW_UP_MODE;
 
   // When the thread is waiting for user input (plan acceptance, question answer),
@@ -776,7 +784,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     !threadIsTerminal &&
     (followUpMode === 'queue' || params.forceQueue)
   ) {
-    const queued = await mq.enqueue(params.threadId, {
+    const queued = await getServices().messageQueue.enqueue(params.threadId, {
       content: augmentedContent,
       provider: effectiveProvider,
       model: effectiveModel,
@@ -796,8 +804,8 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
       permissionMode: effectivePermission,
     });
 
-    const qCount = await mq.queueCount(params.threadId);
-    const nextMsg = await mq.peek(params.threadId);
+    const qCount = await getServices().messageQueue.queueCount(params.threadId);
+    const nextMsg = await getServices().messageQueue.peek(params.threadId);
     const queueEvent = {
       type: 'thread:queue_update' as const,
       threadId: params.threadId,
@@ -884,7 +892,10 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
   if (thread.worktreePath) {
     cwd = thread.worktreePath;
   } else {
-    const pathResult = await pm.resolveProjectPath(thread.projectId, params.userId);
+    const pathResult = await getServices().projects.resolveProjectPath(
+      thread.projectId,
+      params.userId,
+    );
     if (pathResult.isErr()) throw new ThreadServiceError(pathResult.error.message, 400);
     cwd = pathResult.value;
   }
@@ -978,7 +989,10 @@ export async function updateThread(params: UpdateThreadParams) {
     thread.mode === 'worktree' &&
     thread.provider !== 'external'
   ) {
-    const archivePathResult = await pm.resolveProjectPath(thread.projectId, thread.userId);
+    const archivePathResult = await getServices().projects.resolveProjectPath(
+      thread.projectId,
+      thread.userId,
+    );
     const archivePath = archivePathResult.isOk() ? archivePathResult.value : undefined;
     if (archivePath) {
       await stopCommandsByCwd(thread.worktreePath).catch(() => {});
@@ -993,7 +1007,7 @@ export async function updateThread(params: UpdateThreadParams) {
     }
     updates.worktreePath = null;
     updates.branch = null;
-    await mq.clearQueue(params.threadId);
+    await getServices().messageQueue.clearQueue(params.threadId);
     cleanupThreadState(params.threadId);
   }
 
@@ -1002,8 +1016,11 @@ export async function updateThread(params: UpdateThreadParams) {
   }
 
   // Emit stage-changed events
-  const project = await pm.getProject(thread.projectId);
-  const eventPathResult = await pm.resolveProjectPath(thread.projectId, thread.userId);
+  const project = await getServices().projects.getProject(thread.projectId);
+  const eventPathResult = await getServices().projects.resolveProjectPath(
+    thread.projectId,
+    thread.userId,
+  );
   const eventCwd =
     thread.worktreePath ?? (eventPathResult.isOk() ? eventPathResult.value : (project?.path ?? ''));
   const eventCtx = {
@@ -1042,10 +1059,10 @@ export async function updateThread(params: UpdateThreadParams) {
 async function autoStartIdleThread(
   threadId: string,
   thread: NonNullable<Awaited<ReturnType<typeof tm.getThread>>>,
-  project: NonNullable<Awaited<ReturnType<typeof pm.getProject>>>,
+  project: NonNullable<Awaited<ReturnType<IProjectRepository['getProject']>>>,
 ): Promise<void> {
   // Resolve per-user path (owner uses project.path, member uses localPath)
-  const pathResult = await pm.resolveProjectPath(project.id, thread.userId);
+  const pathResult = await getServices().projects.resolveProjectPath(project.id, thread.userId);
   if (pathResult.isErr()) {
     log.error('Cannot resolve project path for idle thread', {
       namespace: 'agent',
@@ -1249,7 +1266,10 @@ export async function deleteThread(threadId: string): Promise<void> {
   if (thread.worktreePath && thread.mode === 'worktree' && thread.provider !== 'external') {
     await stopCommandsByCwd(thread.worktreePath).catch(() => {});
 
-    const deletePathResult = await pm.resolveProjectPath(thread.projectId, thread.userId);
+    const deletePathResult = await getServices().projects.resolveProjectPath(
+      thread.projectId,
+      thread.userId,
+    );
     const deletePath = deletePathResult.isOk() ? deletePathResult.value : undefined;
     if (deletePath) {
       await removeWorktree(deletePath, thread.worktreePath).catch((e) => {
@@ -1265,7 +1285,7 @@ export async function deleteThread(threadId: string): Promise<void> {
 
   // Stop container for remote threads (best-effort)
   if (thread.containerName && thread.runtime === 'remote') {
-    const project = await pm.getProject(thread.projectId);
+    const project = await getServices().projects.getProject(thread.projectId);
     if (project?.launcherUrl) {
       stopContainer({ containerName: thread.containerName, launcherUrl: project.launcherUrl })
         .then(() => {})
@@ -1275,7 +1295,7 @@ export async function deleteThread(threadId: string): Promise<void> {
     }
   }
 
-  await mq.clearQueue(threadId);
+  await getServices().messageQueue.clearQueue(threadId);
   cleanupThreadState(threadId);
   await tm.deleteThread(threadId);
 }
@@ -1286,12 +1306,12 @@ export async function cancelQueuedMessage(
   threadId: string,
   messageId: string,
 ): Promise<{ queuedCount: number }> {
-  const cancelled = await mq.cancel(messageId);
+  const cancelled = await getServices().messageQueue.cancel(messageId);
   if (!cancelled) throw new ThreadServiceError('Queued message not found', 404);
 
   const thread = await tm.getThread(threadId);
-  const qCount = await mq.queueCount(threadId);
-  const nextMsg = await mq.peek(threadId);
+  const qCount = await getServices().messageQueue.queueCount(threadId);
+  const nextMsg = await getServices().messageQueue.peek(threadId);
 
   const queueEvent = {
     type: 'thread:queue_update' as const,
@@ -1311,13 +1331,13 @@ export async function updateQueuedMessage(
   threadId: string,
   messageId: string,
   content: string,
-): Promise<{ queuedCount: number; queuedMessage: mq.QueueEntry }> {
-  const queuedMessage = await mq.update(messageId, content);
+): Promise<{ queuedCount: number; queuedMessage: any }> {
+  const queuedMessage = await getServices().messageQueue.update(messageId, content);
   if (!queuedMessage) throw new ThreadServiceError('Queued message not found', 404);
 
   const thread = await tm.getThread(threadId);
-  const qCount = await mq.queueCount(threadId);
-  const nextMsg = await mq.peek(threadId);
+  const qCount = await getServices().messageQueue.queueCount(threadId);
+  const nextMsg = await getServices().messageQueue.peek(threadId);
 
   const queueEvent = {
     type: 'thread:queue_update' as const,

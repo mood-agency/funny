@@ -26,8 +26,8 @@ import { log } from '../lib/logger.js';
 import { metric, startSpan, setThreadTrace, clearThreadTrace } from '../lib/telemetry.js';
 import { AgentMessageHandler, type ProjectLookup } from './agent-message-handler.js';
 import { AgentStateTracker } from './agent-state.js';
-import * as pm from './project-manager.js';
 import type { IThreadManager, IWSBroker } from './server-interfaces.js';
+import { getServices } from './service-registry.js';
 import { buildThreadContext, needsContextRecovery } from './thread-context-builder.js';
 import { threadEventBus } from './thread-event-bus.js';
 import * as tm from './thread-manager.js';
@@ -218,7 +218,9 @@ export class AgentRunner {
   ): Promise<void> {
     const thread = await this.threadManager.getThread(threadId);
     if (!thread) return;
-    const project = thread.projectId ? await pm.getProject(thread.projectId) : undefined;
+    const project = thread.projectId
+      ? await getServices().projects.getProject(thread.projectId)
+      : undefined;
     threadEventBus.emit('agent:completed', {
       threadId,
       projectId: thread.projectId,
@@ -333,7 +335,9 @@ export class AgentRunner {
     const resumePrefix = getResumeSystemPrefix(resumeReason, isPostMerge);
 
     // Inject project-level system prompt
-    const project = thread?.projectId ? await pm.getProject(thread.projectId) : undefined;
+    const project = thread?.projectId
+      ? await getServices().projects.getProject(thread.projectId)
+      : undefined;
     const projectSystemPrompt = project?.systemPrompt;
 
     // For fresh starts: prepend project system prompt to the user's message.

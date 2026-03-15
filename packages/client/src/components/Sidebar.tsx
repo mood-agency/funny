@@ -399,6 +399,7 @@ export function AppSidebar() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid="sidebar-search"
                   onClick={() => {
                     navigate(buildPath('/list'));
@@ -415,6 +416,7 @@ export function AppSidebar() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid="sidebar-kanban"
                   onClick={() => {
                     navigate(buildPath('/kanban'));
@@ -431,6 +433,7 @@ export function AppSidebar() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid="sidebar-grid"
                   onClick={() => navigate(buildPath('/grid'))}
                   className="text-muted-foreground"
@@ -445,6 +448,7 @@ export function AppSidebar() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid="sidebar-analytics"
                   onClick={() => navigate(buildPath('/analytics'))}
                   className="text-muted-foreground"
@@ -459,6 +463,7 @@ export function AppSidebar() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
+                  tabIndex={-1}
                   data-testid="sidebar-collapse"
                   onClick={toggleSidebar}
                   className="text-muted-foreground"

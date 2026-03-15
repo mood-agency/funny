@@ -1,28 +1,26 @@
 /**
- * @domain subdomain: Project Management
- * @domain subdomain-type: supporting
- * @domain type: repository
- * @domain layer: infrastructure
- * @domain aggregate: Project
- * @domain depends: Database, GitCore
+ * Project CRUD backed by the server's database.
+ *
+ * This handles the pure data operations for the runtime's project model
+ * (local projects with git validation). The runtime's project-manager
+ * adds filesystem/git validation on top of these operations.
  */
 
 import { resolve, isAbsolute } from 'path';
 
-import { isGitRepoSync, ensureWeaveConfigured } from '@funny/core/git';
 import type { Project, FollowUpMode } from '@funny/shared';
+import { isGitRepoSync, ensureWeaveConfigured } from '@funny/core/git';
 import { badRequest, notFound, conflict, internal, type DomainError } from '@funny/shared/errors';
 import { DEFAULT_FOLLOW_UP_MODE } from '@funny/shared/models';
 import { eq, and, asc, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { ok, err, type Result } from 'neverthrow';
 
-import { db, schema, dbAll, dbGet, dbRun } from '../db/index.js';
-import { createPipeline } from './pipeline-manager.js';
+import { db, dbAll, dbGet, dbRun } from '../db/index.js';
+import * as schema from '../db/schema.js';
 
 type ProjectRow = typeof schema.projects.$inferSelect;
 
-/** Convert DB row to Project, mapping nullable fields to optional. */
 function toProject(row: ProjectRow): Project {
   const {
     color,
@@ -58,10 +56,6 @@ function toProject(row: ProjectRow): Project {
   };
 }
 
-/**
- * List projects. In local mode (userId='__local__'), returns all projects.
- * In multi mode, filters by userId.
- */
 export async function listProjects(userId: string): Promise<Project[]> {
   if (userId === '__local__') {
     return (
@@ -84,9 +78,6 @@ export async function listProjects(userId: string): Promise<Project[]> {
   ).map(toProject);
 }
 
-/**
- * List projects associated with an organization via the team_projects join table.
- */
 export async function listProjectsByOrg(orgId: string): Promise<Project[]> {
   const teamProjectRows = await dbAll(
     db
@@ -109,9 +100,6 @@ export async function listProjectsByOrg(orgId: string): Promise<Project[]> {
   ).map(toProject);
 }
 
-/**
- * Check if a project is associated with an organization via the team_projects join table.
- */
 export async function isProjectInOrg(projectId: string, orgId: string): Promise<boolean> {
   const row = await dbGet(
     db
@@ -135,7 +123,6 @@ export async function projectNameExists(
   orgId?: string | null,
 ): Promise<boolean> {
   if (orgId) {
-    // Org mode: check if any project in this org has the same name
     const orgProjects = await listProjectsByOrg(orgId);
     return orgProjects.some((p) => p.name === name);
   }
@@ -168,7 +155,6 @@ export async function createProject(
   }
 
   if (orgId) {
-    // Org mode: check duplicates within the org only
     const orgProjects = await listProjectsByOrg(orgId);
     if (orgProjects.some((p) => p.path === path)) {
       return err(conflict(`A project with this path already exists: ${path}`));
@@ -177,7 +163,6 @@ export async function createProject(
       return err(conflict(`A project with this name already exists: ${name}`));
     }
   } else {
-    // Personal mode: check duplicates within user's own projects
     const existingPath =
       userId === '__local__'
         ? await dbGet(db.select().from(schema.projects).where(eq(schema.projects.path, path)))
@@ -205,22 +190,14 @@ export async function createProject(
     }
   }
 
-  // Get existing project count to assign sortOrder
   const existing =
     userId === '__local__'
       ? await dbAll(db.select().from(schema.projects))
       : await dbAll(db.select().from(schema.projects).where(eq(schema.projects.userId, userId)));
 
-  // Auto-assign a color from the palette, cycling based on existing project count
   const PALETTE = [
-    '#7CB9E8', // pastel blue
-    '#F4A4A4', // pastel red
-    '#A8D5A2', // pastel green
-    '#F9D98C', // pastel amber
-    '#C3A6E0', // pastel violet
-    '#F2A6C8', // pastel pink
-    '#89D4CF', // pastel teal
-    '#F9B97C', // pastel orange
+    '#7CB9E8', '#F4A4A4', '#A8D5A2', '#F9D98C',
+    '#C3A6E0', '#F2A6C8', '#89D4CF', '#F9B97C',
   ];
   const autoColor = PALETTE[existing.length % PALETTE.length];
 
@@ -246,21 +223,17 @@ export async function createProject(
 
   await dbRun(db.insert(schema.projects).values(projectRow));
 
-  // Auto-configure Weave semantic merge driver (fire-and-forget)
   void ensureWeaveConfigured(project.path);
 
-  // Auto-create a default pipeline so review triggers on every commit
-  void createPipeline({
+  // Auto-create a default pipeline
+  const { createPipeline: createPipelineFn } = await import('./pipeline-repository.js');
+  void createPipelineFn({
     projectId: project.id,
     userId,
     name: 'Default Pipeline',
   });
 
   return ok(project);
-}
-
-export function renameProject(id: string, name: string): Promise<Result<Project, DomainError>> {
-  return updateProject(id, { name });
 }
 
 export async function updateProject(
@@ -284,7 +257,6 @@ export async function updateProject(
     return err(notFound('Project not found'));
   }
 
-  // Validate name uniqueness if name is being updated
   if (fields.name !== undefined) {
     const existingName = await dbGet(
       db.select().from(schema.projects).where(eq(schema.projects.name, fields.name)),
@@ -294,7 +266,6 @@ export async function updateProject(
     }
   }
 
-  // Build update object with only provided fields
   const updateData: Record<string, unknown> = {};
   if (fields.name !== undefined) updateData.name = fields.name;
   if (fields.color !== undefined) updateData.color = fields.color;
@@ -313,9 +284,6 @@ export async function updateProject(
   return ok(toProject({ ...project, ...updateData } as ProjectRow));
 }
 
-/**
- * Associate a project with an organization via the team_projects join table.
- */
 export async function addProjectToOrg(projectId: string, orgId: string): Promise<void> {
   await dbRun(
     db.insert(schema.teamProjects).values({
@@ -330,10 +298,6 @@ export async function deleteProject(id: string): Promise<void> {
   await dbRun(db.delete(schema.projects).where(eq(schema.projects.id, id)));
 }
 
-/**
- * Get the local path configured by a specific member for a project.
- * Returns null if no member record or localPath is not set.
- */
 export async function getMemberLocalPath(
   projectId: string,
   userId: string,
@@ -352,10 +316,6 @@ export async function getMemberLocalPath(
   return (row as { localPath: string | null } | undefined)?.localPath ?? null;
 }
 
-/**
- * Resolve the correct filesystem path for a user on a project.
- * Owners use project.path; members use their localPath from project_members.
- */
 export async function resolveProjectPath(
   projectId: string,
   userId: string,
@@ -363,10 +323,8 @@ export async function resolveProjectPath(
   const project = await getProject(projectId);
   if (!project) return err(notFound('Project not found'));
 
-  // Owner → use project.path directly
   if (project.userId === userId) return ok(project.path);
 
-  // Member → look up their localPath
   const localPath = await getMemberLocalPath(projectId, userId);
   if (!localPath) {
     return err(
@@ -402,4 +360,8 @@ export async function reorderProjects(
   } catch (e) {
     return err(internal(`Failed to reorder projects: ${e}`));
   }
+}
+
+export function renameProject(id: string, name: string) {
+  return updateProject(id, { name });
 }

@@ -4,6 +4,10 @@
  * @domain type: adapter
  * @domain layer: infrastructure
  * @domain depends: ThreadService, AgentRunner, ThreadManager, WSBroker
+ *
+ * Runner-only thread routes — agent operations and process management.
+ * Thread data CRUD (list, get, update, delete, comments) is handled
+ * by the server package directly.
  */
 
 import type { DomainError } from '@funny/shared/errors';
@@ -14,8 +18,7 @@ import { err } from 'neverthrow';
 import { log } from '../lib/logger.js';
 import { metric } from '../lib/telemetry.js';
 import { requestSpan } from '../middleware/tracing.js';
-import * as mq from '../services/message-queue.js';
-import { getThreadEvents } from '../services/thread-event-service.js';
+import { getServices } from '../services/service-registry.js';
 import * as tm from '../services/thread-manager.js';
 import {
   createIdleThread,
@@ -23,22 +26,18 @@ import {
   sendMessage,
   stopThread,
   approveToolCall,
-  updateThread as updateThreadService,
-  deleteThread as deleteThreadService,
   cancelQueuedMessage,
   updateQueuedMessage as updateQueuedMessageService,
-  deleteComment as deleteCommentService,
   ThreadServiceError,
 } from '../services/thread-service.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
-import { requireThread, requireThreadWithMessages } from '../utils/route-helpers.js';
+import { requireThread } from '../utils/route-helpers.js';
 import {
   createThreadSchema,
   createIdleThreadSchema,
   sendMessageSchema,
   updateQueuedMessageSchema,
-  updateThreadSchema,
   approveToolSchema,
   validate,
 } from '../validation/schemas.js';
@@ -83,86 +82,7 @@ function handleServiceError(c: any, error: unknown) {
   return resultToResponse(c, err(toDomainError(error)));
 }
 
-// ── GET routes (query-only, already thin) ────────────────────────
-
-// GET /api/threads?projectId=xxx&includeArchived=true
-threadRoutes.get('/', async (c) => {
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const projectId = c.req.query('projectId');
-  const includeArchived = c.req.query('includeArchived') === 'true';
-  const threads = await tm.listThreads({
-    projectId: projectId || undefined,
-    userId,
-    includeArchived,
-    organizationId: orgId,
-  });
-  return c.json(threads);
-});
-
-// GET /api/threads/archived?page=1&limit=100&search=xxx
-threadRoutes.get('/archived', async (c) => {
-  const userId = c.get('userId') as string;
-  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
-  const limit = Math.min(1000, Math.max(1, parseInt(c.req.query('limit') || '100', 10)));
-  const search = c.req.query('search')?.trim() || '';
-
-  const { threads, total } = await tm.listArchivedThreads({ page, limit, search, userId });
-  return c.json({ threads, total, page, limit });
-});
-
-// GET /api/threads/search/content?q=xxx&projectId=xxx
-threadRoutes.get('/search/content', async (c) => {
-  const userId = c.get('userId') as string;
-  const q = c.req.query('q')?.trim() || '';
-  const projectId = c.req.query('projectId');
-  if (!q) return c.json({ threadIds: [], snippets: {} });
-  const matches = await tm.searchThreadIdsByContent({
-    query: q,
-    projectId: projectId || undefined,
-    userId,
-  });
-  return c.json({ threadIds: [...matches.keys()], snippets: Object.fromEntries(matches) });
-});
-
-// GET /api/threads/:id?messageLimit=50
-threadRoutes.get('/:id', async (c) => {
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThreadWithMessages(c.req.param('id'), userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-  return c.json(threadResult.value);
-});
-
-// GET /api/threads/:id/messages?cursor=<ISO>&limit=50
-threadRoutes.get('/:id/messages', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThread(id, userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-
-  const cursor = c.req.query('cursor');
-  const limitParam = c.req.query('limit');
-  const limit = Math.min(200, Math.max(1, parseInt(limitParam || '50', 10)));
-
-  const result = await tm.getThreadMessages({ threadId: id, cursor: cursor || undefined, limit });
-  return c.json(result);
-});
-
-// GET /api/threads/:id/events
-threadRoutes.get('/:id/events', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThread(id, userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-
-  const events = await getThreadEvents(id);
-  return c.json({ events });
-});
-
-// ── POST routes (delegated to ThreadService) ────────────────────
+// ── Thread creation (agent operations) ───────────────────────
 
 // POST /api/threads/idle
 threadRoutes.post('/idle', async (c) => {
@@ -211,7 +131,7 @@ threadRoutes.post('/:id/message', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
   const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
+  const orgId = c.get('organizationId') ?? undefined;
   const threadResult = await requireThread(id, userId, orgId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
@@ -231,7 +151,7 @@ threadRoutes.post('/:id/message', async (c) => {
 threadRoutes.post('/:id/stop', async (c) => {
   const id = c.req.param('id');
   const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
+  const orgId = c.get('organizationId') ?? undefined;
   const threadResult = await requireThread(id, userId, orgId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
@@ -264,7 +184,7 @@ threadRoutes.post('/:id/approve-tool', async (c) => {
   }
 });
 
-// PATCH /api/threads/:id/tool-calls/:toolCallId — persist tool call output (e.g. user answer)
+// PATCH /api/threads/:id/tool-calls/:toolCallId — persist tool call output
 threadRoutes.patch('/:id/tool-calls/:toolCallId', async (c) => {
   const id = c.req.param('id');
   const toolCallId = c.req.param('toolCallId');
@@ -287,38 +207,30 @@ threadRoutes.patch('/:id/tool-calls/:toolCallId', async (c) => {
   }
 });
 
-// ── PATCH / DELETE routes ───────────────────────────────────────
+// ── Thread events (runner-side storage) ──────────────────────
 
-// PATCH /api/threads/:id
-threadRoutes.patch('/:id', async (c) => {
+// GET /api/threads/:id/events
+threadRoutes.get('/:id/events', async (c) => {
   const id = c.req.param('id');
   const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const raw = await c.req.json();
-  const parsed = validate(updateThreadSchema, raw);
-  if (parsed.isErr()) return resultToResponse(c, parsed);
-
+  const orgId = c.get('organizationId') ?? undefined;
   const threadResult = await requireThread(id, userId, orgId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
-  try {
-    const updated = await updateThreadService({ ...parsed.value, threadId: id, userId });
-    return c.json(updated);
-  } catch (error) {
-    return handleServiceError(c, error);
-  }
+  const events = await getServices().threadEvents.getThreadEvents(id);
+  return c.json({ events });
 });
 
-// ── Message Queue ────────────────────────────────────────────────
+// ── Message Queue ────────────────────────────────────────────
 
 // GET /api/threads/:id/queue
 threadRoutes.get('/:id/queue', async (c) => {
   const id = c.req.param('id');
   const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
+  const orgId = c.get('organizationId') ?? undefined;
   const threadResult = await requireThread(id, userId, orgId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
-  return c.json(await mq.listQueue(id));
+  return c.json(await getServices().messageQueue.listQueue(id));
 });
 
 // DELETE /api/threads/:id/queue/:messageId
@@ -326,12 +238,12 @@ threadRoutes.delete('/:id/queue/:messageId', async (c) => {
   const id = c.req.param('id');
   const messageId = c.req.param('messageId');
   const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
+  const orgId = c.get('organizationId') ?? undefined;
   const threadResult = await requireThread(id, userId, orgId);
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
   try {
-    const { queuedCount } = cancelQueuedMessage(id, messageId);
+    const { queuedCount } = await cancelQueuedMessage(id, messageId);
     return c.json({ ok: true, queuedCount });
   } catch (error) {
     return handleServiceError(c, error);
@@ -352,73 +264,12 @@ threadRoutes.patch('/:id/queue/:messageId', async (c) => {
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
 
   try {
-    const { queuedCount, queuedMessage } = updateQueuedMessageService(
+    const { queuedCount, queuedMessage } = await updateQueuedMessageService(
       id,
       messageId,
       parsed.value.content,
     );
     return c.json({ ok: true, queuedCount, message: queuedMessage });
-  } catch (error) {
-    return handleServiceError(c, error);
-  }
-});
-
-// ── Thread Comments ──────────────────────────────────────────────
-
-// GET /api/threads/:id/comments
-threadRoutes.get('/:id/comments', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThread(id, userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-  return c.json(await tm.listComments(id));
-});
-
-// POST /api/threads/:id/comments
-threadRoutes.post('/:id/comments', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThread(id, userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-
-  const { content } = await c.req.json();
-  if (!content || typeof content !== 'string') {
-    return c.json({ error: 'content is required' }, 400);
-  }
-  const comment = await tm.insertComment({ threadId: id, userId, source: 'user', content });
-  return c.json(comment, 201);
-});
-
-// DELETE /api/threads/:id/comments/:commentId
-threadRoutes.delete('/:id/comments/:commentId', async (c) => {
-  const id = c.req.param('id');
-  const commentId = c.req.param('commentId');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThread(id, userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-
-  try {
-    await deleteCommentService(id, commentId);
-    return c.json({ ok: true });
-  } catch (error) {
-    return handleServiceError(c, error);
-  }
-});
-
-// DELETE /api/threads/:id
-threadRoutes.delete('/:id', async (c) => {
-  const id = c.req.param('id');
-  const userId = c.get('userId') as string;
-  const orgId = c.get('organizationId');
-  const threadResult = await requireThread(id, userId, orgId);
-  if (threadResult.isErr()) return resultToResponse(c, threadResult);
-
-  try {
-    await deleteThreadService(id);
-    return c.json({ ok: true });
   } catch (error) {
     return handleServiceError(c, error);
   }

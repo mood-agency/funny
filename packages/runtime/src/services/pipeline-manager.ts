@@ -17,6 +17,7 @@
  *   - cleanupReviewerThread
  */
 
+import { runPipeline, type PipelineStateChange } from '@funny/pipelines';
 import type {
   AgentModel,
   PipelineRunStatus,
@@ -24,18 +25,15 @@ import type {
   PipelineVerdict,
   WSEvent,
 } from '@funny/shared';
-import { runPipeline, type PipelineStateChange } from '@funny/pipelines';
-import { codeReviewPipeline, type CodeReviewPipelineContext } from '../pipelines/code-review.pipeline.js';
-import { eq } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
 
-import { db, dbAll, dbGet, dbRun } from '../db/index.js';
-import { pipelineRuns, pipelines } from '../db/schema.js';
 import { log } from '../lib/logger.js';
+import {
+  codeReviewPipeline,
+  type CodeReviewPipelineContext,
+} from '../pipelines/code-review.pipeline.js';
 import { RuntimeActionProvider, RuntimeProgressReporter } from './pipeline-adapter.js';
-import * as pm from './project-manager.js';
+import { getServices } from './service-registry.js';
 import * as tm from './thread-manager.js';
-import { wsBroker } from './ws-broker.js';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -67,11 +65,9 @@ export interface PipelineConfig {
 
 const activeRuns = new Map<string, AbortController>();
 
-// ── Pipeline Repository ─────────────────────────────────────
+// ── Pipeline Repository (delegates to service provider) ─────
 
-type PipelineRow = typeof pipelines.$inferSelect;
-
-function toPipelineConfig(row: PipelineRow): PipelineConfig {
+function toPipelineConfig(row: any): PipelineConfig {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -98,13 +94,12 @@ function toPipelineConfig(row: PipelineRow): PipelineConfig {
 }
 
 export async function getPipelineForProject(projectId: string): Promise<PipelineConfig | null> {
-  const rows = await dbAll(db.select().from(pipelines).where(eq(pipelines.projectId, projectId)));
-  const row = rows.find((r: any) => r.enabled);
+  const row = await getServices().pipelines.getPipelineForProject(projectId);
   if (!row) return null;
   return toPipelineConfig(row);
 }
 
-export async function createPipeline(data: {
+export function createPipeline(data: {
   projectId: string;
   userId: string;
   name: string;
@@ -125,53 +120,23 @@ export async function createPipeline(data: {
   testFixMaxIterations?: number;
   testFixerPrompt?: string;
 }): Promise<string> {
-  const id = nanoid();
-  const now = new Date().toISOString();
-  await dbRun(
-    db.insert(pipelines).values({
-      id,
-      projectId: data.projectId,
-      userId: data.userId,
-      name: data.name,
-      enabled: 1,
-      reviewModel: data.reviewModel || 'sonnet',
-      fixModel: data.fixModel || 'sonnet',
-      maxIterations: data.maxIterations || 10,
-      precommitFixEnabled: data.precommitFixEnabled ? 1 : 0,
-      precommitFixModel: data.precommitFixModel || 'sonnet',
-      precommitFixMaxIterations: data.precommitFixMaxIterations || 3,
-      reviewerPrompt: data.reviewerPrompt || null,
-      correctorPrompt: data.correctorPrompt || null,
-      precommitFixerPrompt: data.precommitFixerPrompt || null,
-      commitMessagePrompt: data.commitMessagePrompt || null,
-      testEnabled: data.testEnabled ? 1 : 0,
-      testCommand: data.testCommand || null,
-      testFixEnabled: data.testFixEnabled ? 1 : 0,
-      testFixModel: data.testFixModel || 'sonnet',
-      testFixMaxIterations: data.testFixMaxIterations || 3,
-      testFixerPrompt: data.testFixerPrompt || null,
-      createdAt: now,
-      updatedAt: now,
-    }),
-  );
-  return id;
+  return getServices().pipelines.createPipeline(data);
 }
 
-export async function getPipelineById(id: string) {
-  return dbGet(db.select().from(pipelines).where(eq(pipelines.id, id)));
+export function getPipelineById(id: string) {
+  return getServices().pipelines.getPipelineById(id);
 }
 
-export async function getPipelinesByProject(projectId: string) {
-  return dbAll(db.select().from(pipelines).where(eq(pipelines.projectId, projectId)));
+export function getPipelinesByProject(projectId: string) {
+  return getServices().pipelines.getPipelinesByProject(projectId);
 }
 
-export async function updatePipeline(id: string, updates: Record<string, unknown>) {
-  const data = { ...updates, updatedAt: new Date().toISOString() };
-  await dbRun(db.update(pipelines).set(data).where(eq(pipelines.id, id)));
+export function updatePipeline(id: string, updates: Record<string, unknown>) {
+  return getServices().pipelines.updatePipeline(id, updates);
 }
 
-export async function deletePipeline(id: string) {
-  await dbRun(db.delete(pipelines).where(eq(pipelines.id, id)));
+export function deletePipeline(id: string) {
+  return getServices().pipelines.deletePipeline(id);
 }
 
 // ── Pipeline Run Repository ─────────────────────────────────
@@ -182,39 +147,25 @@ async function createRun(data: {
   maxIterations: number;
   commitSha?: string;
 }): Promise<string> {
-  const id = nanoid();
-  await dbRun(
-    db.insert(pipelineRuns).values({
-      id,
-      pipelineId: data.pipelineId,
-      threadId: data.threadId,
-      status: 'reviewing',
-      currentStage: 'reviewer',
-      iteration: 1,
-      maxIterations: data.maxIterations,
-      commitSha: data.commitSha,
-      createdAt: new Date().toISOString(),
-    }),
-  );
-  return id;
+  return getServices().pipelines.createRun(data);
 }
 
 async function updateRun(id: string, updates: Record<string, unknown>) {
-  await dbRun(db.update(pipelineRuns).set(updates).where(eq(pipelineRuns.id, id)));
+  return getServices().pipelines.updateRun(id, updates);
 }
 
-export async function getRunById(id: string) {
-  return dbGet(db.select().from(pipelineRuns).where(eq(pipelineRuns.id, id)));
+export function getRunById(id: string) {
+  return getServices().pipelines.getRunById(id);
 }
 
-export async function getRunsForThread(threadId: string) {
-  return dbAll(db.select().from(pipelineRuns).where(eq(pipelineRuns.threadId, threadId)));
+export function getRunsForThread(threadId: string) {
+  return getServices().pipelines.getRunsForThread(threadId);
 }
 
 // ── WS emission helpers ─────────────────────────────────────
 
 function emitPipelineEvent(userId: string, event: WSEvent) {
-  wsBroker.emitToUser(userId, event);
+  getServices().wsBroker.emitToUser(userId, event);
 }
 
 // ── Node name → DB status/stage mapping ──────────────────────
@@ -448,7 +399,7 @@ export async function cleanupReviewerThread(
   const reviewerThread = await tm.getThread(reviewerThreadId);
   if (!reviewerThread) return;
 
-  const project = await pm.getProject(projectId);
+  const project = await getServices().projects.getProject(projectId);
   if (!project) return;
 
   if (reviewerThread.worktreePath && reviewerThread.mode === 'worktree') {

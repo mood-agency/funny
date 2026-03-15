@@ -198,8 +198,8 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const handleFinish = async () => {
     const res = await api.completeSetup();
     if (res.isErr()) {
-      // Retry once after a short delay
-      setTimeout(() => api.completeSetup(), 2000);
+      // Retry once before proceeding
+      await api.completeSetup();
     }
     localStorage.setItem('funny:setupCompleted', 'true');
     onComplete();

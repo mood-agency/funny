@@ -1,11 +1,5 @@
 /**
- * @domain subdomain: Thread Management
- * @domain subdomain-type: core
- * @domain type: repository
- * @domain layer: infrastructure
- * @domain depends: Database
- *
- * Persists thread events (git operations, status changes) for historical tracking.
+ * Thread event persistence backed by the server's database.
  */
 
 import { eq, desc } from 'drizzle-orm';
@@ -22,9 +16,6 @@ export interface ThreadEvent {
   timestamp?: number;
 }
 
-/**
- * Create a new thread event in the database
- */
 export async function createThreadEvent(event: ThreadEvent): Promise<void> {
   try {
     const eventId = event.id || crypto.randomUUID();
@@ -39,12 +30,6 @@ export async function createThreadEvent(event: ThreadEvent): Promise<void> {
       data: JSON.stringify(event.data),
       createdAt,
     });
-
-    log.debug('[thread-event-service] Event persisted', {
-      eventId,
-      threadId: event.threadId,
-      type: event.type,
-    });
   } catch (error) {
     log.error('[thread-event-service] Failed to persist event', {
       error,
@@ -53,9 +38,6 @@ export async function createThreadEvent(event: ThreadEvent): Promise<void> {
   }
 }
 
-/**
- * Convenience wrapper: save a thread event by individual arguments.
- */
 export async function saveThreadEvent(
   threadId: string,
   type: string,
@@ -64,9 +46,6 @@ export async function saveThreadEvent(
   return createThreadEvent({ threadId, type, data });
 }
 
-/**
- * Get all events for a thread, ordered by createdAt descending
- */
 export async function getThreadEvents(threadId: string): Promise<ThreadEvent[]> {
   try {
     const rows = await db
@@ -83,25 +62,15 @@ export async function getThreadEvents(threadId: string): Promise<ThreadEvent[]> 
       createdAt: row.createdAt,
     }));
   } catch (error) {
-    log.error('[thread-event-service] Failed to retrieve events', {
-      error,
-      threadId,
-    });
+    log.error('[thread-event-service] Failed to retrieve events', { error, threadId });
     return [];
   }
 }
 
-/**
- * Delete all events for a thread
- */
 export async function deleteThreadEvents(threadId: string): Promise<void> {
   try {
     await db.delete(threadEvents).where(eq(threadEvents.threadId, threadId));
-    log.debug('[thread-event-service] Events deleted', { threadId });
   } catch (error) {
-    log.error('[thread-event-service] Failed to delete events', {
-      error,
-      threadId,
-    });
+    log.error('[thread-event-service] Failed to delete events', { error, threadId });
   }
 }

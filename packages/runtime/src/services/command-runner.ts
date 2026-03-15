@@ -11,7 +11,7 @@
  */
 
 import { log } from '../lib/logger.js';
-import * as pm from './project-manager.js';
+import { getServices } from './service-registry.js';
 import { wsBroker } from './ws-broker.js';
 
 const KILL_GRACE_MS = 3_000;
@@ -52,7 +52,7 @@ async function emitWS(type: string, data: unknown, projectId?: string) {
   const event = { type, threadId: '', data } as any;
   // Look up project userId for per-user filtering
   if (projectId) {
-    const project = await pm.getProject(projectId);
+    const project = await getServices().projects.getProject(projectId);
     if (project?.userId && project.userId !== '__local__') {
       wsBroker.emitToUser(project.userId, event);
       return;

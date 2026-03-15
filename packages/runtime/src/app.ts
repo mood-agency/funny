@@ -34,8 +34,6 @@ import { authMiddleware, forwardedAuthMiddleware } from './middleware/auth.js';
 import { handleError } from './middleware/error-handler.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { tracingMiddleware } from './middleware/tracing.js';
-import { analyticsRoutes } from './routes/analytics.js';
-import { automationRoutes } from './routes/automations.js';
 import browseRoutes from './routes/browse.js';
 import filesRoutes from './routes/files.js';
 import { gitRoutes, invalidateGitStatusCacheByProject } from './routes/git.js';
@@ -43,14 +41,9 @@ import { githubRoutes } from './routes/github.js';
 import { ingestRoutes } from './routes/ingest.js';
 import mcpRoutes from './routes/mcp.js';
 import { memoryRoutes } from './routes/memory.js';
-import { pipelineRoutes } from './routes/pipelines.js';
 import pluginRoutes from './routes/plugins.js';
-import { profileRoutes } from './routes/profile.js';
 import { projectRoutes } from './routes/projects.js';
-import { settingsRoutes } from './routes/settings.js';
 import skillsRoutes from './routes/skills.js';
-import { teamProjectRoutes } from './routes/team-projects.js';
-import { teamSettingsRoutes } from './routes/team-settings.js';
 import { testRoutes } from './routes/tests.js';
 import { threadRoutes } from './routes/threads.js';
 import { worktreeRoutes } from './routes/worktrees.js';
@@ -60,10 +53,9 @@ import { rehydrateWatchers } from './services/git-watcher-service.js';
 import { registerAllHandlers } from './services/handlers/handler-registry.js';
 import type { HandlerServiceContext } from './services/handlers/types.js';
 import { startExternalThreadSweep } from './services/ingest-mapper.js';
-import * as mq from './services/message-queue.js';
-import * as pm from './services/project-manager.js';
 import * as ptyManager from './services/pty-manager.js';
-import { saveThreadEvent } from './services/thread-event-service.js';
+import type { RuntimeServiceProvider } from './services/service-provider.js';
+import { getServices, setServices } from './services/service-registry.js';
 import {
   markStaleThreadsInterrupted,
   markStaleExternalThreadsStopped,
@@ -86,14 +78,22 @@ export interface RuntimeAppOptions {
   clientPort?: number;
   /** Custom CORS origin (comma-separated) */
   corsOrigin?: string;
-  /** Skip DB init (if caller already initialized DB) */
-  skipDbInit?: boolean;
-  /** Pre-existing database connection to share (used with skipDbInit) */
+  /**
+   * Pre-existing database connection to share.
+   * Required for legacy subsystems (pty-manager, runner-manager, email)
+   * that still use direct DB access. Will be removed once those are migrated.
+   */
   dbConnection?: import('@funny/shared/db/connection').DatabaseConnection;
   /** Skip auth setup (if server handles auth) */
   skipAuthSetup?: boolean;
   /** Skip static file serving */
   skipStaticServing?: boolean;
+  /**
+   * Injected service provider for all data access.
+   * When omitted (runner mode), a stateless provider is created
+   * that proxies to the server via WebSocket.
+   */
+  services?: RuntimeServiceProvider;
 }
 
 export interface RuntimeApp {
@@ -119,7 +119,7 @@ export interface RuntimeApp {
  * Create the runtime Hono application with all routes mounted.
  * Does NOT start a server — caller is responsible for that.
  */
-export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise<RuntimeApp> {
+export async function createRuntimeApp(options: RuntimeAppOptions): Promise<RuntimeApp> {
   const clientPort = options.clientPort ?? (Number(process.env.CLIENT_PORT) || 5173);
   const corsOrigin = options.corsOrigin ?? process.env.CORS_ORIGIN;
 
@@ -213,7 +213,9 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
     return c.json({});
   });
 
-  // Mount routes
+  // Mount routes — only runner-specific operations
+  // Server-only routes (analytics, pipelines, profile, team-projects, team-settings)
+  // are handled by the server package directly.
   app.route('/api/projects', projectRoutes);
   app.route('/api/threads', threadRoutes);
   app.route('/api/git', gitRoutes);
@@ -223,14 +225,7 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
   app.route('/api/skills', skillsRoutes);
   app.route('/api/plugins', pluginRoutes);
   app.route('/api/worktrees', worktreeRoutes);
-  app.route('/api/automations', automationRoutes);
-  app.route('/api/pipelines', pipelineRoutes);
-  app.route('/api/profile', profileRoutes);
   app.route('/api/github', githubRoutes);
-  app.route('/api/analytics', analyticsRoutes);
-  app.route('/api/settings', settingsRoutes);
-  app.route('/api/team-projects', teamProjectRoutes);
-  app.route('/api/team-settings', teamSettingsRoutes);
   app.route('/api/tests', testRoutes);
   app.route('/api/projects', memoryRoutes);
 
@@ -243,23 +238,28 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
     log.info('Serving static files', { namespace: 'server', dir: clientDistDir });
   }
 
-  // ── init() — database, migrations, auth, handlers ──────────────
+  // ── init() — service provider, handlers, startup tasks ──────────
   async function init() {
+    // Wire up the service provider — injected by the server, or auto-created for runner mode.
+    if (options.services) {
+      setServices(options.services);
+      log.info('Service provider injected by server', { namespace: 'server' });
+    } else {
+      const { createRunnerServiceProvider } = await import('./services/runner-service-provider.js');
+      setServices(createRunnerServiceProvider());
+      log.info('Stateless runner service provider created', { namespace: 'server' });
+    }
+
     const isRunnerMode = !!process.env.TEAM_SERVER_URL;
 
-    // In runner mode, skip DB and auth — the server owns those.
-    // The runner uses RemoteThreadManager to proxy persistence via WebSocket.
-    if (!isRunnerMode) {
-      if (!options.skipDbInit) {
-        const { initPostgres } = await import('./db/index.js');
-        const { autoMigrate } = await import('./db/migrate.js');
-        await initPostgres();
-        await autoMigrate();
-      } else if (options.dbConnection) {
-        const { setConnection } = await import('./db/index.js');
-        setConnection(options.dbConnection);
-      }
+    // Share the DB connection for legacy subsystems that still use direct access
+    // (pty-manager, runner-manager, email). Will be removed once those are migrated.
+    if (options.dbConnection) {
+      const { setConnection } = await import('./db/index.js');
+      setConnection(options.dbConnection);
+    }
 
+    if (!isRunnerMode) {
       void startScheduler();
 
       if (!options.skipAuthSetup) {
@@ -280,7 +280,7 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
       // Periodic sweep for external threads
       startExternalThreadSweep();
     } else {
-      log.info('Runner mode — skipping DB, auth, and scheduler', { namespace: 'server' });
+      log.info('Runner mode — skipping auth and scheduler', { namespace: 'server' });
     }
 
     // Register handler registry (needed in both modes for tunnel:request handling)
@@ -288,17 +288,17 @@ export async function createRuntimeApp(options: RuntimeAppOptions = {}): Promise
       getThread: tm.getThread,
       updateThread: tm.updateThread,
       insertComment: tm.insertComment,
-      getProject: pm.getProject,
+      getProject: getServices().projects.getProject,
       emitToUser: (userId, event) => wsBroker.emitToUser(userId, event),
       broadcast: (event) => wsBroker.emit(event),
       startAgent,
       getGitStatusSummary: getStatusSummary,
       deriveGitSyncState,
       invalidateGitStatusCache: invalidateGitStatusCacheByProject,
-      saveThreadEvent,
-      dequeueMessage: mq.dequeue,
-      queueCount: mq.queueCount,
-      peekMessage: mq.peek,
+      saveThreadEvent: getServices().threadEvents.saveThreadEvent,
+      dequeueMessage: getServices().messageQueue.dequeue,
+      queueCount: getServices().messageQueue.queueCount,
+      peekMessage: getServices().messageQueue.peek,
       log: (msg) => log.info(msg, { namespace: 'handler' }),
     };
     registerAllHandlers(handlerCtx);
@@ -448,44 +448,46 @@ function handlePtyMessage(type: string, data: any, userId: string, send: (msg: a
   switch (type) {
     case 'pty:spawn': {
       // Validate cwd against user projects
-      pm.listProjects(userId).then((userProjects) => {
-        const resolvedCwd = resolve(data.cwd);
-        const isAllowed = userProjects.some((p: any) => {
-          const projectPath = resolve(p.path);
-          if (resolvedCwd.startsWith(projectPath)) return true;
-          const worktreeBase = resolve(
-            dirname(projectPath),
-            WORKTREE_DIR_NAME,
-            basename(projectPath),
-          );
-          return resolvedCwd.startsWith(worktreeBase);
-        });
-        if (!isAllowed) {
-          log.warn(`PTY spawn denied: cwd not in user's projects`, {
-            namespace: 'ws',
-            cwd: data.cwd,
+      getServices()
+        .projects.listProjects(userId)
+        .then((userProjects) => {
+          const resolvedCwd = resolve(data.cwd);
+          const isAllowed = userProjects.some((p: any) => {
+            const projectPath = resolve(p.path);
+            if (resolvedCwd.startsWith(projectPath)) return true;
+            const worktreeBase = resolve(
+              dirname(projectPath),
+              WORKTREE_DIR_NAME,
+              basename(projectPath),
+            );
+            return resolvedCwd.startsWith(worktreeBase);
+          });
+          if (!isAllowed) {
+            log.warn(`PTY spawn denied: cwd not in user's projects`, {
+              namespace: 'ws',
+              cwd: data.cwd,
+              userId,
+            });
+            send({
+              type: 'pty:error',
+              data: {
+                ptyId: data.id,
+                error: 'Access denied: directory not in a registered project',
+              },
+            });
+            return;
+          }
+          ptyManager.spawnPty(
+            data.id,
+            data.cwd,
+            data.cols,
+            data.rows,
             userId,
-          });
-          send({
-            type: 'pty:error',
-            data: {
-              ptyId: data.id,
-              error: 'Access denied: directory not in a registered project',
-            },
-          });
-          return;
-        }
-        ptyManager.spawnPty(
-          data.id,
-          data.cwd,
-          data.cols,
-          data.rows,
-          userId,
-          data.shell,
-          data.projectId,
-          data.label,
-        );
-      });
+            data.shell,
+            data.projectId,
+            data.label,
+          );
+        });
       break;
     }
     case 'pty:write':

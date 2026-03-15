@@ -21,6 +21,8 @@ import {
 import { db, dbAll, dbGet, dbRun } from '../db/index.js';
 import * as schema from '../db/schema.js';
 import { log } from '../lib/logger.js';
+import * as messageQueueRepo from './message-queue-repository.js';
+import * as projectRepo from './project-repository.js';
 import { sendToRunner } from './ws-relay.js';
 
 // Create shared repository instances (lazy-initialized)
@@ -159,6 +161,84 @@ export async function handleDataMessage(runnerId: string, data: any): Promise<vo
           type: 'data:find_tool_call_response',
           requestId: data.requestId,
           toolCall: tc ?? null,
+        });
+        break;
+      }
+
+      // ── Project operations ──────────────────────────────────
+
+      case 'data:get_project': {
+        const project = await projectRepo.getProject(data.projectId);
+        sendToRunner(runnerId, {
+          type: 'data:get_project_response',
+          requestId: data.requestId,
+          project: project ?? null,
+        });
+        break;
+      }
+
+      case 'data:list_projects': {
+        const projects = await projectRepo.listProjects(data.userId);
+        sendToRunner(runnerId, {
+          type: 'data:list_projects_response',
+          requestId: data.requestId,
+          projects,
+        });
+        break;
+      }
+
+      case 'data:resolve_project_path': {
+        const result = await projectRepo.resolveProjectPath(data.projectId, data.userId);
+        if (result.isOk()) {
+          sendToRunner(runnerId, {
+            type: 'data:resolve_project_path_response',
+            requestId: data.requestId,
+            ok: true,
+            path: result.value,
+          });
+        } else {
+          sendToRunner(runnerId, {
+            type: 'data:resolve_project_path_response',
+            requestId: data.requestId,
+            ok: false,
+            error: result.error.message,
+          });
+        }
+        break;
+      }
+
+      // ── Thread creation/deletion ──────────────────────────
+
+      case 'data:create_thread': {
+        const tRepo = getThreadRepo();
+        await tRepo.createThread(data.payload);
+        sendToRunner(runnerId, {
+          type: 'data:ack',
+          requestId: data.requestId,
+          success: true,
+        });
+        break;
+      }
+
+      case 'data:delete_thread': {
+        const tRepo = getThreadRepo();
+        await tRepo.deleteThread(data.threadId);
+        sendToRunner(runnerId, {
+          type: 'data:ack',
+          requestId: data.requestId,
+          success: true,
+        });
+        break;
+      }
+
+      // ── Message queue ─────────────────────────────────────
+
+      case 'data:enqueue_message': {
+        const queued = await messageQueueRepo.enqueue(data.threadId, data.payload);
+        sendToRunner(runnerId, {
+          type: 'data:enqueue_message_response',
+          requestId: data.requestId,
+          queued,
         });
         break;
       }
