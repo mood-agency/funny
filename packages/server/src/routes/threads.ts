@@ -393,8 +393,13 @@ threadRoutes.post('/:id/approve-tool', proxyToRunner);
 // PATCH /api/threads/:id/tool-calls/:toolCallId — update tool call output
 threadRoutes.patch('/:id/tool-calls/:toolCallId', proxyToRunner);
 
-// GET /api/threads/:id/events — proxy to runner (event storage may be runner-side)
-threadRoutes.get('/:id/events', proxyToRunner);
+// GET /api/threads/:id/events — served from server DB
+threadRoutes.get('/:id/events', async (c) => {
+  const id = c.req.param('id');
+  const { getThreadEvents } = await import('../services/thread-event-repository.js');
+  const events = await getThreadEvents(id);
+  return c.json({ events });
+});
 
 // GET /api/threads/:id/queue — proxy to runner (message queue is in-memory on runner)
 threadRoutes.get('/:id/queue', proxyToRunner);
