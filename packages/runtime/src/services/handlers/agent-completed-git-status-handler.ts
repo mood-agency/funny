@@ -7,6 +7,8 @@
  * @domain emits: git:status
  */
 
+import { invalidateStatusCache } from '@funny/core/git';
+
 import type { AgentCompletedEvent } from '../thread-event-bus.js';
 import type { EventHandler } from './types.js';
 
@@ -27,6 +29,9 @@ export const agentCompletedGitStatusHandler: EventHandler<'agent:completed'> = {
     if (!effectiveCwd) return;
 
     ctx.log(`Refreshing git status after agent ${event.status} for thread ${threadId}`);
+
+    // Invalidate core-level cache so we get fresh data after agent modifications
+    invalidateStatusCache(effectiveCwd);
 
     const summaryResult = await ctx.getGitStatusSummary(
       effectiveCwd,

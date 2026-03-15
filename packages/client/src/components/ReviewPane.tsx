@@ -458,8 +458,15 @@ export function ReviewPane() {
 
   const fileListRef = useRef<HTMLDivElement>(null);
 
+  // Monotonically increasing counter to detect stale refresh results.
+  // When a new refresh starts, it captures the current value; if another
+  // refresh starts before it finishes, the older one detects the mismatch
+  // and bails out instead of overwriting state with stale data.
+  const refreshEpochRef = useRef(0);
+
   const refresh = async () => {
     if (!hasGitContext) return;
+    const epoch = ++refreshEpochRef.current;
     setLoading(true);
     setLoadError(false);
 
@@ -470,17 +477,26 @@ export function ReviewPane() {
     const result = effectiveThreadId
       ? await api.getDiffSummary(effectiveThreadId)
       : await api.projectDiffSummary(projectModeId!);
+
+    // Bail out if a newer refresh has started while we were awaiting
+    if (refreshEpochRef.current !== epoch) return;
+
     if (result.isOk()) {
       const data = result.value;
       setSummaries(data.files);
       setTruncatedInfo({ total: data.total, truncated: data.truncated });
       // Invalidate only stale cache entries instead of clearing the whole map
       const newPaths = new Set(data.files.map((d) => d.path));
+      // Capture the filtered cache so we can use it below for the selected file
+      // check. Reading the closure `diffCache` after setDiffCache would be stale
+      // because React batches state updates.
+      const filteredCacheRef: { current: Map<string, string> } = { current: new Map() };
       setDiffCache((prev) => {
         const next = new Map<string, string>();
         for (const [k, v] of prev) {
           if (newPaths.has(k)) next.set(k, v);
         }
+        filteredCacheRef.current = next;
         return next;
       });
       // Check all files by default, preserving existing selections
@@ -502,19 +518,19 @@ export function ReviewPane() {
       if (data.files.length > 0 && !selectedFile) {
         setSelectedFile(data.files[0].path);
       }
-      // Load diff for the currently selected file (uses cache if still valid)
+      // Load diff for the currently selected file (uses filtered cache, not stale closure)
       const fileToLoad = selectedFile ?? (data.files.length > 0 ? data.files[0].path : null);
       if (fileToLoad) {
         const summary = data.files.find((s) => s.path === fileToLoad);
         if (summary) {
-          // Skip fetch if cached content is still valid (file still in summary)
-          const cachedDiff = diffCache.get(fileToLoad);
+          // Use the filtered cache we just computed (not the stale closure value)
+          const cachedDiff = filteredCacheRef.current.get(fileToLoad);
           if (!cachedDiff) {
             setLoadingDiff(fileToLoad);
             const diffResult = effectiveThreadId
               ? await api.getFileDiff(effectiveThreadId, fileToLoad, summary.staged)
               : await api.projectFileDiff(projectModeId!, fileToLoad, summary.staged);
-            if (diffResult.isOk()) {
+            if (refreshEpochRef.current === epoch && diffResult.isOk()) {
               setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
             }
             setLoadingDiff((prev) => (prev === fileToLoad ? null : prev));
@@ -607,8 +623,10 @@ export function ReviewPane() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is a non-memoized function; only trigger on pane visibility change
   }, [reviewPaneOpen]);
 
-  // Auto-refresh diffs when agent modifies files (debounced 2s)
-  useAutoRefreshDiff(effectiveThreadId, refresh, 2000);
+  // Auto-refresh diffs when agent modifies files (debounced 2s).
+  // Pass reviewPaneOpen so dirty signals that arrive while the pane is hidden
+  // trigger an immediate refresh when the pane becomes visible again.
+  useAutoRefreshDiff(effectiveThreadId, refresh, 2000, reviewPaneOpen);
 
   const filteredDiffs = useMemo(() => {
     if (!fileSearch) return summaries;
@@ -1609,11 +1627,11 @@ export function ReviewPane() {
                 value={commitTitle}
                 onChange={(e) => setCommitTitle(e.target.value)}
                 disabled={!!actionInProgress || generatingMsg}
-                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
               <div className="rounded-md border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
                 <textarea
-                  className="w-full resize-none bg-transparent px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none"
+                  className="w-full resize-none bg-transparent px-2 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none"
                   rows={7}
                   aria-label={t('review.commitBody', 'Commit body')}
                   data-testid="review-commit-body"
@@ -2018,7 +2036,7 @@ export function ReviewPane() {
           </DialogHeader>
           <div className="space-y-2">
             <input
-              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               placeholder={t('review.prTitle', 'PR title')}
               data-testid="review-pr-title"
               value={prDialog?.title ?? ''}
@@ -2027,7 +2045,7 @@ export function ReviewPane() {
               }
             />
             <textarea
-              className="w-full resize-none rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full resize-none rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               rows={4}
               placeholder={t('review.commitBody', 'Description (optional)')}
               data-testid="review-pr-body"

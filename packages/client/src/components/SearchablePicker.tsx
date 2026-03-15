@@ -178,7 +178,7 @@ export function SearchablePicker({
           data-testid={testId}
           className={
             triggerClassName ??
-            'flex max-w-[300px] items-center gap-1 truncate rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none'
+            'flex max-w-[300px] items-center gap-1 truncate rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none'
           }
           title={triggerTitle}
           tabIndex={-1}
@@ -305,7 +305,7 @@ export function SearchablePicker({
             placeholder={searchPlaceholder}
             aria-label={label}
             autoComplete="off"
-            className="w-full bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
+            className="w-full bg-transparent text-sm placeholder:text-muted-foreground focus-visible:outline-none"
           />
         </div>
       </PopoverContent>

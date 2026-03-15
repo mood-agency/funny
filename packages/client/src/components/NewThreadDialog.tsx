@@ -160,7 +160,7 @@ export function NewThreadDialog() {
             branches={branches}
             selected={selectedBranch}
             onChange={setSelectedBranch}
-            triggerClassName="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-sm transition-[border-color,box-shadow] duration-150 hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            triggerClassName="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-sm transition-[border-color,box-shadow] duration-150 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             side="bottom"
             align="start"
             testId="new-thread-branch-trigger"
@@ -174,7 +174,7 @@ export function NewThreadDialog() {
             data-testid="new-thread-worktree-checkbox"
             checked={createWorktree}
             onChange={(e) => setCreateWorktree(e.target.checked)}
-            className="h-4 w-4 rounded border-input text-primary focus:ring-1 focus:ring-ring"
+            className="h-4 w-4 rounded border-input text-primary focus-visible:ring-1 focus-visible:ring-ring"
           />
           <div className="flex items-center gap-2 text-sm">
             <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
@@ -235,7 +235,7 @@ export function NewThreadDialog() {
           </label>
           <textarea
             data-testid="new-thread-prompt"
-            className="min-h-[120px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="min-h-[120px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             placeholder={t('newThread.promptPlaceholder')}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}

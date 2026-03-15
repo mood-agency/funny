@@ -63,7 +63,7 @@ const DialogHeader = ({ className, children, ...props }: React.HTMLAttributes<HT
         {children}
         <DialogPrimitive.Close
           tabIndex={-1}
-          className="absolute right-0 top-0 shrink-0 rounded-md bg-muted/80 p-1.5 opacity-70 ring-offset-background transition-all hover:bg-muted hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+          className="absolute right-0 top-0 shrink-0 rounded-md bg-muted/80 p-1.5 opacity-70 ring-offset-background transition-all hover:bg-muted hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
@@ -79,7 +79,7 @@ const DialogHeader = ({ className, children, ...props }: React.HTMLAttributes<HT
         {title}
         <DialogPrimitive.Close
           tabIndex={-1}
-          className="shrink-0 rounded-md bg-muted/80 p-1.5 opacity-70 ring-offset-background transition-all hover:bg-muted hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+          className="shrink-0 rounded-md bg-muted/80 p-1.5 opacity-70 ring-offset-background transition-all hover:bg-muted hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>

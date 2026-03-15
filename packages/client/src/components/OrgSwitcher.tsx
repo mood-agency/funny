@@ -1,14 +1,14 @@
-import { Building2, ChevronsUpDown, Check, User } from 'lucide-react';
+import { Building2, User } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { authClient } from '@/lib/auth-client';
 import { useAuthStore } from '@/stores/auth-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -19,6 +19,8 @@ interface OrgInfo {
   name: string;
   slug: string;
 }
+
+const PERSONAL_VALUE = '__personal__';
 
 export function OrgSwitcher() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -69,86 +71,69 @@ export function OrgSwitcher() {
     await loadProjects();
   }, [loadProjects]);
 
-  const handleSwitch = useCallback(
-    async (orgId: string) => {
-      try {
-        await authClient.organization.setActive({ organizationId: orgId });
-        setActiveOrgId(orgId);
-        const orgInfo = orgs.find((o) => o.id === orgId);
-        useAuthStore.getState().setActiveOrg(orgId, orgInfo?.name ?? null, orgInfo?.slug ?? null);
-        await clearAndReload();
-        // Navigate to org-scoped root
-        if (orgInfo?.slug) navigate(`/${orgInfo.slug}/`);
-      } catch (err) {
-        console.error('[OrgSwitcher] Failed to switch org:', err);
+  const handleValueChange = useCallback(
+    async (value: string) => {
+      if (value === PERSONAL_VALUE) {
+        try {
+          await authClient.organization.setActive({ organizationId: null as any });
+          setActiveOrgId(null);
+          useAuthStore.getState().setActiveOrg(null, null, null);
+          await clearAndReload();
+          navigate('/');
+        } catch (err) {
+          console.error('[OrgSwitcher] Failed to switch to personal:', err);
+        }
+      } else {
+        try {
+          await authClient.organization.setActive({ organizationId: value });
+          setActiveOrgId(value);
+          const orgInfo = orgs.find((o) => o.id === value);
+          useAuthStore.getState().setActiveOrg(value, orgInfo?.name ?? null, orgInfo?.slug ?? null);
+          await clearAndReload();
+          if (orgInfo?.slug) navigate(`/${orgInfo.slug}/`);
+        } catch (err) {
+          console.error('[OrgSwitcher] Failed to switch org:', err);
+        }
       }
     },
     [orgs, clearAndReload, navigate],
   );
 
-  const handleSwitchToPersonal = useCallback(async () => {
-    try {
-      // Better Auth: setting active org to null deactivates the org context
-      await authClient.organization.setActive({ organizationId: null as any });
-      setActiveOrgId(null);
-      useAuthStore.getState().setActiveOrg(null, null, null);
-      await clearAndReload();
-      // Navigate to personal root (no prefix)
-      navigate('/');
-    } catch (err) {
-      console.error('[OrgSwitcher] Failed to switch to personal:', err);
-    }
-  }, [clearAndReload, navigate]);
-
   if (loading) return null;
   if (orgs.length === 0) return null;
 
-  const activeOrg = orgs.find((o) => o.id === activeOrgId);
-  const displayLabel = activeOrg?.name ?? 'Personal';
-  const DisplayIcon = activeOrg ? Building2 : User;
+  const selectValue = activeOrgId ?? PERSONAL_VALUE;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="w-full justify-between gap-2 px-2 text-sm font-medium"
-          data-testid="org-switcher-trigger"
-        >
-          <span className="flex items-center gap-2 truncate">
-            <DisplayIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="truncate">{displayLabel}</span>
-          </span>
-          <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]">
-        <DropdownMenuItem
-          onClick={handleSwitchToPersonal}
-          data-testid="org-switcher-item-personal"
-          className="flex items-center justify-between"
-        >
+    <Select value={selectValue} onValueChange={handleValueChange}>
+      <SelectTrigger
+        data-testid="org-switcher-trigger"
+        size="sm"
+        className="w-full border-none bg-transparent shadow-none"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={PERSONAL_VALUE} size="sm" data-testid="org-switcher-item-personal">
           <span className="flex items-center gap-2">
             <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span>Personal</span>
           </span>
-          {activeOrgId === null && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-        </DropdownMenuItem>
+        </SelectItem>
         {orgs.map((org) => (
-          <DropdownMenuItem
+          <SelectItem
             key={org.id}
-            onClick={() => handleSwitch(org.id)}
+            value={org.id}
+            size="sm"
             data-testid={`org-switcher-item-${org.id}`}
-            className="flex items-center justify-between"
           >
             <span className="flex items-center gap-2">
               <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate">{org.name}</span>
             </span>
-            {org.id === activeOrgId && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
-          </DropdownMenuItem>
+          </SelectItem>
         ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </SelectContent>
+    </Select>
   );
 }

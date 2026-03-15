@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Send, Mic } from 'lucide-react';
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { fn } from 'storybook/test';
 
 import type { PromptEditorHandle } from '@/components/prompt-editor/PromptEditor';
@@ -169,7 +169,7 @@ export const WithQueue: Story = {
   },
 };
 
-/** With dictation button visible. */
+/** With dictation button visible (static, idle). */
 export const WithDictation: Story = {
   args: {
     hasDictation: true,
@@ -180,7 +180,7 @@ export const WithDictation: Story = {
   },
 };
 
-/** Dictation actively recording. */
+/** Dictation actively recording (static). */
 export const DictationRecording: Story = {
   args: {
     hasDictation: true,
@@ -188,6 +188,68 @@ export const DictationRecording: Story = {
     isTranscribing: false,
     onToggleRecording: fn(),
     onStopRecording: fn(),
+  },
+};
+
+/** Interactive push-to-talk: hold Ctrl+Alt to record, release to stop. */
+export const DictationPushToTalk: StoryObj<typeof PromptInputUI> = {
+  name: 'Dictation (Push-to-Talk)',
+  render: (args) => {
+    const [isRecording, setIsRecording] = useState(false);
+
+    useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.ctrlKey && e.altKey && !isRecording) {
+          setIsRecording(true);
+        }
+      };
+      const handleKeyUp = (e: KeyboardEvent) => {
+        if (isRecording && (e.key === 'Control' || e.key === 'Alt')) {
+          setTimeout(() => setIsRecording(false), 500);
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keyup', handleKeyUp);
+      };
+    }, [isRecording]);
+
+    return (
+      <div className="space-y-3">
+        <div className="rounded-md border border-border/40 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Hold <kbd className="rounded border bg-background px-1 py-0.5 font-mono">Ctrl</kbd> +{' '}
+          <kbd className="rounded border bg-background px-1 py-0.5 font-mono">Alt</kbd> to simulate
+          recording. Release to stop.
+          <span className="ml-2 font-semibold">
+            Status: {isRecording ? '🔴 Recording' : '⚪ Idle'}
+          </span>
+        </div>
+        <PromptInputUI
+          {...args}
+          hasDictation
+          isRecording={isRecording}
+          isTranscribing={false}
+          onToggleRecording={() => setIsRecording((r) => !r)}
+          onStopRecording={() => setIsRecording(false)}
+        />
+      </div>
+    );
+  },
+  args: {
+    onSubmit: fn(),
+    onStop: fn(),
+    loading: false,
+    running: false,
+    unifiedModel: 'anthropic:claude-sonnet-4-20250514',
+    onUnifiedModelChange: fn(),
+    modelGroups: defaultModelGroups,
+    mode: 'autoEdit',
+    onModeChange: fn(),
+    modes: defaultModes,
+    isNewThread: true,
+    placeholder: 'Describe a task...',
   },
 };
 

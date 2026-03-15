@@ -138,7 +138,7 @@ export const ThreadItem = memo(function ThreadItem({
         onClick={onSelect}
         className={cn(
           'flex min-w-0 flex-1 flex-col overflow-hidden text-left',
-          hasSecondRow ? 'py-1.5 pl-2 gap-0.5' : 'py-1 pl-2 justify-center',
+          hasSecondRow ? 'py-1.5 pl-2 gap-1' : 'py-1 pl-2 justify-center',
         )}
       >
         {/* Row 1: Status icon + Title */}

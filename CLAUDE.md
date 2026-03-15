@@ -55,8 +55,10 @@ bun run db:studio
 
 ### Monorepo Structure (Bun workspaces)
 
-- **`packages/shared`** — TypeScript types only (no runtime code). Exports from `src/types.ts`. Contains interfaces for Project, Thread, Message, ToolCall, FileDiff, WebSocket events, and API request/response types.
-- **`packages/runtime`** — Hono HTTP server with the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`). Runs on port 3001 via `bun --watch`.
+- **`packages/shared`** — TypeScript types and error definitions (no runtime code). Exports from `src/types.ts` and `src/errors.ts`. Contains interfaces for Project, Thread, Message, ToolCall, FileDiff, WebSocket events, and API request/response types.
+- **`packages/core`** — Pure logic shared across server and runtime. Contains git operations (`git/`), agent process management (`agents/`), container/sandbox support (`containers/`), and port allocation (`ports/`). No HTTP or database code.
+- **`packages/runtime`** — Hono HTTP routes and services for agent execution. Manages agent runners, PTY sessions, worktrees, pipelines, and WebSocket broadcasting. Acts as the "runner" in the server+runner architecture.
+- **`packages/server`** — Entry point for the application. Handles authentication (Better Auth), database (Drizzle + SQLite/PostgreSQL), user management, and mounts the runtime in-process. Owns all persistent state.
 - **`packages/client`** — React 19 + Vite SPA. Runs on port 5173 with a proxy to the server at `/api`.
 
 ### Server Architecture
@@ -65,14 +67,27 @@ bun run db:studio
 
 **Database:** SQLite via `bun:sqlite` (Bun's native SQLite driver) + Drizzle ORM. DB file lives at `~/.funny/data.db`. Tables are auto-created on startup via `db/migrate.ts` (raw SQL, not Drizzle migrations). Schema in `db/schema.ts` defines: `projects`, `threads`, `messages`, `tool_calls`.
 
-**Key services:**
+**Key services (runtime):**
 
-- `agent-runner.ts` — Spawns Claude CLI processes via `claude-process.ts`. Parses NDJSON stream output, persists messages/tool_calls to DB, and emits WebSocket events via `ws-broker`. Supports session resumption.
-- `claude-process.ts` — Manages a single Claude CLI process (`claude --print --output-format stream-json`). Reads NDJSON stdout, emits typed messages.
-- `worktree-manager.ts` — Creates/lists/removes git worktrees in a `.funny-worktrees` directory adjacent to the project. Uses synchronous git operations.
+- `agent-runner.ts` — Spawns agent processes via `packages/core/src/agents/`. Persists messages/tool_calls and emits WebSocket events via `ws-broker`. Supports session resumption.
 - `ws-broker.ts` — Singleton pub/sub that broadcasts WebSocket events to all connected clients. Single multiplexed stream (not per-thread).
+- `pipeline-manager.ts` — Manages multi-step agent pipelines.
+- `pty-manager.ts` — Terminal/PTY session management with multiple backends (headless-xterm, bun-native, node-pty).
+- `automation-manager.ts` — Scheduled and event-driven automation execution.
+
+**Key services (server):**
+
 - `project-manager.ts` — CRUD for projects. Validates that the path is a git repo before creating.
-- `diff-service.ts` — Re-exports from `git-v2.ts` for backward compatibility.
+- `runner-manager.ts` — Manages local and remote runner instances.
+- `project-repository.ts`, `thread-event-repository.ts`, etc. — Database repositories for persistent state.
+
+**Core modules (`packages/core/src/`):**
+
+- `git/process.ts` — Cross-platform process execution with concurrency pools (`gitRead`, `gitWrite`, `execute`). All git and shell commands go through this.
+- `git/git.ts` — High-level git operations (diff, stage, commit, push, branch management).
+- `git/worktree.ts` — Git worktree create/list/remove operations.
+- `git/github.ts` — GitHub CLI (`gh`) integration for PRs and repo operations.
+- `agents/` — Agent process factories and providers (Claude SDK, Codex, Gemini ACP, LLM API).
 
 **Route groups:**
 
@@ -81,8 +96,6 @@ bun run db:studio
 - `/api/git/:threadId/*` — Diff, stage, unstage, revert, commit, push, create PR
 - `/ws` — WebSocket endpoint (multiplexed for all threads)
 - `/api/browse` — Filesystem browsing (drive roots, directory listing, repo name detection, git init)
-
-**Process execution:** Two layers exist — legacy `utils/git.ts` (execSync, string-based) and the current `utils/git-v2.ts` + `utils/process.ts` (execa, array-based arguments). New code should always use `git-v2.ts`. See `PROCESS-EXECUTION-STRATEGY.md` for context.
 
 ### Client Architecture
 
@@ -176,8 +189,8 @@ bunx tsc --noEmit
 ## Key Patterns
 
 - Thread modes: `local` runs the agent in the project directory; `worktree` creates a git worktree with an isolated branch
-- All git operations in route handlers should use async functions from `git-v2.ts`, never the legacy `git.ts`
-- The agent runner spawns Claude CLI processes (not direct API calls) and stores a session ID for resuming conversations
+- All git operations use async functions from `packages/core/src/git/` — use `gitRead`/`gitWrite` for git commands and `execute` for general process execution from `git/process.ts`
+- The agent runner spawns agent processes via `packages/core/src/agents/` and stores a session ID for resuming conversations
 - WebSocket events carry a `threadId` field so the client can associate updates with the correct thread
 - The model selector maps friendly names (sonnet/opus/haiku) to full model IDs in `agent-runner.ts`
 

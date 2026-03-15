@@ -7,8 +7,8 @@ interface DiffStatsProps {
   linesAdded: number;
   linesDeleted: number;
   dirtyFileCount?: number;
-  /** "sm" for sidebar/kanban, "xs" for kanban cards */
-  size?: 'sm' | 'xs';
+  /** "sm" for sidebar/kanban, "xs" for compact, "xxs" for kanban cards */
+  size?: 'sm' | 'xs' | 'xxs';
   /** Show tooltips on hover (default: true for sm, false for xs) */
   tooltips?: boolean;
   className?: string;
@@ -31,7 +31,7 @@ export function DiffStats({
 
   if (linesAdded === 0 && linesDeleted === 0 && (dirtyFileCount ?? 0) === 0) return null;
 
-  const textSize = size === 'xs' ? 'text-xs' : 'text-sm';
+  const textSize = size === 'xxs' ? 'text-[10px]' : size === 'xs' ? 'text-xs' : 'text-sm';
 
   const added = (
     <Stat

@@ -94,3 +94,38 @@ export const ZeroValues: Story = {
     dirtyFileCount: 0,
   },
 };
+
+export const ExtraExtraSmall: Story = {
+  name: 'Extra Extra Small (xxs)',
+  args: {
+    linesAdded: 5603,
+    linesDeleted: 1137,
+    dirtyFileCount: 48,
+    size: 'xxs',
+  },
+};
+
+export const AllSizes: Story = {
+  name: 'All Sizes',
+  args: {
+    linesAdded: 5603,
+    linesDeleted: 1137,
+    dirtyFileCount: 48,
+  },
+  render: () => (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <span className="w-16 text-xs text-muted-foreground">sm</span>
+        <DiffStats linesAdded={5603} linesDeleted={1137} dirtyFileCount={48} size="sm" />
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="w-16 text-xs text-muted-foreground">xs</span>
+        <DiffStats linesAdded={5603} linesDeleted={1137} dirtyFileCount={48} size="xs" />
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="w-16 text-xs text-muted-foreground">xxs</span>
+        <DiffStats linesAdded={5603} linesDeleted={1137} dirtyFileCount={48} size="xxs" />
+      </div>
+    </div>
+  ),
+};

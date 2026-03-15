@@ -1085,32 +1085,46 @@ export function getStatusSummary(
       }
 
       // Phase 2: launch ALL conditional commands in parallel (consolidated from 2 phases)
-      const [remoteResult, mergedResult, baseCountResult, mergeBaseResult, branchTipResult] =
-        await Promise.all([
-          gitRead(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`], {
-            cwd: worktreeCwd,
-            reject: false,
-          }),
-          baseBranch && projectCwd
-            ? gitRead(['branch', '--merged', baseBranch, '--format=%(refname:short)'], {
-                cwd: projectCwd,
-                reject: false,
-              })
-            : Promise.resolve(null),
-          // Speculatively count against baseBranch — used when no remote exists
-          baseBranch
-            ? gitRead(['rev-list', '--count', `${baseBranch}..HEAD`], {
-                cwd: worktreeCwd,
-                reject: false,
-              })
-            : Promise.resolve(null),
-          baseBranch && projectCwd
-            ? gitRead(['merge-base', baseBranch, branch], { cwd: projectCwd, reject: false })
-            : Promise.resolve(null),
-          projectCwd
-            ? gitRead(['rev-parse', branch], { cwd: projectCwd, reject: false })
-            : Promise.resolve(null),
-        ]);
+      const [
+        remoteResult,
+        mergedResult,
+        baseCountResult,
+        mergeBaseResult,
+        branchTipResult,
+        baseDiffResult,
+      ] = await Promise.all([
+        gitRead(['rev-parse', '--abbrev-ref', `${branch}@{upstream}`], {
+          cwd: worktreeCwd,
+          reject: false,
+        }),
+        baseBranch && projectCwd
+          ? gitRead(['branch', '--merged', baseBranch, '--format=%(refname:short)'], {
+              cwd: projectCwd,
+              reject: false,
+            })
+          : Promise.resolve(null),
+        // Speculatively count against baseBranch — used when no remote exists
+        baseBranch
+          ? gitRead(['rev-list', '--count', `${baseBranch}..HEAD`], {
+              cwd: worktreeCwd,
+              reject: false,
+            })
+          : Promise.resolve(null),
+        baseBranch && projectCwd
+          ? gitRead(['merge-base', baseBranch, branch], { cwd: projectCwd, reject: false })
+          : Promise.resolve(null),
+        projectCwd
+          ? gitRead(['rev-parse', branch], { cwd: projectCwd, reject: false })
+          : Promise.resolve(null),
+        // Line diff against baseBranch — includes committed changes so diff stats
+        // persist after the agent commits (git diff HEAD only shows uncommitted).
+        baseBranch
+          ? gitRead(['diff', `${baseBranch}...HEAD`, '--numstat'], {
+              cwd: worktreeCwd,
+              reject: false,
+            })
+          : Promise.resolve(null),
+      ]);
 
       const remoteBranch = remoteResult.exitCode === 0 ? remoteResult.stdout.trim() : null;
       const hasRemoteBranch = remoteBranch !== null;
@@ -1146,6 +1160,27 @@ export function getStatusSummary(
         } else {
           isMergedIntoBase = true;
         }
+      }
+
+      // Include committed line changes against baseBranch so diff stats persist
+      // after the agent commits. The working-tree diff (git diff HEAD) only shows
+      // uncommitted changes; baseDiffResult adds committed-but-diverged changes.
+      if (baseDiffResult && baseDiffResult.exitCode === 0 && baseDiffResult.stdout.trim()) {
+        let committedAdded = 0;
+        let committedDeleted = 0;
+        for (const line of baseDiffResult.stdout.trim().split('\n')) {
+          const parts = line.split('\t');
+          if (parts.length >= 2) {
+            const a = parseInt(parts[0], 10);
+            const d = parseInt(parts[1], 10);
+            if (!isNaN(a)) committedAdded += a;
+            if (!isNaN(d)) committedDeleted += d;
+          }
+        }
+        // Use the larger of working-tree diff and branch diff so stats don't
+        // drop to zero when the agent commits its changes.
+        if (committedAdded > linesAdded) linesAdded = committedAdded;
+        if (committedDeleted > linesDeleted) linesDeleted = committedDeleted;
       }
 
       const result: GitStatusSummary = {

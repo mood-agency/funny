@@ -589,7 +589,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
         'data-testid': 'prompt-editor',
         'aria-label': 'Message',
         class:
-          'w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none min-h-[1.5rem] max-h-[35vh] overflow-y-auto',
+          'w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none min-h-[1.5rem] max-h-[35vh] overflow-y-auto',
         role: 'textbox',
       },
       handleKeyDown: (_view, event) => {
