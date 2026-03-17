@@ -121,8 +121,13 @@ export function getCurrentBranch(cwd: string): ResultAsync<string, DomainError> 
  * Falls back to remote branches if no local branches exist.
  */
 export function listBranches(cwd: string): ResultAsync<string[], DomainError> {
-  // Always use CLI — native module merges local+remote branches but the .node
-  // file can only be rebuilt when the server is stopped. CLI fallback is correct.
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(native.listBranches(cwd), (error) =>
+      processError(String(error), 1, ''),
+    );
+  }
+  // CLI fallback
   return ResultAsync.fromPromise(
     (async () => {
       const seen = new Set<string>();
@@ -422,7 +427,7 @@ function createHookWrapper(cwd: string): { dir: string; outputFile: string } | n
     const hookPath = originalHook.replace(/\\/g, '/');
     const outPath = outputFile.replace(/\\/g, '/');
     // Wrapper script: runs the original hook, tees all output to a temp file
-    const wrapper = `#!/bin/sh
+    const wrapper = `#!/bin/bash
 "${hookPath}" 2>&1 | tee "${outPath}"
 exit \${PIPESTATUS[0]:-$?}
 `;
@@ -730,75 +735,118 @@ export function getDiffSummary(
   options?: { excludePatterns?: string[]; maxFiles?: number },
 ): ResultAsync<DiffSummaryResponse, DomainError> {
   const native = getNativeGit();
-  if (native) {
-    const exclude = options?.excludePatterns ?? [];
-    const maxFiles = options?.maxFiles ?? 0;
-    return ResultAsync.fromPromise(
-      native
-        .getDiffSummary(cwd, exclude.length > 0 ? exclude : null, maxFiles > 0 ? maxFiles : null)
-        .then((r) => ({
-          files: r.files.map((f) => ({
-            path: f.path,
-            status: f.status as FileDiffSummary['status'],
-            staged: f.staged,
-          })),
-          total: r.total,
-          truncated: r.truncated,
-        })),
-      (error) => processError(String(error), 1, ''),
-    );
-  }
   const exclude = options?.excludePatterns ?? [];
-  const maxFiles = options?.maxFiles ?? 0; // 0 = no limit
+  const maxFiles = options?.maxFiles ?? 0;
 
   return ResultAsync.fromPromise(
     (async () => {
-      const [stagedStatusResult, unstagedStatusResult, untrackedResult] = await Promise.all([
-        gitRead(['diff', '--staged', '--name-status'], { cwd, reject: false }),
-        gitRead(['diff', '--name-status'], { cwd, reject: false }),
-        gitRead(['ls-files', '--others', '--exclude-standard'], { cwd, reject: false }),
+      // 1. Get base file list (either from native or CLI)
+      let baseFiles: Array<{ path: string; status: FileDiffSummary['status']; staged: boolean }> =
+        [];
+      let total = 0;
+      let truncated = false;
+
+      if (native) {
+        const r = await native.getDiffSummary(
+          cwd,
+          exclude.length > 0 ? exclude : null,
+          maxFiles > 0 ? maxFiles : null,
+        );
+        baseFiles = r.files.map((f) => ({
+          path: f.path,
+          status: f.status as FileDiffSummary['status'],
+          staged: f.staged,
+        }));
+        total = r.total;
+        truncated = r.truncated;
+      } else {
+        const [stagedStatusResult, unstagedStatusResult, untrackedResult] = await Promise.all([
+          gitRead(['diff', '--staged', '--name-status'], { cwd, reject: false }),
+          gitRead(['diff', '--name-status'], { cwd, reject: false }),
+          gitRead(['ls-files', '--others', '--exclude-standard'], { cwd, reject: false }),
+        ]);
+
+        const stagedRaw = stagedStatusResult.exitCode === 0 ? stagedStatusResult.stdout.trim() : '';
+        const stagedFiles = stagedRaw
+          .split('\n')
+          .filter(Boolean)
+          .map(parseStatusLine)
+          .filter(Boolean) as { status: FileDiffSummary['status']; path: string }[];
+
+        const unstagedRaw =
+          unstagedStatusResult.exitCode === 0 ? unstagedStatusResult.stdout.trim() : '';
+        const untrackedRaw = untrackedResult.exitCode === 0 ? untrackedResult.stdout.trim() : '';
+
+        const unstagedFiles = unstagedRaw
+          .split('\n')
+          .filter(Boolean)
+          .map(parseStatusLine)
+          .filter(Boolean) as { status: FileDiffSummary['status']; path: string }[];
+
+        const untrackedFiles = untrackedRaw
+          .split('\n')
+          .filter(Boolean)
+          .map((p) => ({ status: 'added' as const, path: p.trim() }));
+
+        const allUnstaged = [...unstagedFiles, ...untrackedFiles];
+        const stagedPaths = new Set(stagedFiles.map((f) => f.path));
+
+        const allFiles: Array<{
+          path: string;
+          status: FileDiffSummary['status'];
+          staged: boolean;
+        }> = [];
+
+        for (const f of stagedFiles) {
+          if (exclude.length > 0 && matchesAnyPattern(f.path, exclude)) continue;
+          allFiles.push({ path: f.path, status: f.status, staged: true });
+        }
+        for (const f of allUnstaged) {
+          if (stagedPaths.has(f.path)) continue;
+          if (exclude.length > 0 && matchesAnyPattern(f.path, exclude)) continue;
+          allFiles.push({ path: f.path, status: f.status, staged: false });
+        }
+
+        total = allFiles.length;
+        truncated = maxFiles > 0 && total > maxFiles;
+        baseFiles = truncated ? allFiles.slice(0, maxFiles) : allFiles;
+      }
+
+      // 2. Enrich with line stats via numstat (staged and unstaged)
+      const [stagedNumstat, unstagedNumstat] = await Promise.all([
+        gitRead(['diff', '--staged', '--numstat'], { cwd, reject: false }),
+        gitRead(['diff', '--numstat'], { cwd, reject: false }),
       ]);
 
-      const stagedRaw = stagedStatusResult.exitCode === 0 ? stagedStatusResult.stdout.trim() : '';
-      const stagedFiles = stagedRaw
-        .split('\n')
-        .filter(Boolean)
-        .map(parseStatusLine)
-        .filter(Boolean) as { status: FileDiffSummary['status']; path: string }[];
+      const statMap = new Map<string, { additions: number; deletions: number; staged: boolean }>();
 
-      const unstagedRaw =
-        unstagedStatusResult.exitCode === 0 ? unstagedStatusResult.stdout.trim() : '';
-      const untrackedRaw = untrackedResult.exitCode === 0 ? untrackedResult.stdout.trim() : '';
+      const parseNumstat = (stdout: string, staged: boolean) => {
+        if (!stdout) return;
+        for (const line of stdout.trim().split('\n')) {
+          const parts = line.split('\t');
+          if (parts.length >= 3) {
+            const additions = parseInt(parts[0], 10);
+            const deletions = parseInt(parts[1], 10);
+            const path = parts[2].trim();
+            if (!isNaN(additions) && !isNaN(deletions)) {
+              statMap.set(`${staged ? 's' : 'u'}:${path}`, { additions, deletions, staged });
+            }
+          }
+        }
+      };
 
-      const unstagedFiles = unstagedRaw
-        .split('\n')
-        .filter(Boolean)
-        .map(parseStatusLine)
-        .filter(Boolean) as { status: FileDiffSummary['status']; path: string }[];
+      if (stagedNumstat.exitCode === 0) parseNumstat(stagedNumstat.stdout, true);
+      if (unstagedNumstat.exitCode === 0) parseNumstat(unstagedNumstat.stdout, false);
 
-      const untrackedFiles = untrackedRaw
-        .split('\n')
-        .filter(Boolean)
-        .map((p) => ({ status: 'added' as const, path: p.trim() }));
-
-      const allUnstaged = [...unstagedFiles, ...untrackedFiles];
-      const stagedPaths = new Set(stagedFiles.map((f) => f.path));
-
-      const allFiles: FileDiffSummary[] = [];
-
-      for (const f of stagedFiles) {
-        if (exclude.length > 0 && matchesAnyPattern(f.path, exclude)) continue;
-        allFiles.push({ path: f.path, status: f.status, staged: true });
-      }
-      for (const f of allUnstaged) {
-        if (stagedPaths.has(f.path)) continue;
-        if (exclude.length > 0 && matchesAnyPattern(f.path, exclude)) continue;
-        allFiles.push({ path: f.path, status: f.status, staged: false });
-      }
-
-      const total = allFiles.length;
-      const truncated = maxFiles > 0 && total > maxFiles;
-      const files = truncated ? allFiles.slice(0, maxFiles) : allFiles;
+      // 3. Merge stats into baseFiles
+      const files: FileDiffSummary[] = baseFiles.map((f) => {
+        const stats = statMap.get(`${f.staged ? 's' : 'u'}:${f.path}`);
+        return {
+          ...f,
+          additions: stats?.additions ?? 0,
+          deletions: stats?.deletions ?? 0,
+        };
+      });
 
       return { files, total, truncated };
     })(),

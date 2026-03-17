@@ -122,7 +122,6 @@ export const ThreadItem = memo(function ThreadItem({
   const isBacklog = !hasSnippet && !isBusy && (!thread.stage || thread.stage === 'backlog');
   const hasMetadataRow = !!subtitle || hasDiffStats || hasGitIconOnly;
   const hasSnippetRow = hasSnippet || showLaunching || isBacklog;
-  const hasSecondRow = hasMetadataRow || hasSnippetRow;
 
   return (
     <div
@@ -136,10 +135,7 @@ export const ThreadItem = memo(function ThreadItem({
       <button
         data-testid={`thread-item-${thread.id}`}
         onClick={onSelect}
-        className={cn(
-          'flex min-w-0 flex-1 flex-col overflow-hidden text-left',
-          hasSecondRow ? 'py-1.5 pl-2 gap-1' : 'py-1 pl-2 justify-center',
-        )}
+        className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1.5 pl-2 text-left"
       >
         {/* Row 1: Status icon + Title */}
         <div className="flex min-w-0 items-center gap-1.5">

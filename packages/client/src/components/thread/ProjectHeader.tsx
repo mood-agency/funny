@@ -558,8 +558,13 @@ export const ProjectHeader = memo(function ProjectHeader() {
               )}
               {project && activeThreadId && <BreadcrumbSeparator />}
               {activeThreadId && (
-                <BreadcrumbItem className="min-w-0 flex-1">
-                  <span className="block min-w-0 truncate text-sm">{activeThreadTitle}</span>
+                <BreadcrumbItem className="min-w-0 max-w-[240px] sm:max-w-[360px] md:max-w-[520px]">
+                  <span
+                    className="block min-w-0 truncate text-sm font-medium"
+                    title={activeThreadTitle}
+                  >
+                    {activeThreadTitle}
+                  </span>
                 </BreadcrumbItem>
               )}
               {(activeThreadBranch || activeThreadBaseBranch) && (

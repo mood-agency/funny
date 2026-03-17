@@ -755,6 +755,8 @@ export interface FileDiffSummary {
   path: string;
   status: FileStatus;
   staged: boolean;
+  additions?: number;
+  deletions?: number;
 }
 
 export interface DiffSummaryResponse {
