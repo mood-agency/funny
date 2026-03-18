@@ -76,9 +76,9 @@ export const useUIStore = create<UIState>((set) => ({
   timelineVisible: (() => {
     try {
       const stored = localStorage.getItem(TIMELINE_VISIBLE_KEY);
-      return stored !== null ? stored === 'true' : true;
+      return stored !== null ? stored === 'true' : false;
     } catch {
-      return true;
+      return false;
     }
   })(),
   kanbanContext: null,

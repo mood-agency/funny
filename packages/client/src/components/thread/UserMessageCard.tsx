@@ -1,9 +1,10 @@
 import type { AgentModel, PermissionMode } from '@funny/shared';
 import { FileText, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
-import { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge } from '@/components/ui/badge';
+import type { ReferencedItem } from '@/lib/parse-referenced-files';
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 import { resolveModelLabel, timeAgo } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
@@ -29,11 +30,74 @@ export interface UserMessageCardProps {
   'data-testid'?: string;
 }
 
-function UserMessageContent({ content }: { content: string }) {
+/** Renders a file/folder reference chip inline */
+function FileChip({ item }: { item: ReferencedItem }) {
+  return (
+    <span
+      className="mx-0.5 inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 align-middle font-mono text-xs text-background/70"
+      title={item.path}
+    >
+      {item.type === 'folder' ? (
+        <FolderOpen className="h-3 w-3 shrink-0" />
+      ) : (
+        <FileText className="h-3 w-3 shrink-0" />
+      )}
+      {item.path.split('/').pop()}
+    </span>
+  );
+}
+
+/**
+ * Splits text on @path mentions and replaces them with inline FileChip components.
+ * Returns an array of ReactNode (strings and FileChip elements).
+ */
+function renderInlineContent(text: string, fileMap: Map<string, ReferencedItem>): ReactNode[] {
+  if (fileMap.size === 0) return [text];
+
+  // Build regex that matches any @path in the file map
+  const escapedPaths = Array.from(fileMap.keys())
+    .sort((a, b) => b.length - a.length) // longest first to avoid partial matches
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`@(${escapedPaths.join('|')})`, 'g');
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    // Push text before this match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const path = match[1];
+    const item = fileMap.get(path);
+    if (item) {
+      parts.push(<FileChip key={`chip-${match.index}`} item={item} />);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Push remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+}
+
+function UserMessageContent({
+  content,
+  fileMap,
+}: {
+  content: string;
+  fileMap: Map<string, ReferencedItem>;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
+
+  const inlineNodes = useMemo(() => renderInlineContent(content, fileMap), [content, fileMap]);
 
   useLayoutEffect(() => {
     const el = preRef.current;
@@ -53,7 +117,7 @@ function UserMessageContent({ content }: { content: string }) {
         )}
         style={!expanded && isOverflowing ? { maxHeight: COLLAPSED_MAX_H } : undefined}
       >
-        {content}
+        {inlineNodes}
       </pre>
       {isOverflowing && !expanded && (
         <div className="pointer-events-none absolute bottom-6 left-0 right-0 h-10 bg-gradient-to-t from-foreground to-transparent" />
@@ -95,7 +159,7 @@ export function UserMessageCard({
   ...props
 }: UserMessageCardProps) {
   const { t } = useTranslation();
-  const { files, cleanContent } = parseReferencedFiles(content);
+  const { inlineContent, fileMap } = parseReferencedFiles(content);
 
   const allImages = images?.map((i, j) => ({
     src: `data:${i.source.media_type};base64,${i.source.data}`,
@@ -134,28 +198,8 @@ export function UserMessageCard({
         </div>
       )}
 
-      {/* Referenced files badges */}
-      {files.length > 0 && (
-        <div className="mb-1.5 flex flex-wrap gap-1">
-          {files.map((fileItem) => (
-            <span
-              key={`${fileItem.type}:${fileItem.path}`}
-              className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-mono text-xs text-background/70"
-              title={fileItem.path}
-            >
-              {fileItem.type === 'folder' ? (
-                <FolderOpen className="h-3 w-3 shrink-0" />
-              ) : (
-                <FileText className="h-3 w-3 shrink-0" />
-              )}
-              {fileItem.path.split('/').pop()}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Message content */}
-      <UserMessageContent content={cleanContent.trim()} />
+      {/* Message content with inline file chips */}
+      <UserMessageContent content={inlineContent.trim()} fileMap={fileMap} />
 
       {/* Metadata: model + permission mode + timestamp */}
       <div className="mt-1.5 flex items-center justify-between">

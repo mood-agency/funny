@@ -366,31 +366,46 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
                 >
                   {msg.role === 'user' ? (
                     (() => {
-                      const { files, cleanContent } = parseReferencedFiles(msg.content);
+                      const { inlineContent, fileMap } = parseReferencedFiles(msg.content);
+                      const text = inlineContent.trim();
+                      let inlineNodes: React.ReactNode[];
+                      if (fileMap.size === 0) {
+                        inlineNodes = [text];
+                      } else {
+                        const escapedPaths = Array.from(fileMap.keys())
+                          .sort((a, b) => b.length - a.length)
+                          .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                        const pattern = new RegExp(`@(${escapedPaths.join('|')})`, 'g');
+                        inlineNodes = [];
+                        let lastIdx = 0;
+                        let m: RegExpExecArray | null;
+                        while ((m = pattern.exec(text)) !== null) {
+                          if (m.index > lastIdx) inlineNodes.push(text.slice(lastIdx, m.index));
+                          const fi = fileMap.get(m[1]);
+                          if (fi) {
+                            inlineNodes.push(
+                              <span
+                                key={`chip-${m.index}`}
+                                className="mx-0.5 inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 align-middle font-mono text-xs text-background/70"
+                                title={fi.path}
+                              >
+                                {fi.type === 'folder' ? (
+                                  <FolderOpen className="h-3 w-3 shrink-0" />
+                                ) : (
+                                  <FileText className="h-3 w-3 shrink-0" />
+                                )}
+                                {fi.path.split('/').pop()}
+                              </span>,
+                            );
+                          }
+                          lastIdx = m.index + m[0].length;
+                        }
+                        if (lastIdx < text.length) inlineNodes.push(text.slice(lastIdx));
+                      }
                       return (
-                        <>
-                          {files.length > 0 && (
-                            <div className="mb-1.5 flex flex-wrap gap-1">
-                              {files.map((item) => (
-                                <span
-                                  key={`${item.type}:${item.path}`}
-                                  className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-mono text-xs text-background/70"
-                                  title={item.path}
-                                >
-                                  {item.type === 'folder' ? (
-                                    <FolderOpen className="h-3 w-3 shrink-0" />
-                                  ) : (
-                                    <FileText className="h-3 w-3 shrink-0" />
-                                  )}
-                                  {item.path.split('/').pop()}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <pre className="max-h-80 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs">
-                            {cleanContent.trim()}
-                          </pre>
-                        </>
+                        <pre className="max-h-80 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs">
+                          {inlineNodes}
+                        </pre>
                       );
                     })()
                   ) : (

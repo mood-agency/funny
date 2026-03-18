@@ -96,6 +96,33 @@ interface SuggestionPopupProps {
   containerRef?: React.RefObject<HTMLElement | null>;
 }
 
+/**
+ * Truncate a file path in the middle so that the first directory and the
+ * file name are always visible:  `frontend-v1/src/\u2026/venues-create-info.component.html`
+ */
+function middleTruncate(path: string, maxLen = 60): string {
+  if (path.length <= maxLen) return path;
+  const sep = '/';
+  const parts = path.split(sep);
+  if (parts.length <= 2) return path;
+
+  // Always keep the file name (last part)
+  const fileName = parts[parts.length - 1];
+  // Budget for the prefix (everything before the ellipsis)
+  const prefixBudget = maxLen - fileName.length - 4; // 4 = "/\u2026/"
+  if (prefixBudget <= 0) return '\u2026' + sep + fileName;
+
+  // Build prefix from the left until we exceed the budget
+  let prefix = '';
+  for (let i = 0; i < parts.length - 1; i++) {
+    const candidate = prefix ? prefix + sep + parts[i] : parts[i];
+    if (candidate.length > prefixBudget) break;
+    prefix = candidate;
+  }
+
+  return (prefix ? prefix + sep : '') + '\u2026' + sep + fileName;
+}
+
 function SuggestionPopup({
   items,
   selectedIndex,
@@ -222,7 +249,7 @@ function SuggestionPopup({
           )}
           <div className="min-w-0">
             <HighlightText
-              text={type === 'slash' ? `/${item.label}` : item.label}
+              text={type === 'slash' ? `/${item.label}` : middleTruncate(item.label)}
               query={query}
               className="block truncate font-mono text-xs font-medium"
             />
@@ -292,6 +319,38 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
   const suggestionTypeRef = useRef(suggestionType);
   suggestionTypeRef.current = suggestionType;
 
+  // Track the trigger position so we can read the full query (@ to next space/EOL)
+  // regardless of caret position
+  const triggerPosRef = useRef<number | null>(null);
+  const editorRef = useRef<ReturnType<typeof useEditor>>(null);
+
+  /**
+   * Read the full text after a trigger character (@ or /) up to the next
+   * whitespace or end of the text node, regardless of caret position.
+   * Falls back to TipTap's query if the editor isn't available.
+   */
+  const getFullQuery = useCallback((tiptapQuery: string): string => {
+    const ed = editorRef.current;
+    const triggerFrom = triggerPosRef.current;
+    if (!ed || triggerFrom == null) return tiptapQuery;
+
+    try {
+      const doc = ed.state.doc;
+      // triggerFrom is the position of the trigger char (@ or /), text starts after it
+      const textStart = triggerFrom + 1;
+      const docSize = doc.content.size;
+      if (textStart >= docSize) return tiptapQuery;
+
+      // Read text from after the trigger to end of document
+      const textAfterTrigger = doc.textBetween(textStart, docSize, '\n');
+      // Take everything up to the first whitespace
+      const match = textAfterTrigger.match(/^(\S*)/);
+      return match ? match[1] : tiptapQuery;
+    } catch {
+      return tiptapQuery;
+    }
+  }, []);
+
   // ── File suggestion config ──
   const fileSuggestion = useCallback(
     () => ({
@@ -299,8 +358,10 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
       allowSpaces: false,
       allowedPrefixes: null,
       items: ({ query }: { query: string }) => {
-        // Update query immediately so highlights stay in sync with typing
-        setSuggestionQuery(query);
+        // Use the full text after @ (up to next space) instead of TipTap's
+        // caret-dependent query, so moving the caret doesn't change results
+        const fullQuery = getFullQuery(query);
+        setSuggestionQuery(fullQuery);
         // Return a promise that resolves with items after debounce
         return new Promise<SuggestionItem[]>((resolve) => {
           if (fileTimerRef.current) clearTimeout(fileTimerRef.current);
@@ -312,7 +373,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
               resolve([]);
               return;
             }
-            const result = await api.browseFiles(path, query || undefined);
+            const result = await api.browseFiles(path, fullQuery || undefined);
             let items: SuggestionItem[] = [];
             if (result.isOk()) {
               items = result.value.files.map((f) => {
@@ -357,6 +418,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
       },
       render: () => ({
         onStart: (props: any) => {
+          triggerPosRef.current = props.range?.from ?? null;
           setSuggestionType('file');
           setSuggestionItems(props.items);
           setSuggestionIndex(0);
@@ -365,9 +427,15 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           suggestionCommandRef.current = props.command;
         },
         onUpdate: (props: any) => {
-          setSuggestionItems(props.items);
-          setSuggestionIndex(0);
-          setSuggestionQuery(props.query ?? '');
+          // Only reset the selected index when items actually change
+          setSuggestionItems((prev) => {
+            const next = props.items as SuggestionItem[];
+            const changed =
+              prev.length !== next.length || prev.some((item, i) => item.id !== next[i]?.id);
+            if (changed) setSuggestionIndex(0);
+            return next;
+          });
+          setSuggestionQuery(getFullQuery(props.query ?? ''));
           setSuggestionRect(() => props.clientRect);
           suggestionCommandRef.current = props.command;
         },
@@ -403,6 +471,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           return false;
         },
         onExit: () => {
+          triggerPosRef.current = null;
           setSuggestionType(null);
           setSuggestionItems([]);
           setSuggestionQuery('');
@@ -423,8 +492,8 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
       allowSpaces: false,
       allowedPrefixes: [' ', '\n'],
       items: async ({ query }: { query: string }) => {
-        // Update query immediately so highlights stay in sync with typing
-        setSuggestionQuery(query);
+        const fullQuery = getFullQuery(query);
+        setSuggestionQuery(fullQuery);
         if (!skillsCacheRef.current) {
           setSuggestionLoading(true);
           const fn = loadSkillsRef.current;
@@ -432,7 +501,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           setSuggestionLoading(false);
         }
         const skills = skillsCacheRef.current ?? [];
-        const q = query.toLowerCase();
+        const q = fullQuery.toLowerCase();
         return skills
           .filter((s) => s.name.toLowerCase().includes(q))
           .map((s) => ({
@@ -465,6 +534,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
       },
       render: () => ({
         onStart: (props: any) => {
+          triggerPosRef.current = props.range?.from ?? null;
           setSuggestionType('slash');
           setSuggestionItems(props.items);
           setSuggestionIndex(0);
@@ -473,9 +543,15 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           suggestionCommandRef.current = props.command;
         },
         onUpdate: (props: any) => {
-          setSuggestionItems(props.items);
-          setSuggestionIndex(0);
-          setSuggestionQuery(props.query ?? '');
+          // Only reset the selected index when items actually change
+          setSuggestionItems((prev) => {
+            const next = props.items as SuggestionItem[];
+            const changed =
+              prev.length !== next.length || prev.some((item, i) => item.id !== next[i]?.id);
+            if (changed) setSuggestionIndex(0);
+            return next;
+          });
+          setSuggestionQuery(getFullQuery(props.query ?? ''));
           setSuggestionRect(() => props.clientRect);
           suggestionCommandRef.current = props.command;
         },
@@ -510,6 +586,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           return false;
         },
         onExit: () => {
+          triggerPosRef.current = null;
           setSuggestionType(null);
           setSuggestionItems([]);
           setSuggestionQuery('');
@@ -628,6 +705,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
     },
     editable: !disabled,
   });
+  editorRef.current = editor;
 
   // Update placeholder when it changes
   useEffect(() => {

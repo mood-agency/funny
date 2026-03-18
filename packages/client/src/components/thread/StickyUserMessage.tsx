@@ -1,7 +1,8 @@
 import { User, FileText, FolderOpen, ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, type ReactNode } from 'react';
 
+import type { ReferencedItem } from '@/lib/parse-referenced-files';
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 
 interface StickyUserMessageProps {
@@ -10,12 +11,67 @@ interface StickyUserMessageProps {
   onScrollTo: () => void;
 }
 
+/** Renders a file/folder reference chip inline (compact version for sticky header) */
+function StickyFileChip({ item }: { item: ReferencedItem }) {
+  return (
+    <span
+      className="mx-0.5 inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 align-middle font-sans text-xs text-background/70"
+      title={item.path}
+    >
+      {item.type === 'folder' ? (
+        <FolderOpen className="h-3 w-3 shrink-0" />
+      ) : (
+        <FileText className="h-3 w-3 shrink-0" />
+      )}
+      {item.path.split('/').pop()}
+    </span>
+  );
+}
+
+function renderStickyInlineContent(
+  text: string,
+  fileMap: Map<string, ReferencedItem>,
+): ReactNode[] {
+  if (fileMap.size === 0) return [text];
+
+  const escapedPaths = Array.from(fileMap.keys())
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`@(${escapedPaths.join('|')})`, 'g');
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const path = match[1];
+    const item = fileMap.get(path);
+    if (item) {
+      parts.push(<StickyFileChip key={`chip-${match.index}`} item={item} />);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts;
+}
+
 export const StickyUserMessage = memo(function StickyUserMessage({
   content,
   images,
   onScrollTo,
 }: StickyUserMessageProps) {
-  const { files, cleanContent } = useMemo(() => parseReferencedFiles(content), [content]);
+  const { inlineContent, fileMap } = useMemo(() => parseReferencedFiles(content), [content]);
+  const inlineNodes = useMemo(
+    () => renderStickyInlineContent(inlineContent.trim(), fileMap),
+    [inlineContent, fileMap],
+  );
 
   return (
     <motion.div
@@ -32,26 +88,8 @@ export const StickyUserMessage = memo(function StickyUserMessage({
         >
           <User className="mt-0.5 h-3 w-3 flex-shrink-0 text-background/60" />
           <div className="min-w-0 flex-1">
-            {files.length > 0 && (
-              <div className="mb-1 flex flex-wrap gap-1">
-                {files.map((item) => (
-                  <span
-                    key={`${item.type}:${item.path}`}
-                    className="inline-flex items-center gap-1 rounded bg-background/20 px-1.5 py-0.5 font-sans text-xs text-background/70"
-                    title={item.path}
-                  >
-                    {item.type === 'folder' ? (
-                      <FolderOpen className="h-3 w-3 shrink-0" />
-                    ) : (
-                      <FileText className="h-3 w-3 shrink-0" />
-                    )}
-                    {item.path.split('/').pop()}
-                  </span>
-                ))}
-              </div>
-            )}
             <p className="line-clamp-5 whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-background">
-              {cleanContent.trim()}
+              {inlineNodes}
             </p>
             {images && images.length > 0 && (
               <div className="mt-1.5 flex gap-1.5">

@@ -5,14 +5,21 @@ export interface ReferencedItem {
 
 /**
  * Parses `<referenced-files>` XML from the beginning of user message content.
- * Returns the extracted file/folder paths and the clean message text without the XML block.
+ * Returns the extracted file/folder paths, clean content without the XML block
+ * (but with @path mentions stripped), and inline content that preserves @path
+ * markers for inline chip rendering.
  */
 export function parseReferencedFiles(content: string): {
   files: ReferencedItem[];
   cleanContent: string;
+  /** Content with @path markers preserved (XML block removed) for inline rendering */
+  inlineContent: string;
+  /** Map of path → ReferencedItem for quick lookup */
+  fileMap: Map<string, ReferencedItem>;
 } {
   const match = content.match(/^\s*<referenced-files>\s*([\s\S]*?)\s*<\/referenced-files>\s*/);
-  if (!match) return { files: [], cleanContent: content };
+  if (!match)
+    return { files: [], cleanContent: content, inlineContent: content, fileMap: new Map() };
 
   const xmlBlock = match[0];
   const inner = match[1];
@@ -39,12 +46,21 @@ export function parseReferencedFiles(content: string): {
     }
   }
 
-  // Remove @path mentions from the visible text since they're shown as chips
-  let cleanContent = content.slice(xmlBlock.length);
+  // Build file map for inline rendering
+  const fileMap = new Map<string, ReferencedItem>();
   for (const item of items) {
-    // Escape special regex chars in the path, then strip @path (with optional trailing space)
+    fileMap.set(item.path, item);
+  }
+
+  // inlineContent: XML block removed, @path markers preserved
+  const inlineContent = content.slice(xmlBlock.length);
+
+  // cleanContent: also strip @path mentions (legacy behavior)
+  let cleanContent = inlineContent;
+  for (const item of items) {
     const escaped = item.path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     cleanContent = cleanContent.replace(new RegExp(`@${escaped}\\s?`, 'g'), '');
   }
-  return { files: items, cleanContent };
+
+  return { files: items, cleanContent, inlineContent, fileMap };
 }
