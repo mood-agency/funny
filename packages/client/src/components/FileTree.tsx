@@ -9,7 +9,7 @@ import {
   Folder,
   FolderOpen,
   FolderX,
-  MoreVertical,
+  MoreHorizontal,
   Undo2,
 } from 'lucide-react';
 import { type CSSProperties, useCallback, useMemo, useRef, useState } from 'react';
@@ -281,7 +281,7 @@ export function FileTree({
               />
               {/* Spacers to align with file rows (status letter + 3-dot menu) */}
               <span className={cn('invisible flex-shrink-0 font-medium', fontSize)}>M</span>
-              <span className="h-4 w-4 flex-shrink-0" />
+              <span className="h-6 w-6 flex-shrink-0" />
             </div>
           );
         }
@@ -358,10 +358,10 @@ export function FileTree({
                   onClick={(e) => e.stopPropagation()}
                   onPointerDown={(e) => e.stopPropagation()}
                   aria-label={t('review.moreActions', 'More actions')}
-                  className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
                   data-testid={`${testIdPrefix}-menu-${f.path}`}
                 >
-                  <MoreVertical className="h-3 w-3" />
+                  <MoreHorizontal className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

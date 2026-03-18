@@ -376,16 +376,35 @@ export function unstageFiles(cwd: string, paths: string[]): ResultAsync<void, Do
 }
 
 /**
- * Revert changes to files
+ * Revert changes to files.
+ * For tracked files, restores to HEAD via `git checkout`.
+ * For untracked files, deletes them from the working tree.
  */
 export function revertFiles(cwd: string, paths: string[]): ResultAsync<void, DomainError> {
   if (paths.length === 0) return new ResultAsync(Promise.resolve(ok(undefined)));
 
   return ResultAsync.fromPromise(
     (async () => {
+      // Identify untracked files so we can handle them differently
+      const untrackedResult = await gitRead(['ls-files', '--others', '--exclude-standard'], {
+        cwd,
+      });
+      const untrackedSet = new Set(
+        untrackedResult.stdout
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean),
+      );
+
       for (const path of paths) {
-        const result = await git(['checkout', '--', path], cwd);
-        if (result.isErr()) throw result.error;
+        if (untrackedSet.has(path)) {
+          // Untracked file: delete it (there's no git version to restore)
+          const fullPath = join(cwd, path);
+          if (existsSync(fullPath)) rmSync(fullPath);
+        } else {
+          const result = await git(['checkout', '--', path], cwd);
+          if (result.isErr()) throw result.error;
+        }
       }
     })(),
     (error) => {
