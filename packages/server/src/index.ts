@@ -170,7 +170,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Initialize Socket.IO server
 const { createSocketIOServer, attachSocketIO, closeSocketIO } =
   await import('./services/socketio.js');
-const ioServer = createSocketIOServer(authInstance, corsOrigins);
+createSocketIOServer(authInstance, corsOrigins);
 
 const server = Bun.serve({
   port: PORT,

@@ -119,7 +119,7 @@ function setupBrowserNamespace(): void {
         type: 'browser',
       };
       next();
-    } catch (err) {
+    } catch {
       next(new Error('Authentication failed'));
     }
   });
@@ -229,7 +229,7 @@ function setupRunnerNamespace(): void {
         type: 'runner',
       };
       next();
-    } catch (err) {
+    } catch {
       next(new Error('Runner authentication failed'));
     }
   });
