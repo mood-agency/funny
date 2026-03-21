@@ -1,0 +1,1369 @@
+{
+  "name": "FunnyRuntime",
+  "elements": {
+    "CreateThread": {
+      "kind": "command",
+      "name": "CreateThread",
+      "actor": "User",
+      "fields": {
+        "projectId": "string",
+        "title": "string",
+        "mode": "string",
+        "prompt": "string",
+        "model": "string",
+        "provider": "string"
+      },
+      "description": "User creates a new thread to start agent work"
+    },
+    "StartAgent": {
+      "kind": "command",
+      "name": "StartAgent",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "prompt": "string",
+        "model": "string",
+        "provider": "string",
+        "permissionMode": "string"
+      },
+      "description": "Start or resume an agent process on a thread"
+    },
+    "StopAgent": {
+      "kind": "command",
+      "name": "StopAgent",
+      "actor": "User",
+      "fields": {
+        "threadId": "string"
+      },
+      "description": "Kill a running agent process"
+    },
+    "SendFollowUp": {
+      "kind": "command",
+      "name": "SendFollowUp",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "content": "string"
+      },
+      "description": "Send a follow-up message to a running or completed agent"
+    },
+    "ChangeStage": {
+      "kind": "command",
+      "name": "ChangeStage",
+      "actor": "System",
+      "fields": {
+        "threadId": "string",
+        "toStage": "string"
+      },
+      "description": "Transition thread stage (backlog → in_progress → review → done)"
+    },
+    "DeleteThread": {
+      "kind": "command",
+      "name": "DeleteThread",
+      "actor": "User",
+      "fields": {
+        "threadId": "string"
+      },
+      "description": "Delete a thread and clean up its worktree"
+    },
+    "InsertComment": {
+      "kind": "command",
+      "name": "InsertComment",
+      "actor": "System",
+      "fields": {
+        "threadId": "string",
+        "source": "string",
+        "content": "string"
+      },
+      "description": "Insert a system comment into a thread"
+    },
+    "SaveThreadEvent": {
+      "kind": "command",
+      "name": "SaveThreadEvent",
+      "actor": "System",
+      "fields": {
+        "threadId": "string",
+        "type": "string",
+        "data": "string"
+      },
+      "description": "Persist a thread event to the database"
+    },
+    "ThreadCreated": {
+      "kind": "event",
+      "name": "ThreadCreated",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "userId": "string",
+        "stage": "string",
+        "status": "string",
+        "worktreePath": "string?",
+        "cwd": "string"
+      },
+      "description": "A new thread has been created"
+    },
+    "AgentStarted": {
+      "kind": "event",
+      "name": "AgentStarted",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "userId": "string",
+        "model": "string",
+        "provider": "string",
+        "worktreePath": "string?",
+        "cwd": "string"
+      },
+      "description": "An agent process has been spawned and is running"
+    },
+    "AgentCompleted": {
+      "kind": "event",
+      "name": "AgentCompleted",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "userId": "string",
+        "status": "string",
+        "cost": "decimal",
+        "worktreePath": "string?",
+        "cwd": "string"
+      },
+      "description": "An agent process has finished (completed, failed, or stopped)"
+    },
+    "ThreadStageChanged": {
+      "kind": "event",
+      "name": "ThreadStageChanged",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "userId": "string",
+        "fromStage": "string?",
+        "toStage": "string"
+      },
+      "description": "Thread stage transitioned (e.g. backlog → in_progress)"
+    },
+    "ThreadDeleted": {
+      "kind": "event",
+      "name": "ThreadDeleted",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "userId": "string",
+        "worktreePath": "string?"
+      },
+      "description": "A thread has been permanently deleted"
+    },
+    "Thread": {
+      "kind": "aggregate",
+      "name": "Thread",
+      "handles": [
+        "CreateThread",
+        "StartAgent",
+        "StopAgent",
+        "SendFollowUp",
+        "ChangeStage",
+        "DeleteThread"
+      ],
+      "emits": [
+        "ThreadCreated",
+        "AgentStarted",
+        "AgentCompleted",
+        "ThreadStageChanged",
+        "ThreadDeleted"
+      ],
+      "invariants": [
+        "Only one agent can run per thread at a time",
+        "Stage transitions follow state machine: backlog → in_progress → review → done",
+        "Cannot delete a thread with a running agent",
+        "Worktree mode requires project path to be a valid git repository",
+        "Follow-up messages are queued if agent is running (queue mode)"
+      ],
+      "description": "Thread lifecycle state in agent-runner.ts — manages agent process, stage transitions, worktree isolation"
+    },
+    "ClaudeAgentSDK": {
+      "kind": "external",
+      "name": "ClaudeAgentSDK",
+      "receives": [
+        "StartAgent",
+        "StopAgent"
+      ],
+      "emits": [
+        "AgentStarted",
+        "AgentCompleted"
+      ],
+      "description": "Claude Agent SDK (@anthropic-ai/claude-agent-sdk) — spawned as subprocess via packages/core/src/agents/, session resumption via sessionId"
+    },
+    "Sidebar": {
+      "kind": "screen",
+      "name": "Sidebar",
+      "displays": [
+        "ThreadListView"
+      ],
+      "triggers": [
+        "CreateThread",
+        "DeleteThread"
+      ],
+      "description": "Sidebar.tsx — project list with collapsible accordion, thread list with status badges, \"New Thread\" button"
+    },
+    "ThreadView": {
+      "kind": "screen",
+      "name": "ThreadView",
+      "displays": [
+        "ThreadListView",
+        "ActiveAgentView"
+      ],
+      "triggers": [
+        "StartAgent",
+        "StopAgent",
+        "SendFollowUp",
+        "ChangeStage"
+      ],
+      "description": "ThreadView.tsx — chat-style message display, tool call cards, prompt input with model/mode selectors, stop button"
+    },
+    "ThreadListView": {
+      "kind": "readModel",
+      "name": "ThreadListView",
+      "from": [
+        "ThreadCreated",
+        "ThreadStageChanged",
+        "ThreadDeleted",
+        "AgentCompleted"
+      ],
+      "fields": {
+        "threads": "Thread[]",
+        "activeCount": "number",
+        "totalCost": "decimal"
+      },
+      "description": "Client-side thread list with status badges and cost tracking"
+    },
+    "ActiveAgentView": {
+      "kind": "readModel",
+      "name": "ActiveAgentView",
+      "from": [
+        "AgentStarted",
+        "AgentCompleted"
+      ],
+      "fields": {
+        "runningAgents": "string[]",
+        "isRunning": "boolean"
+      },
+      "description": "Which agents are currently running (for stop button, status indicators)"
+    },
+    "TransitionStageOnAgentStart": {
+      "kind": "automation",
+      "name": "TransitionStageOnAgentStart",
+      "on": "AgentStarted",
+      "triggers": "ChangeStage",
+      "description": "Auto-transitions thread stage to in_progress when agent starts (if backlog/planning/review)"
+    },
+    "CommentOnAgentCompletion": {
+      "kind": "automation",
+      "name": "CommentOnAgentCompletion",
+      "on": "AgentCompleted",
+      "triggers": "InsertComment",
+      "description": "Creates a system comment when an agent completes/fails/stops"
+    },
+    "MemoryGCOnCompletion": {
+      "kind": "automation",
+      "name": "MemoryGCOnCompletion",
+      "on": "AgentCompleted",
+      "triggers": "RunMemoryGC",
+      "description": "Trigger memory garbage collection after N thread completions"
+    },
+    "FollowUpQueueSaga": {
+      "kind": "saga",
+      "name": "FollowUpQueueSaga",
+      "on": [
+        "AgentCompleted"
+      ],
+      "correlationKey": "threadId",
+      "when": "queued messages exist for threadId",
+      "triggers": [
+        "StartAgent"
+      ],
+      "description": "Process manager that drains queued follow-up messages — on AgentCompleted, checks if thread has pending messages, dequeues next and triggers StartAgent"
+    },
+    "GitStage": {
+      "kind": "command",
+      "name": "GitStage",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "paths": "string[]",
+        "cwd": "string"
+      },
+      "description": "Stage files for commit"
+    },
+    "GitUnstage": {
+      "kind": "command",
+      "name": "GitUnstage",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "paths": "string[]",
+        "cwd": "string"
+      },
+      "description": "Unstage previously staged files"
+    },
+    "GitCommit": {
+      "kind": "command",
+      "name": "GitCommit",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "message": "string",
+        "cwd": "string"
+      },
+      "description": "Create a git commit from staged changes"
+    },
+    "GitPush": {
+      "kind": "command",
+      "name": "GitPush",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "cwd": "string"
+      },
+      "description": "Push branch to remote"
+    },
+    "GitRevert": {
+      "kind": "command",
+      "name": "GitRevert",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "paths": "string[]",
+        "cwd": "string"
+      },
+      "description": "Revert file changes"
+    },
+    "GitPull": {
+      "kind": "command",
+      "name": "GitPull",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "cwd": "string"
+      },
+      "description": "Pull changes from remote"
+    },
+    "GitMerge": {
+      "kind": "command",
+      "name": "GitMerge",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "sourceBranch": "string",
+        "targetBranch": "string"
+      },
+      "description": "Merge source branch into target"
+    },
+    "GitStash": {
+      "kind": "command",
+      "name": "GitStash",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "cwd": "string"
+      },
+      "description": "Stash current changes"
+    },
+    "GitStashPop": {
+      "kind": "command",
+      "name": "GitStashPop",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "cwd": "string"
+      },
+      "description": "Pop stashed changes"
+    },
+    "GitResetSoft": {
+      "kind": "command",
+      "name": "GitResetSoft",
+      "actor": "User",
+      "fields": {
+        "threadId": "string",
+        "cwd": "string"
+      },
+      "description": "Soft reset (undo last commit, keep changes staged)"
+    },
+    "EmitGitStatus": {
+      "kind": "command",
+      "name": "EmitGitStatus",
+      "actor": "System",
+      "fields": {
+        "threadId": "string",
+        "cwd": "string"
+      },
+      "description": "Compute and emit git status via WebSocket"
+    },
+    "InvalidateGitCache": {
+      "kind": "command",
+      "name": "InvalidateGitCache",
+      "actor": "System",
+      "fields": {
+        "projectId": "string"
+      },
+      "description": "Invalidate the git status HTTP cache for a project"
+    },
+    "RunMemoryGC": {
+      "kind": "command",
+      "name": "RunMemoryGC",
+      "actor": "System",
+      "fields": {
+        "projectId": "string"
+      },
+      "description": "Trigger Paisley Park memory garbage collection"
+    },
+    "GitChanged": {
+      "kind": "event",
+      "name": "GitChanged",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "userId": "string",
+        "toolName": "string",
+        "cwd": "string",
+        "worktreePath": "string?"
+      },
+      "description": "A file-modifying tool was executed (Write, Edit, Bash, etc.)"
+    },
+    "GitStaged": {
+      "kind": "event",
+      "name": "GitStaged",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "paths": "string[]",
+        "cwd": "string"
+      },
+      "description": "Files have been staged"
+    },
+    "GitUnstaged": {
+      "kind": "event",
+      "name": "GitUnstaged",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "paths": "string[]",
+        "cwd": "string"
+      },
+      "description": "Files have been unstaged"
+    },
+    "GitCommitted": {
+      "kind": "event",
+      "name": "GitCommitted",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "message": "string",
+        "cwd": "string",
+        "commitSha": "string?",
+        "isPipelineCommit": "boolean?",
+        "pipelineRunId": "string?",
+        "workflowId": "string?"
+      },
+      "description": "A commit has been created"
+    },
+    "GitPushed": {
+      "kind": "event",
+      "name": "GitPushed",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "cwd": "string"
+      },
+      "description": "Branch has been pushed to remote"
+    },
+    "GitReverted": {
+      "kind": "event",
+      "name": "GitReverted",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "paths": "string[]",
+        "cwd": "string"
+      },
+      "description": "File changes have been reverted"
+    },
+    "GitPulled": {
+      "kind": "event",
+      "name": "GitPulled",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "cwd": "string",
+        "output": "string"
+      },
+      "description": "Changes pulled from remote"
+    },
+    "GitMerged": {
+      "kind": "event",
+      "name": "GitMerged",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "sourceBranch": "string",
+        "targetBranch": "string",
+        "output": "string"
+      },
+      "description": "Branch merged successfully"
+    },
+    "GitStashed": {
+      "kind": "event",
+      "name": "GitStashed",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "cwd": "string",
+        "output": "string"
+      },
+      "description": "Changes stashed"
+    },
+    "GitStashPopped": {
+      "kind": "event",
+      "name": "GitStashPopped",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "cwd": "string",
+        "output": "string"
+      },
+      "description": "Stashed changes restored"
+    },
+    "GitResetSoftDone": {
+      "kind": "event",
+      "name": "GitResetSoftDone",
+      "fields": {
+        "threadId": "string",
+        "userId": "string",
+        "projectId": "string",
+        "cwd": "string",
+        "output": "string"
+      },
+      "description": "Soft reset completed"
+    },
+    "GitRepository": {
+      "kind": "aggregate",
+      "name": "GitRepository",
+      "handles": [
+        "GitStage",
+        "GitUnstage",
+        "GitCommit",
+        "GitPush",
+        "GitRevert",
+        "GitPull",
+        "GitMerge",
+        "GitStash",
+        "GitStashPop",
+        "GitResetSoft"
+      ],
+      "emits": [
+        "GitStaged",
+        "GitUnstaged",
+        "GitCommitted",
+        "GitPushed",
+        "GitReverted",
+        "GitPulled",
+        "GitMerged",
+        "GitStashed",
+        "GitStashPopped",
+        "GitResetSoftDone"
+      ],
+      "invariants": [
+        "Cannot commit with an empty staging area",
+        "Cannot push without commits ahead of remote",
+        "Cannot merge a branch into itself",
+        "Stash requires uncommitted changes to exist",
+        "cwd must be a valid git repository"
+      ],
+      "description": "Git repository state managed via packages/core/src/git/ — concurrency pools (gitRead/gitWrite), worktree awareness"
+    },
+    "GitCLI": {
+      "kind": "external",
+      "name": "GitCLI",
+      "receives": [
+        "GitStage",
+        "GitUnstage",
+        "GitCommit",
+        "GitPush",
+        "GitRevert",
+        "GitPull",
+        "GitMerge",
+        "GitStash",
+        "GitStashPop",
+        "GitResetSoft",
+        "EmitGitStatus"
+      ],
+      "emits": [
+        "GitStaged",
+        "GitUnstaged",
+        "GitCommitted",
+        "GitPushed",
+        "GitReverted",
+        "GitPulled",
+        "GitMerged",
+        "GitStashed",
+        "GitStashPopped",
+        "GitResetSoftDone",
+        "GitChanged"
+      ],
+      "description": "Git CLI executed via packages/core/src/git/process.ts — gitRead/gitWrite concurrency pools, cross-platform process execution"
+    },
+    "GitHubAPI": {
+      "kind": "external",
+      "name": "GitHubAPI",
+      "receives": [
+        "GitPush"
+      ],
+      "emits": [
+        "GitPushed"
+      ],
+      "description": "GitHub CLI (gh) integration via packages/core/src/git/github.ts — push, PR creation, repo operations, uses GH_TOKEN from user profile"
+    },
+    "ReviewPane": {
+      "kind": "screen",
+      "name": "ReviewPane",
+      "displays": [
+        "GitStatusView",
+        "CommitHistoryView"
+      ],
+      "triggers": [
+        "GitStage",
+        "GitUnstage",
+        "GitCommit",
+        "GitPush",
+        "GitRevert",
+        "GitPull",
+        "GitMerge"
+      ],
+      "description": "ReviewPane.tsx — git diff viewer with stage/unstage/revert/commit/push/PR actions, file list with checkboxes"
+    },
+    "GitStatusView": {
+      "kind": "readModel",
+      "name": "GitStatusView",
+      "from": [
+        "GitChanged",
+        "GitStaged",
+        "GitUnstaged",
+        "GitCommitted",
+        "GitReverted",
+        "GitPulled",
+        "GitResetSoftDone"
+      ],
+      "fields": {
+        "staged": "string[]",
+        "unstaged": "string[]",
+        "untracked": "string[]",
+        "syncState": "string"
+      },
+      "description": "Git file status for the ReviewPane (staged/unstaged/untracked files)"
+    },
+    "CommitHistoryView": {
+      "kind": "readModel",
+      "name": "CommitHistoryView",
+      "from": [
+        "GitCommitted",
+        "GitPushed",
+        "GitMerged"
+      ],
+      "fields": {
+        "commits": "Commit[]",
+        "isPushed": "boolean",
+        "isMerged": "boolean"
+      },
+      "description": "Commit log and push/merge state in the ReviewPane"
+    },
+    "EmitGitStatusOnChange": {
+      "kind": "automation",
+      "name": "EmitGitStatusOnChange",
+      "on": "GitChanged",
+      "triggers": "EmitGitStatus",
+      "description": "Debounced git status emission via WebSocket on file changes"
+    },
+    "RefreshGitStatusOnAgentComplete": {
+      "kind": "automation",
+      "name": "RefreshGitStatusOnAgentComplete",
+      "on": "AgentCompleted",
+      "triggers": "EmitGitStatus",
+      "description": "Refreshes git status after agent finishes work"
+    },
+    "PersistGitCommit": {
+      "kind": "automation",
+      "name": "PersistGitCommit",
+      "on": "GitCommitted",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist commit metadata to thread events"
+    },
+    "PersistGitPush": {
+      "kind": "automation",
+      "name": "PersistGitPush",
+      "on": "GitPushed",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist push event to thread events"
+    },
+    "PersistGitMerge": {
+      "kind": "automation",
+      "name": "PersistGitMerge",
+      "on": "GitMerged",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist merge event to thread events"
+    },
+    "PersistGitStage": {
+      "kind": "automation",
+      "name": "PersistGitStage",
+      "on": "GitStaged",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist stage event to thread events"
+    },
+    "PersistGitUnstage": {
+      "kind": "automation",
+      "name": "PersistGitUnstage",
+      "on": "GitUnstaged",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist unstage event to thread events"
+    },
+    "PersistGitRevert": {
+      "kind": "automation",
+      "name": "PersistGitRevert",
+      "on": "GitReverted",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist revert event to thread events"
+    },
+    "PersistGitPull": {
+      "kind": "automation",
+      "name": "PersistGitPull",
+      "on": "GitPulled",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist pull event to thread events"
+    },
+    "PersistGitStash": {
+      "kind": "automation",
+      "name": "PersistGitStash",
+      "on": "GitStashed",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist stash event to thread events"
+    },
+    "PersistGitStashPop": {
+      "kind": "automation",
+      "name": "PersistGitStashPop",
+      "on": "GitStashPopped",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist stash-pop event to thread events"
+    },
+    "PersistGitResetSoft": {
+      "kind": "automation",
+      "name": "PersistGitResetSoft",
+      "on": "GitResetSoftDone",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist reset-soft event to thread events"
+    },
+    "StartPipelineReview": {
+      "kind": "command",
+      "name": "StartPipelineReview",
+      "actor": "System",
+      "fields": {
+        "threadId": "string",
+        "projectId": "string",
+        "commitSha": "string?",
+        "cwd": "string"
+      },
+      "description": "Start a pipeline code review run"
+    },
+    "StartGitWatcher": {
+      "kind": "command",
+      "name": "StartGitWatcher",
+      "actor": "System",
+      "fields": {
+        "projectId": "string",
+        "threadId": "string"
+      },
+      "description": "Start watching a project for file changes"
+    },
+    "StopGitWatcher": {
+      "kind": "command",
+      "name": "StopGitWatcher",
+      "actor": "System",
+      "fields": {
+        "projectId": "string",
+        "threadId": "string"
+      },
+      "description": "Stop watching a project for file changes"
+    },
+    "FileSystemWatcher": {
+      "kind": "external",
+      "name": "FileSystemWatcher",
+      "receives": [
+        "StartGitWatcher",
+        "StopGitWatcher"
+      ],
+      "emits": [],
+      "description": "File system watcher (chokidar/fs.watch) — monitors project directories for changes, emits GitChanged events"
+    },
+    "TriggerPipelineOnCommit": {
+      "kind": "automation",
+      "name": "TriggerPipelineOnCommit",
+      "on": "GitCommitted",
+      "triggers": "StartPipelineReview",
+      "description": "Starts pipeline code review when a commit is created (if pipeline enabled, not a pipeline commit)"
+    },
+    "StartWatcherOnThreadCreated": {
+      "kind": "automation",
+      "name": "StartWatcherOnThreadCreated",
+      "on": "ThreadCreated",
+      "triggers": "StartGitWatcher",
+      "description": "Start watching project files when a thread is created"
+    },
+    "StopWatcherOnThreadDeleted": {
+      "kind": "automation",
+      "name": "StopWatcherOnThreadDeleted",
+      "on": "ThreadDeleted",
+      "triggers": "StopGitWatcher",
+      "description": "Stop watching project files when a thread is deleted"
+    },
+    "SpawnPty": {
+      "kind": "command",
+      "name": "SpawnPty",
+      "actor": "User",
+      "fields": {
+        "id": "string",
+        "cwd": "string",
+        "cols": "number",
+        "rows": "number",
+        "shell": "string?",
+        "projectId": "string?",
+        "label": "string?"
+      },
+      "description": "User clicks \"+\" in terminal tab bar, selects a shell, and spawns a new PTY session"
+    },
+    "WritePty": {
+      "kind": "command",
+      "name": "WritePty",
+      "actor": "User",
+      "fields": {
+        "id": "string",
+        "data": "string"
+      },
+      "description": "User types input in xterm.js terminal (onData callback)"
+    },
+    "ResizePty": {
+      "kind": "command",
+      "name": "ResizePty",
+      "actor": "System",
+      "fields": {
+        "id": "string",
+        "cols": "number",
+        "rows": "number"
+      },
+      "description": "Terminal panel resized (ResizeObserver / FitAddon triggers pty:resize)"
+    },
+    "RestorePty": {
+      "kind": "command",
+      "name": "RestorePty",
+      "actor": "System",
+      "fields": {
+        "id": "string"
+      },
+      "description": "Client reconnects and requests terminal state restore (pty:restore event)"
+    },
+    "ListPtySessions": {
+      "kind": "command",
+      "name": "ListPtySessions",
+      "actor": "System",
+      "fields": {
+        "userId": "string"
+      },
+      "description": "On WebSocket connect, client emits pty:list to discover existing sessions"
+    },
+    "KillPty": {
+      "kind": "command",
+      "name": "KillPty",
+      "actor": "User",
+      "fields": {
+        "id": "string"
+      },
+      "description": "User closes terminal tab → pty:kill sent to kill the process"
+    },
+    "RenamePty": {
+      "kind": "command",
+      "name": "RenamePty",
+      "actor": "User",
+      "fields": {
+        "id": "string",
+        "label": "string"
+      },
+      "description": "User renames a terminal tab label"
+    },
+    "PtySpawned": {
+      "kind": "event",
+      "name": "PtySpawned",
+      "fields": {
+        "id": "string",
+        "userId": "string",
+        "cwd": "string",
+        "shell": "string?",
+        "projectId": "string?",
+        "backend": "string"
+      },
+      "description": "PTY process successfully created by backend, session stored in activeSessions map"
+    },
+    "PtyDataReceived": {
+      "kind": "event",
+      "name": "PtyDataReceived",
+      "fields": {
+        "id": "string",
+        "data": "string"
+      },
+      "description": "Backend onData callback fired — shell produced output, relayed to client via wsBroker"
+    },
+    "PtyRestored": {
+      "kind": "event",
+      "name": "PtyRestored",
+      "fields": {
+        "id": "string",
+        "terminalState": "string?"
+      },
+      "description": "Session reattached after server restart or client reconnect, scrollback replayed"
+    },
+    "PtyExited": {
+      "kind": "event",
+      "name": "PtyExited",
+      "fields": {
+        "id": "string",
+        "exitCode": "number?"
+      },
+      "description": "PTY process exited (user killed, shell exited, or error) — session removed from activeSessions"
+    },
+    "PtyError": {
+      "kind": "event",
+      "name": "PtyError",
+      "fields": {
+        "id": "string",
+        "error": "string"
+      },
+      "description": "PTY spawn failed or backend error (e.g. cwd not in user projects)"
+    },
+    "PtySessionsListed": {
+      "kind": "event",
+      "name": "PtySessionsListed",
+      "fields": {
+        "userId": "string",
+        "sessions": "SessionMeta[]"
+      },
+      "description": "Server responds with list of active PTY sessions for the user (pty:sessions event)"
+    },
+    "PtySession": {
+      "kind": "aggregate",
+      "name": "PtySession",
+      "handles": [
+        "SpawnPty",
+        "WritePty",
+        "ResizePty",
+        "KillPty",
+        "RestorePty",
+        "RenamePty"
+      ],
+      "emits": [
+        "PtySpawned",
+        "PtyDataReceived",
+        "PtyExited",
+        "PtyError",
+        "PtyRestored"
+      ],
+      "invariants": [
+        "cwd must resolve to absolute path within user project directories or worktrees",
+        "session id must not already exist in activeSessions (duplicate spawn → auto-restore)",
+        "backend must be available (not null backend in production)"
+      ],
+      "description": "Manages PTY session state in pty-manager.ts — activeSessions map, scrollback buffer, backend selection"
+    },
+    "ServerSocketProxy": {
+      "kind": "external",
+      "name": "ServerSocketProxy",
+      "receives": [
+        "SpawnPty",
+        "WritePty",
+        "ResizePty",
+        "KillPty",
+        "RestorePty",
+        "ListPtySessions",
+        "RenamePty"
+      ],
+      "emits": [
+        "PtyDataReceived",
+        "PtyExited",
+        "PtyError",
+        "PtySessionsListed",
+        "PtyRestored"
+      ],
+      "description": "Socket.IO server (socketio.ts) — authenticates browser session, resolves runner for project, forwards pty:* events via central:browser_ws tunnel, relays runner responses back to user room"
+    },
+    "TerminalPanel": {
+      "kind": "screen",
+      "name": "TerminalPanel",
+      "displays": [
+        "TerminalSessionView"
+      ],
+      "triggers": [
+        "SpawnPty",
+        "WritePty",
+        "ResizePty",
+        "KillPty",
+        "RenamePty"
+      ],
+      "description": "TerminalPanel.tsx — tab bar with \"+\" button, shell picker dropdown, xterm.js instances, resize observer"
+    },
+    "TerminalSessionView": {
+      "kind": "readModel",
+      "name": "TerminalSessionView",
+      "from": [
+        "PtySpawned",
+        "PtyExited",
+        "PtyError",
+        "PtySessionsListed",
+        "PtyRestored"
+      ],
+      "fields": {
+        "tabs": "TerminalTab[]",
+        "activeTabId": "string?",
+        "sessionsChecked": "boolean"
+      },
+      "description": "terminal-store.ts Zustand store — tracks open tabs, alive/dead state, pending PTY data buffers"
+    },
+    "PersistSessionOnSpawn": {
+      "kind": "automation",
+      "name": "PersistSessionOnSpawn",
+      "on": "PtySpawned",
+      "triggers": "SaveThreadEvent",
+      "description": "Persist PTY session metadata to pty_sessions table (persistent backends only)"
+    },
+    "CleanupSessionOnExit": {
+      "kind": "automation",
+      "name": "CleanupSessionOnExit",
+      "on": "PtyExited",
+      "triggers": "SaveThreadEvent",
+      "description": "Remove session from activeSessions map, clear scrollback buffer, delete from DB"
+    },
+    "BufferDataBeforeCallback": {
+      "kind": "automation",
+      "name": "BufferDataBeforeCallback",
+      "on": "PtyDataReceived",
+      "triggers": "SaveThreadEvent",
+      "description": "If xterm callback not yet registered (lazy load), buffer data in pendingPtyData for replay"
+    },
+    "ReattachOnServerRestart": {
+      "kind": "automation",
+      "name": "ReattachOnServerRestart",
+      "on": "PtySessionsListed",
+      "triggers": "RestorePty",
+      "description": "On client reconnect, restore tabs from pty:sessions and trigger pty:restore for each alive session"
+    }
+  },
+  "sequences": [
+    {
+      "name": "Thread Happy Path",
+      "steps": [
+        "CreateThread",
+        "ThreadCreated",
+        "StartAgent",
+        "AgentStarted",
+        "AgentCompleted"
+      ]
+    },
+    {
+      "name": "Follow-up via Saga",
+      "steps": [
+        "AgentCompleted",
+        "SendFollowUp",
+        "StartAgent",
+        "AgentStarted",
+        "AgentCompleted"
+      ]
+    },
+    {
+      "name": "Delete Thread",
+      "steps": [
+        "DeleteThread",
+        "ThreadDeleted"
+      ]
+    },
+    {
+      "name": "Stage Transition",
+      "steps": [
+        "ChangeStage",
+        "ThreadStageChanged"
+      ]
+    },
+    {
+      "name": "Stage and Commit",
+      "steps": [
+        "GitStage",
+        "GitStaged",
+        "GitCommit",
+        "GitCommitted"
+      ]
+    },
+    {
+      "name": "Commit triggers Pipeline Review",
+      "steps": [
+        "GitCommit",
+        "GitCommitted",
+        "StartPipelineReview"
+      ]
+    },
+    {
+      "name": "Full PR Flow",
+      "steps": [
+        "GitStage",
+        "GitStaged",
+        "GitCommit",
+        "GitCommitted",
+        "GitPush",
+        "GitPushed"
+      ]
+    },
+    {
+      "name": "Agent triggers Git Status",
+      "steps": [
+        "AgentCompleted",
+        "EmitGitStatus"
+      ]
+    },
+    {
+      "name": "Pull and Merge",
+      "steps": [
+        "GitPull",
+        "GitPulled",
+        "GitMerge",
+        "GitMerged"
+      ]
+    },
+    {
+      "name": "Terminal Spawn Happy Path",
+      "steps": [
+        "SpawnPty",
+        "PtySpawned",
+        "PtyDataReceived"
+      ]
+    },
+    {
+      "name": "Terminal Input Loop",
+      "steps": [
+        "WritePty",
+        "PtyDataReceived"
+      ]
+    },
+    {
+      "name": "Terminal Close",
+      "steps": [
+        "KillPty",
+        "PtyExited"
+      ]
+    },
+    {
+      "name": "Terminal Restore on Reconnect",
+      "steps": [
+        "ListPtySessions",
+        "PtySessionsListed",
+        "RestorePty",
+        "PtyRestored",
+        "PtyDataReceived"
+      ]
+    },
+    {
+      "name": "Terminal Spawn Error",
+      "steps": [
+        "SpawnPty",
+        "PtyError"
+      ]
+    }
+  ],
+  "slices": [
+    {
+      "name": "Thread Management",
+      "ui": "ThreadView",
+      "commands": [
+        "CreateThread",
+        "StartAgent",
+        "StopAgent",
+        "SendFollowUp",
+        "ChangeStage",
+        "DeleteThread"
+      ],
+      "events": [
+        "ThreadCreated",
+        "AgentStarted",
+        "AgentCompleted",
+        "ThreadStageChanged",
+        "ThreadDeleted"
+      ],
+      "readModels": [
+        "ThreadListView",
+        "ActiveAgentView"
+      ],
+      "automations": [
+        "TransitionStageOnAgentStart",
+        "CommentOnAgentCompletion"
+      ],
+      "aggregates": [
+        "Thread"
+      ],
+      "screens": [
+        "Sidebar",
+        "ThreadView"
+      ],
+      "externals": [
+        "ClaudeAgentSDK"
+      ],
+      "sagas": []
+    },
+    {
+      "name": "Git Operations",
+      "ui": "ReviewPane",
+      "commands": [
+        "GitStage",
+        "GitUnstage",
+        "GitCommit",
+        "GitPush",
+        "GitRevert",
+        "GitPull",
+        "GitMerge",
+        "GitStash",
+        "GitStashPop",
+        "GitResetSoft"
+      ],
+      "events": [
+        "GitChanged",
+        "GitStaged",
+        "GitUnstaged",
+        "GitCommitted",
+        "GitPushed",
+        "GitReverted",
+        "GitPulled",
+        "GitMerged",
+        "GitStashed",
+        "GitStashPopped",
+        "GitResetSoftDone"
+      ],
+      "readModels": [
+        "GitStatusView",
+        "CommitHistoryView"
+      ],
+      "automations": [
+        "EmitGitStatusOnChange",
+        "RefreshGitStatusOnAgentComplete",
+        "PersistGitCommit",
+        "PersistGitPush",
+        "PersistGitMerge",
+        "PersistGitStage",
+        "PersistGitUnstage",
+        "PersistGitRevert",
+        "PersistGitPull",
+        "PersistGitStash",
+        "PersistGitStashPop",
+        "PersistGitResetSoft"
+      ],
+      "aggregates": [
+        "GitRepository"
+      ],
+      "screens": [
+        "ReviewPane"
+      ],
+      "externals": [
+        "GitCLI",
+        "GitHubAPI"
+      ],
+      "sagas": []
+    },
+    {
+      "name": "Pipeline",
+      "commands": [
+        "StartPipelineReview"
+      ],
+      "events": [
+        "GitCommitted"
+      ],
+      "readModels": [],
+      "automations": [
+        "TriggerPipelineOnCommit"
+      ],
+      "aggregates": [],
+      "screens": [],
+      "externals": [],
+      "sagas": []
+    },
+    {
+      "name": "Watcher Lifecycle",
+      "commands": [
+        "StartGitWatcher",
+        "StopGitWatcher"
+      ],
+      "events": [
+        "ThreadCreated",
+        "ThreadDeleted"
+      ],
+      "readModels": [],
+      "automations": [
+        "StartWatcherOnThreadCreated",
+        "StopWatcherOnThreadDeleted"
+      ],
+      "aggregates": [],
+      "screens": [],
+      "externals": [
+        "FileSystemWatcher"
+      ],
+      "sagas": []
+    },
+    {
+      "name": "Terminal Management",
+      "ui": "TerminalPanel",
+      "commands": [
+        "SpawnPty",
+        "WritePty",
+        "ResizePty",
+        "KillPty",
+        "RestorePty",
+        "ListPtySessions",
+        "RenamePty"
+      ],
+      "events": [
+        "PtySpawned",
+        "PtyDataReceived",
+        "PtyExited",
+        "PtyError",
+        "PtyRestored",
+        "PtySessionsListed"
+      ],
+      "readModels": [
+        "TerminalSessionView"
+      ],
+      "automations": [
+        "PersistSessionOnSpawn",
+        "CleanupSessionOnExit",
+        "BufferDataBeforeCallback",
+        "ReattachOnServerRestart"
+      ],
+      "aggregates": [
+        "PtySession"
+      ],
+      "screens": [
+        "TerminalPanel"
+      ],
+      "externals": [
+        "ServerSocketProxy"
+      ],
+      "sagas": []
+    }
+  ],
+  "contexts": []
+}

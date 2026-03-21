@@ -6,6 +6,11 @@ export const EVFLOW_METHODS = [
   'event',
   'readModel',
   'automation',
+  'aggregate',
+  'screen',
+  'external',
+  'saga',
+  'context',
   'sequence',
   'slice',
 ] as const;
@@ -17,6 +22,10 @@ export const METHOD_TO_KIND: Record<string, string> = {
   event: 'event',
   readModel: 'readModel',
   automation: 'automation',
+  aggregate: 'aggregate',
+  screen: 'screen',
+  external: 'external',
+  saga: 'saga',
 };
 
 /**

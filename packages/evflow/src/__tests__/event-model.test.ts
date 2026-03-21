@@ -144,4 +144,201 @@ describe('EventModel', () => {
     const sys = new EventModel('Shop');
     expect(sys.getElement('Ghost')).toBeUndefined();
   });
+
+  // ── Aggregate ─────────────────────────────────────────────
+
+  test('registers an aggregate and returns an ElementRef', () => {
+    const sys = new EventModel('Shop');
+    sys.command('PlaceOrder', { fields: {} });
+    sys.event('OrderPlaced', { fields: {} });
+    const ref = sys.aggregate('Order', {
+      handles: ['PlaceOrder'],
+      emits: ['OrderPlaced'],
+      invariants: ['items must not be empty'],
+    });
+    expect(ref.name).toBe('Order');
+    expect(ref.kind).toBe('aggregate');
+    const el = sys.getElement('Order');
+    expect(el?.kind).toBe('aggregate');
+    if (el?.kind === 'aggregate') {
+      expect(el.handles).toEqual(['PlaceOrder']);
+      expect(el.emits).toEqual(['OrderPlaced']);
+      expect(el.invariants).toEqual(['items must not be empty']);
+    }
+  });
+
+  test('aggregate resolves ElementRef references', () => {
+    const sys = new EventModel('Shop');
+    const cmd = sys.command('PlaceOrder', { fields: {} });
+    const evt = sys.event('OrderPlaced', { fields: {} });
+    sys.aggregate('Order', { handles: [cmd], emits: [evt] });
+    const el = sys.getElement('Order');
+    if (el?.kind === 'aggregate') {
+      expect(el.handles).toEqual(['PlaceOrder']);
+      expect(el.emits).toEqual(['OrderPlaced']);
+    }
+  });
+
+  // ── Screen ────────────────────────────────────────────────
+
+  test('registers a screen and returns an ElementRef', () => {
+    const sys = new EventModel('Shop');
+    sys.event('E', { fields: {} });
+    sys.readModel('CartView', { from: ['E'], fields: {} });
+    sys.command('AddItem', { fields: {} });
+    const ref = sys.screen('ProductPage', {
+      displays: ['CartView'],
+      triggers: ['AddItem'],
+    });
+    expect(ref.name).toBe('ProductPage');
+    expect(ref.kind).toBe('screen');
+    const el = sys.getElement('ProductPage');
+    if (el?.kind === 'screen') {
+      expect(el.displays).toEqual(['CartView']);
+      expect(el.triggers).toEqual(['AddItem']);
+    }
+  });
+
+  // ── External ──────────────────────────────────────────────
+
+  test('registers an external system and returns an ElementRef', () => {
+    const sys = new EventModel('Shop');
+    sys.command('ChargeCard', { fields: {} });
+    sys.event('PaymentReceived', { fields: {} });
+    const ref = sys.external('Stripe', {
+      receives: ['ChargeCard'],
+      emits: ['PaymentReceived'],
+    });
+    expect(ref.name).toBe('Stripe');
+    expect(ref.kind).toBe('external');
+    const el = sys.getElement('Stripe');
+    if (el?.kind === 'external') {
+      expect(el.receives).toEqual(['ChargeCard']);
+      expect(el.emits).toEqual(['PaymentReceived']);
+    }
+  });
+
+  test('external defaults to empty arrays', () => {
+    const sys = new EventModel('Shop');
+    sys.external('Webhook', {});
+    const el = sys.getElement('Webhook');
+    if (el?.kind === 'external') {
+      expect(el.receives).toEqual([]);
+      expect(el.emits).toEqual([]);
+    }
+  });
+
+  // ── Saga ──────────────────────────────────────────────────
+
+  test('registers a saga and returns an ElementRef', () => {
+    const sys = new EventModel('Shop');
+    sys.event('OrderPlaced', { fields: {} });
+    sys.event('PaymentReceived', { fields: {} });
+    sys.command('ShipOrder', { fields: {} });
+    const ref = sys.saga('OrderFulfillment', {
+      on: ['OrderPlaced', 'PaymentReceived'],
+      correlationKey: 'orderId',
+      when: 'all received',
+      triggers: 'ShipOrder',
+    });
+    expect(ref.name).toBe('OrderFulfillment');
+    expect(ref.kind).toBe('saga');
+    const el = sys.getElement('OrderFulfillment');
+    if (el?.kind === 'saga') {
+      expect(el.on).toEqual(['OrderPlaced', 'PaymentReceived']);
+      expect(el.correlationKey).toBe('orderId');
+      expect(el.when).toBe('all received');
+      expect(el.triggers).toBe('ShipOrder');
+    }
+  });
+
+  test('saga resolves array triggers', () => {
+    const sys = new EventModel('Shop');
+    const evt = sys.event('E', { fields: {} });
+    const cmd1 = sys.command('C1', { fields: {} });
+    const cmd2 = sys.command('C2', { fields: {} });
+    sys.saga('S', {
+      on: [evt],
+      correlationKey: 'id',
+      when: 'done',
+      triggers: [cmd1, cmd2],
+    });
+    const el = sys.getElement('S');
+    if (el?.kind === 'saga') {
+      expect(el.on).toEqual(['E']);
+      expect(el.triggers).toEqual(['C1', 'C2']);
+    }
+  });
+
+  // ── Context ───────────────────────────────────────────────
+
+  test('context() groups elements and records them in getData().contexts', () => {
+    const sys = new EventModel('Shop');
+    sys.context('OrderManagement', (ctx) => {
+      ctx.command('PlaceOrder', { fields: {} });
+      ctx.event('OrderPlaced', { fields: {} });
+    });
+    const data = sys.getData();
+    expect(data.contexts).toHaveLength(1);
+    expect(data.contexts[0].name).toBe('OrderManagement');
+    expect(data.contexts[0].elements).toEqual(['PlaceOrder', 'OrderPlaced']);
+  });
+
+  test('context() elements are still accessible via getElement()', () => {
+    const sys = new EventModel('Shop');
+    sys.context('Ctx', (ctx) => {
+      ctx.command('Cmd', { fields: {} });
+    });
+    expect(sys.getElement('Cmd')).toBeDefined();
+    expect(sys.getElement('Cmd')?.kind).toBe('command');
+  });
+
+  // ── Versioning ────────────────────────────────────────────
+
+  test('command accepts optional version field', () => {
+    const sys = new EventModel('Shop');
+    sys.command('PlaceOrder', { fields: {}, version: 2 });
+    const el = sys.getElement('PlaceOrder');
+    if (el?.kind === 'command') {
+      expect(el.version).toBe(2);
+    }
+  });
+
+  test('event accepts optional version field', () => {
+    const sys = new EventModel('Shop');
+    sys.event('OrderPlaced', { fields: {}, version: 3 });
+    const el = sys.getElement('OrderPlaced');
+    if (el?.kind === 'event') {
+      expect(el.version).toBe(3);
+    }
+  });
+
+  // ── Slice with new kinds ──────────────────────────────────
+
+  test('slice() accepts new element kind arrays', () => {
+    const sys = new EventModel('Shop');
+    const agg = sys.aggregate('Order', { handles: [], emits: [] });
+    const scr = sys.screen('Page', { displays: [], triggers: [] });
+    const ext = sys.external('Stripe', {});
+    sys.event('E', { fields: {} });
+    const saga = sys.saga('S', {
+      on: ['E'],
+      correlationKey: 'id',
+      when: 'all',
+      triggers: [],
+    });
+
+    sys.slice('Full', {
+      aggregates: [agg],
+      screens: [scr],
+      externals: [ext],
+      sagas: [saga],
+    });
+
+    const data = sys.getData();
+    expect(data.slices[0].aggregates).toEqual(['Order']);
+    expect(data.slices[0].screens).toEqual(['Page']);
+    expect(data.slices[0].externals).toEqual(['Stripe']);
+    expect(data.slices[0].sagas).toEqual(['S']);
+  });
 });

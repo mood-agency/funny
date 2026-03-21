@@ -11,6 +11,7 @@ export function generateJSON(model: EventModelData): string {
       elements: Object.fromEntries(model.elements),
       sequences: model.sequences,
       slices: model.slices,
+      contexts: model.contexts,
     },
     null,
     2,

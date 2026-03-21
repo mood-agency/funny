@@ -4,6 +4,10 @@ import type {
   EventDef,
   ReadModelDef,
   AutomationDef,
+  AggregateDef,
+  ScreenDef,
+  ExternalDef,
+  SagaDef,
   ElementDef,
 } from '../types.js';
 
@@ -11,8 +15,9 @@ import type {
  * Generate a structured AI prompt from an EventModel.
  *
  * The prompt is structured markdown that describes the full system:
- * commands, events, read models, automations, sequences, and
- * implementation guidance — ready for an AI to implement.
+ * commands, events, read models, automations, aggregates, screens,
+ * external systems, sagas, sequences, slices, and contexts —
+ * ready for an AI to implement.
  */
 export function generateAIPrompt(model: EventModelData): string {
   const lines: string[] = [];
@@ -27,6 +32,10 @@ export function generateAIPrompt(model: EventModelData): string {
   const events = byKind<EventDef>(model, 'event');
   const readModels = byKind<ReadModelDef>(model, 'readModel');
   const automations = byKind<AutomationDef>(model, 'automation');
+  const aggregates = byKind<AggregateDef>(model, 'aggregate');
+  const screens = byKind<ScreenDef>(model, 'screen');
+  const externals = byKind<ExternalDef>(model, 'external');
+  const sagas = byKind<SagaDef>(model, 'saga');
 
   // Commands
   if (commands.length > 0) {
@@ -38,6 +47,7 @@ export function generateAIPrompt(model: EventModelData): string {
       lines.push(`### ${cmd.name}`);
       if (cmd.actor) lines.push(`- **Actor:** ${cmd.actor}`);
       if (cmd.description) lines.push(`- **Description:** ${cmd.description}`);
+      if (cmd.version) lines.push(`- **Version:** ${cmd.version}`);
       lines.push('- **Fields:**');
       for (const [field, type] of Object.entries(cmd.fields)) {
         lines.push(`  - \`${field}\`: ${type}`);
@@ -55,9 +65,33 @@ export function generateAIPrompt(model: EventModelData): string {
     for (const evt of events) {
       lines.push(`### ${evt.name}`);
       if (evt.description) lines.push(`- **Description:** ${evt.description}`);
+      if (evt.version) lines.push(`- **Version:** ${evt.version}`);
       lines.push('- **Fields:**');
       for (const [field, type] of Object.entries(evt.fields)) {
         lines.push(`  - \`${field}\`: ${type}`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Aggregates
+  if (aggregates.length > 0) {
+    lines.push('## Aggregates');
+    lines.push('');
+    lines.push(
+      'Aggregates validate commands and decide whether to accept or reject them. They are the decision boundary between commands and events.',
+    );
+    lines.push('');
+    for (const agg of aggregates) {
+      lines.push(`### ${agg.name}`);
+      if (agg.description) lines.push(`- **Description:** ${agg.description}`);
+      lines.push(`- **Handles:** ${agg.handles.join(', ')}`);
+      lines.push(`- **Emits:** ${agg.emits.join(', ')}`);
+      if (agg.invariants.length > 0) {
+        lines.push('- **Invariants:**');
+        for (const inv of agg.invariants) {
+          lines.push(`  - ${inv}`);
+        }
       }
       lines.push('');
     }
@@ -81,6 +115,23 @@ export function generateAIPrompt(model: EventModelData): string {
     }
   }
 
+  // Screens
+  if (screens.length > 0) {
+    lines.push('## Screens');
+    lines.push('');
+    lines.push(
+      'Screens represent UI views. They display read models and allow users to trigger commands.',
+    );
+    lines.push('');
+    for (const scr of screens) {
+      lines.push(`### ${scr.name}`);
+      if (scr.description) lines.push(`- **Description:** ${scr.description}`);
+      lines.push(`- **Displays:** ${scr.displays.join(', ')}`);
+      lines.push(`- **Triggers:** ${scr.triggers.join(', ')}`);
+      lines.push('');
+    }
+  }
+
   // Automations
   if (automations.length > 0) {
     lines.push('## Automations');
@@ -93,6 +144,41 @@ export function generateAIPrompt(model: EventModelData): string {
       lines.push(`- **Triggered by:** ${auto.on}`);
       const triggers = Array.isArray(auto.triggers) ? auto.triggers.join(', ') : auto.triggers;
       lines.push(`- **Triggers:** ${triggers}`);
+      lines.push('');
+    }
+  }
+
+  // Sagas
+  if (sagas.length > 0) {
+    lines.push('## Sagas (Process Managers)');
+    lines.push('');
+    lines.push(
+      'Sagas coordinate across multiple events. They accumulate state using a correlation key and trigger commands when a condition is met.',
+    );
+    lines.push('');
+    for (const saga of sagas) {
+      lines.push(`### ${saga.name}`);
+      if (saga.description) lines.push(`- **Description:** ${saga.description}`);
+      lines.push(`- **Listens to:** ${saga.on.join(', ')}`);
+      lines.push(`- **Correlation key:** ${saga.correlationKey}`);
+      lines.push(`- **Condition:** ${saga.when}`);
+      const triggers = Array.isArray(saga.triggers) ? saga.triggers.join(', ') : saga.triggers;
+      lines.push(`- **Triggers:** ${triggers}`);
+      lines.push('');
+    }
+  }
+
+  // External Systems
+  if (externals.length > 0) {
+    lines.push('## External Systems');
+    lines.push('');
+    lines.push('External systems are third-party services that interact with the system boundary.');
+    lines.push('');
+    for (const ext of externals) {
+      lines.push(`### ${ext.name}`);
+      if (ext.description) lines.push(`- **Description:** ${ext.description}`);
+      if (ext.receives.length > 0) lines.push(`- **Receives:** ${ext.receives.join(', ')}`);
+      if (ext.emits.length > 0) lines.push(`- **Emits:** ${ext.emits.join(', ')}`);
       lines.push('');
     }
   }
@@ -133,6 +219,25 @@ export function generateAIPrompt(model: EventModelData): string {
         lines.push(`- **Read Models:** ${slice.readModels.join(', ')}`);
       if (slice.automations.length > 0)
         lines.push(`- **Automations:** ${slice.automations.join(', ')}`);
+      if (slice.aggregates.length > 0)
+        lines.push(`- **Aggregates:** ${slice.aggregates.join(', ')}`);
+      if (slice.screens.length > 0) lines.push(`- **Screens:** ${slice.screens.join(', ')}`);
+      if (slice.externals.length > 0)
+        lines.push(`- **External Systems:** ${slice.externals.join(', ')}`);
+      if (slice.sagas.length > 0) lines.push(`- **Sagas:** ${slice.sagas.join(', ')}`);
+      lines.push('');
+    }
+  }
+
+  // Bounded Contexts
+  if (model.contexts.length > 0) {
+    lines.push('## Bounded Contexts');
+    lines.push('');
+    lines.push('Bounded contexts group related elements into cohesive modules.');
+    lines.push('');
+    for (const ctx of model.contexts) {
+      lines.push(`### ${ctx.name}`);
+      lines.push(`- **Elements:** ${ctx.elements.join(', ')}`);
       lines.push('');
     }
   }
@@ -150,6 +255,18 @@ export function generateAIPrompt(model: EventModelData): string {
   lines.push('4. **Automations** should be implemented as event handlers that dispatch commands.');
   lines.push(
     '5. **Sequences** define the expected temporal ordering — use them to write integration tests.',
+  );
+  lines.push(
+    '6. **Aggregates** enforce business rules (invariants) before accepting commands. Implement as domain entities with guard methods.',
+  );
+  lines.push(
+    '7. **Screens** map to UI components/pages. Each screen displays specific read models and exposes specific commands.',
+  );
+  lines.push(
+    '8. **External Systems** require integration adapters (API clients, webhooks). Commands they receive are outbound calls; events they emit are inbound webhooks.',
+  );
+  lines.push(
+    '9. **Sagas** are stateful process managers. Implement them with persistent state keyed by the correlation key. When all conditions are met, dispatch the triggered command.',
   );
   lines.push('');
 

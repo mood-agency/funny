@@ -89,11 +89,31 @@ function getCompletionContext(
         if (propName === 'on') return { filter: ['event'] };
         if (propName === 'triggers') return { filter: ['command'] };
         break;
+      case 'aggregate':
+        if (propName === 'handles') return { filter: ['command'] };
+        if (propName === 'emits') return { filter: ['event'] };
+        break;
+      case 'screen':
+        if (propName === 'displays') return { filter: ['readModel'] };
+        if (propName === 'triggers') return { filter: ['command'] };
+        break;
+      case 'external':
+        if (propName === 'receives') return { filter: ['command'] };
+        if (propName === 'emits') return { filter: ['event'] };
+        break;
+      case 'saga':
+        if (propName === 'on') return { filter: ['event'] };
+        if (propName === 'triggers') return { filter: ['command'] };
+        break;
       case 'slice':
         if (propName === 'commands') return { filter: ['command'] };
         if (propName === 'events') return { filter: ['event'] };
         if (propName === 'readModels') return { filter: ['readModel'] };
         if (propName === 'automations') return { filter: ['automation'] };
+        if (propName === 'aggregates') return { filter: ['aggregate'] };
+        if (propName === 'screens') return { filter: ['screen'] };
+        if (propName === 'externals') return { filter: ['external'] };
+        if (propName === 'sagas') return { filter: ['saga'] };
         break;
     }
 
@@ -143,6 +163,14 @@ function kindToScriptElementKind(
       return ts.ScriptElementKind.interfaceElement;
     case 'automation':
       return ts.ScriptElementKind.moduleElement;
+    case 'aggregate':
+      return ts.ScriptElementKind.enumElement;
+    case 'screen':
+      return ts.ScriptElementKind.memberVariableElement;
+    case 'external':
+      return ts.ScriptElementKind.externalModuleName;
+    case 'saga':
+      return ts.ScriptElementKind.typeElement;
     default:
       return ts.ScriptElementKind.unknown;
   }

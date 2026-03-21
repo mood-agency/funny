@@ -48,6 +48,18 @@ export function getEvflowDiagnostics(
       case 'automation':
         checkAutomation(ts, call, sourceFile, registry, diagnostics);
         break;
+      case 'aggregate':
+        checkAggregate(ts, call, sourceFile, registry, diagnostics);
+        break;
+      case 'screen':
+        checkScreen(ts, call, sourceFile, registry, diagnostics);
+        break;
+      case 'external':
+        checkExternal(ts, call, sourceFile, registry, diagnostics);
+        break;
+      case 'saga':
+        checkSaga(ts, call, sourceFile, registry, diagnostics);
+        break;
       case 'sequence':
         checkSequence(ts, call, sourceFile, registry, diagnostics);
         break;
@@ -201,6 +213,10 @@ function checkSlice(
     { prop: 'events', expectedKind: 'event' },
     { prop: 'readModels', expectedKind: 'readModel' },
     { prop: 'automations', expectedKind: 'automation' },
+    { prop: 'aggregates', expectedKind: 'aggregate' },
+    { prop: 'screens', expectedKind: 'screen' },
+    { prop: 'externals', expectedKind: 'external' },
+    { prop: 'sagas', expectedKind: 'saga' },
   ];
 
   for (const { prop, expectedKind } of checks) {
@@ -231,6 +247,250 @@ function checkSlice(
           ),
         );
       }
+    }
+  }
+}
+
+/** Validate aggregate({ handles: ['CmdName'], emits: ['EvtName'] }) */
+function checkAggregate(
+  ts: typeof import('typescript/lib/tsserverlibrary'),
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  registry: Map<string, RegisteredElement>,
+  diagnostics: ts.Diagnostic[],
+): void {
+  const opts = getOptionsArg(ts, call);
+  if (!opts) return;
+
+  const handlesProp = getProperty(ts, opts, 'handles');
+  if (handlesProp) {
+    const strings = getStringArrayElements(ts, handlesProp.initializer);
+    for (const str of strings) {
+      const el = registry.get(str.text);
+      if (!el) {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `Unknown command "${str.text}"`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      } else if (el.kind !== 'command') {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `"${str.text}" is a ${el.kind}, expected a command`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      }
+    }
+  }
+
+  const emitsProp = getProperty(ts, opts, 'emits');
+  if (emitsProp) {
+    const strings = getStringArrayElements(ts, emitsProp.initializer);
+    for (const str of strings) {
+      const el = registry.get(str.text);
+      if (!el) {
+        diagnostics.push(
+          makeDiag(ts, sourceFile, str, `Unknown event "${str.text}"`, ts.DiagnosticCategory.Error),
+        );
+      } else if (el.kind !== 'event') {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `"${str.text}" is a ${el.kind}, expected an event`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      }
+    }
+  }
+}
+
+/** Validate screen({ displays: ['ReadModelName'], triggers: ['CommandName'] }) */
+function checkScreen(
+  ts: typeof import('typescript/lib/tsserverlibrary'),
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  registry: Map<string, RegisteredElement>,
+  diagnostics: ts.Diagnostic[],
+): void {
+  const opts = getOptionsArg(ts, call);
+  if (!opts) return;
+
+  const displaysProp = getProperty(ts, opts, 'displays');
+  if (displaysProp) {
+    const strings = getStringArrayElements(ts, displaysProp.initializer);
+    for (const str of strings) {
+      const el = registry.get(str.text);
+      if (!el) {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `Unknown read model "${str.text}"`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      } else if (el.kind !== 'readModel') {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `"${str.text}" is a ${el.kind}, expected a readModel`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      }
+    }
+  }
+
+  const triggersProp = getStringOrArrayProperty(ts, opts, 'triggers');
+  for (const str of triggersProp) {
+    const el = registry.get(str.text);
+    if (!el) {
+      diagnostics.push(
+        makeDiag(ts, sourceFile, str, `Unknown command "${str.text}"`, ts.DiagnosticCategory.Error),
+      );
+    } else if (el.kind !== 'command') {
+      diagnostics.push(
+        makeDiag(
+          ts,
+          sourceFile,
+          str,
+          `"${str.text}" is a ${el.kind}, expected a command`,
+          ts.DiagnosticCategory.Warning,
+        ),
+      );
+    }
+  }
+}
+
+/** Validate external({ receives: ['CmdName'], emits: ['EvtName'] }) */
+function checkExternal(
+  ts: typeof import('typescript/lib/tsserverlibrary'),
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  registry: Map<string, RegisteredElement>,
+  diagnostics: ts.Diagnostic[],
+): void {
+  const opts = getOptionsArg(ts, call);
+  if (!opts) return;
+
+  const receivesProp = getProperty(ts, opts, 'receives');
+  if (receivesProp) {
+    const strings = getStringArrayElements(ts, receivesProp.initializer);
+    for (const str of strings) {
+      const el = registry.get(str.text);
+      if (!el) {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `Unknown command "${str.text}"`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      } else if (el.kind !== 'command') {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `"${str.text}" is a ${el.kind}, expected a command`,
+            ts.DiagnosticCategory.Warning,
+          ),
+        );
+      }
+    }
+  }
+
+  const emitsProp = getProperty(ts, opts, 'emits');
+  if (emitsProp) {
+    const strings = getStringArrayElements(ts, emitsProp.initializer);
+    for (const str of strings) {
+      const el = registry.get(str.text);
+      if (!el) {
+        diagnostics.push(
+          makeDiag(ts, sourceFile, str, `Unknown event "${str.text}"`, ts.DiagnosticCategory.Error),
+        );
+      } else if (el.kind !== 'event') {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `"${str.text}" is a ${el.kind}, expected an event`,
+            ts.DiagnosticCategory.Warning,
+          ),
+        );
+      }
+    }
+  }
+}
+
+/** Validate saga({ on: ['EvtName'], triggers: 'CmdName' }) */
+function checkSaga(
+  ts: typeof import('typescript/lib/tsserverlibrary'),
+  call: ts.CallExpression,
+  sourceFile: ts.SourceFile,
+  registry: Map<string, RegisteredElement>,
+  diagnostics: ts.Diagnostic[],
+): void {
+  const opts = getOptionsArg(ts, call);
+  if (!opts) return;
+
+  const onProp = getProperty(ts, opts, 'on');
+  if (onProp) {
+    const strings = getStringArrayElements(ts, onProp.initializer);
+    for (const str of strings) {
+      const el = registry.get(str.text);
+      if (!el) {
+        diagnostics.push(
+          makeDiag(ts, sourceFile, str, `Unknown event "${str.text}"`, ts.DiagnosticCategory.Error),
+        );
+      } else if (el.kind !== 'event') {
+        diagnostics.push(
+          makeDiag(
+            ts,
+            sourceFile,
+            str,
+            `"${str.text}" is a ${el.kind}, expected an event`,
+            ts.DiagnosticCategory.Error,
+          ),
+        );
+      }
+    }
+  }
+
+  const triggersStrings = getStringOrArrayProperty(ts, opts, 'triggers');
+  for (const str of triggersStrings) {
+    const el = registry.get(str.text);
+    if (!el) {
+      diagnostics.push(
+        makeDiag(ts, sourceFile, str, `Unknown command "${str.text}"`, ts.DiagnosticCategory.Error),
+      );
+    } else if (el.kind !== 'command') {
+      diagnostics.push(
+        makeDiag(
+          ts,
+          sourceFile,
+          str,
+          `"${str.text}" is a ${el.kind}, expected a command`,
+          ts.DiagnosticCategory.Warning,
+        ),
+      );
     }
   }
 }

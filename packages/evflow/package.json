@@ -12,7 +12,10 @@
   },
   "scripts": {
     "test": "bun test",
-    "build:plugin": "bun build src/plugin/index.ts --outfile plugin/bundle.cjs --target node --format cjs --external typescript && bun run src/plugin/build-entry.ts"
+    "build:plugin": "bun build src/plugin/index.ts --outfile plugin/bundle.cjs --target node --format cjs --external typescript && bun run src/plugin/build-entry.ts",
+    "viewer": "cd viewer && bun run dev",
+    "viewer:build": "cd viewer && bun run build",
+    "viewer:json": "bun run viewer/gen-json.ts"
   },
   "dependencies": {
     "neverthrow": "^8.2.0"
