@@ -49,16 +49,26 @@ for (const file of files) {
 // Remove old zip if exists
 if (existsSync(zipPath)) rmSync(zipPath);
 
-// Use PowerShell to create the zip
-const stagingWin = staging.replace(/\//g, '\\');
-const zipPathWin = zipPath.replace(/\//g, '\\');
-const psCmd = `Compress-Archive -Path '${stagingWin}\\*' -DestinationPath '${zipPathWin}'`;
+// Cross-platform zip: use `zip` on Linux/macOS, PowerShell on Windows
+const isWindows = process.platform === 'win32';
+let proc: ReturnType<typeof Bun.spawnSync>;
 
-const proc = Bun.spawnSync(['powershell', '-Command', psCmd], {
-  cwd: ROOT,
-  stdout: 'inherit',
-  stderr: 'inherit',
-});
+if (isWindows) {
+  const stagingWin = staging.replace(/\//g, '\\');
+  const zipPathWin = zipPath.replace(/\//g, '\\');
+  const psCmd = `Compress-Archive -Path '${stagingWin}\\*' -DestinationPath '${zipPathWin}'`;
+  proc = Bun.spawnSync(['powershell', '-Command', psCmd], {
+    cwd: ROOT,
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+} else {
+  proc = Bun.spawnSync(['zip', '-r', zipPath, '.'], {
+    cwd: staging,
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+}
 
 // Clean up staging
 rmSync(staging, { recursive: true });

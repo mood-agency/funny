@@ -85,6 +85,17 @@ let dragOffset = { x: 0, y: 0 };
 let scrollRafId: number | null = null;
 let runtimeDisconnected = false;
 
+// Drawing mode state
+let isDrawing = false;
+let isDrawingStroke = false;
+let drawingCanvas: HTMLCanvasElement;
+let drawingCtx: CanvasRenderingContext2D;
+let hasDrawingContent = false;
+let drawColor = '#ef4444';
+let drawToolbar: HTMLDivElement;
+let drawPromptInput: HTMLTextAreaElement;
+const DRAW_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#ffffff'] as const;
+
 // Multi-select state (Ctrl+click)
 let multiSelectElements: Element[] = [];
 let multiSelectOverlays: AnnotationOverlay[] = [];
@@ -161,6 +172,17 @@ async function createShadowHost() {
   // History panel (hidden by default)
   historyPanel = createHistoryPanel();
   shadowRoot.appendChild(historyPanel);
+
+  // Drawing canvas (full-screen, hidden by default)
+  drawingCanvas = document.createElement('canvas');
+  drawingCanvas.className = 'drawing-canvas';
+  drawingCanvas.style.display = 'none';
+  shadowRoot.appendChild(drawingCanvas);
+  drawingCtx = drawingCanvas.getContext('2d')!;
+
+  // Drawing toolbar (color picker + prompt + clear)
+  drawToolbar = createDrawToolbar();
+  shadowRoot.appendChild(drawToolbar);
 
   // Toolbar
   toolbarEl = createToolbar();
@@ -1090,6 +1112,14 @@ function createToolbar(): HTMLDivElement {
         <path d="M12 5l7 7-7 7"></path>
       </svg>
     </button>
+    <button class="toolbar-btn" data-action="draw" title="Draw on screen">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+        <path d="M2 2l7.586 7.586"></path>
+        <circle cx="11" cy="11" r="2"></circle>
+      </svg>
+    </button>
     <button class="toolbar-btn" data-action="toggle-visibility" title="Toggle annotations">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -1221,6 +1251,9 @@ function handleToolbarAction(action: string) {
     case 'browse':
       toggleBrowseMode();
       break;
+    case 'draw':
+      toggleDrawMode();
+      break;
     case 'toggle-visibility':
       annotationsVisible = !annotationsVisible;
       renderAnnotations();
@@ -1233,6 +1266,7 @@ function handleToolbarAction(action: string) {
       annotations = [];
       _annotationCounter = 0;
       clearMultiSelect();
+      clearDrawing();
       renderAnnotations();
       updateToolbarCount();
       break;
@@ -1298,6 +1332,197 @@ function toggleBrowseMode() {
     btn.classList.remove('toolbar-btn-active');
     btn.title = 'Browse mode — navigate the page';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Drawing mode
+// ---------------------------------------------------------------------------
+function createDrawToolbar(): HTMLDivElement {
+  const bar = createElement('div', 'draw-toolbar');
+  bar.style.display = 'none';
+
+  // Color swatches
+  const colors = createElement('div', 'draw-colors');
+  DRAW_COLORS.forEach((color) => {
+    const swatch = createElement('button', 'draw-color-swatch');
+    swatch.style.background = color;
+    swatch.dataset.color = color;
+    if (color === drawColor) swatch.classList.add('draw-color-active');
+    if (color === '#ffffff') swatch.style.border = '1px solid #666';
+    swatch.addEventListener('click', (e) => {
+      e.stopPropagation();
+      drawColor = color;
+      drawingCtx.strokeStyle = color;
+      bar
+        .querySelectorAll('.draw-color-swatch')
+        .forEach((s) => s.classList.remove('draw-color-active'));
+      swatch.classList.add('draw-color-active');
+    });
+    colors.appendChild(swatch);
+  });
+  bar.appendChild(colors);
+
+  // Separator
+  const sep = createElement('div', 'draw-toolbar-sep');
+  bar.appendChild(sep);
+
+  // Clear drawing button
+  const clearBtn = createElement('button', 'draw-clear-btn');
+  clearBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+  </svg>`;
+  clearBtn.title = 'Clear drawing';
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!hasDrawingContent) return;
+    clearDrawing();
+    showToast('Drawing cleared');
+  });
+  bar.appendChild(clearBtn);
+
+  // Separator
+  const sep2 = createElement('div', 'draw-toolbar-sep');
+  bar.appendChild(sep2);
+
+  // Prompt input
+  drawPromptInput = createElement('textarea', 'draw-prompt-input') as HTMLTextAreaElement;
+  drawPromptInput.placeholder = 'Describe what you want to change...';
+  drawPromptInput.rows = 1;
+  drawPromptInput.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // Don't trigger Escape/other hotkeys while typing
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendToFunny();
+    }
+  });
+  bar.appendChild(drawPromptInput);
+
+  // Send button
+  const sendBtn = createElement('button', 'draw-send-btn');
+  sendBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <line x1="22" y1="2" x2="11" y2="13"></line>
+    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+  </svg>`;
+  sendBtn.title = 'Send drawing + prompt to Funny';
+  sendBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sendToFunny();
+  });
+  bar.appendChild(sendBtn);
+
+  return bar;
+}
+
+function toggleDrawMode() {
+  isDrawing = !isDrawing;
+  const btn = toolbarEl.querySelector('[data-action="draw"]') as HTMLButtonElement;
+
+  if (isDrawing) {
+    // Exit browse mode if active
+    if (isBrowsing) toggleBrowseMode();
+    hideHoverHighlight();
+    hidePopover();
+    clearMultiSelect();
+
+    btn.classList.add('toolbar-btn-draw-active');
+    btn.title = 'Exit draw mode';
+
+    // Size canvas to full viewport
+    drawingCanvas.width = window.innerWidth;
+    drawingCanvas.height = window.innerHeight;
+    drawingCanvas.style.display = 'block';
+
+    // Restore existing strokes if any
+    if (!hasDrawingContent) {
+      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    }
+
+    // Set up drawing style
+    drawingCtx.strokeStyle = drawColor;
+    drawingCtx.lineWidth = 3;
+    drawingCtx.lineCap = 'round';
+    drawingCtx.lineJoin = 'round';
+
+    // Show draw toolbar
+    drawToolbar.style.display = 'flex';
+
+    // Attach drawing listeners on canvas
+    drawingCanvas.addEventListener('mousedown', onDrawStart);
+    drawingCanvas.addEventListener('mousemove', onDrawMove);
+    drawingCanvas.addEventListener('mouseup', onDrawEnd);
+    drawingCanvas.addEventListener('mouseleave', onDrawEnd);
+    // Touch support
+    drawingCanvas.addEventListener('touchstart', onDrawTouchStart, { passive: false });
+    drawingCanvas.addEventListener('touchmove', onDrawTouchMove, { passive: false });
+    drawingCanvas.addEventListener('touchend', onDrawEnd);
+  } else {
+    btn.classList.remove('toolbar-btn-draw-active');
+    btn.title = 'Draw on screen';
+    drawingCanvas.style.display = 'none';
+    drawToolbar.style.display = 'none';
+
+    drawingCanvas.removeEventListener('mousedown', onDrawStart);
+    drawingCanvas.removeEventListener('mousemove', onDrawMove);
+    drawingCanvas.removeEventListener('mouseup', onDrawEnd);
+    drawingCanvas.removeEventListener('mouseleave', onDrawEnd);
+    drawingCanvas.removeEventListener('touchstart', onDrawTouchStart);
+    drawingCanvas.removeEventListener('touchmove', onDrawTouchMove);
+    drawingCanvas.removeEventListener('touchend', onDrawEnd);
+  }
+}
+
+function onDrawStart(e: MouseEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  isDrawingStroke = true;
+  hasDrawingContent = true;
+  drawingCtx.beginPath();
+  drawingCtx.moveTo(e.offsetX, e.offsetY);
+}
+
+function onDrawMove(e: MouseEvent) {
+  if (!isDrawingStroke) return;
+  e.preventDefault();
+  e.stopPropagation();
+  drawingCtx.lineTo(e.offsetX, e.offsetY);
+  drawingCtx.stroke();
+}
+
+function onDrawEnd(e: MouseEvent | TouchEvent) {
+  if (isDrawingStroke) {
+    e.preventDefault();
+    isDrawingStroke = false;
+  }
+}
+
+function onDrawTouchStart(e: TouchEvent) {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect = drawingCanvas.getBoundingClientRect();
+  isDrawingStroke = true;
+  hasDrawingContent = true;
+  drawingCtx.beginPath();
+  drawingCtx.moveTo(touch.clientX - rect.left, touch.clientY - rect.top);
+}
+
+function onDrawTouchMove(e: TouchEvent) {
+  if (!isDrawingStroke) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const rect = drawingCanvas.getBoundingClientRect();
+  drawingCtx.lineTo(touch.clientX - rect.left, touch.clientY - rect.top);
+  drawingCtx.stroke();
+}
+
+function clearDrawing() {
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  hasDrawingContent = false;
+}
+
+function getDrawingDataUrl(): string | null {
+  if (!hasDrawingContent) return null;
+  return drawingCanvas.toDataURL('image/png');
 }
 
 // ---------------------------------------------------------------------------
@@ -1882,11 +2107,39 @@ function copyAsMarkdown() {
 }
 
 // ---------------------------------------------------------------------------
+// Merge drawing overlay with screenshot
+// ---------------------------------------------------------------------------
+function mergeDrawingWithScreenshot(
+  screenshotDataUrl: string,
+  drawingDataUrl: string,
+): Promise<string> {
+  return new Promise((resolve) => {
+    const screenshotImg = new Image();
+    screenshotImg.onload = () => {
+      const drawingImg = new Image();
+      drawingImg.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = screenshotImg.width;
+        canvas.height = screenshotImg.height;
+        const ctx = canvas.getContext('2d')!;
+        // Draw screenshot as base
+        ctx.drawImage(screenshotImg, 0, 0);
+        // Draw the red pen overlay on top (scale drawing to match screenshot dimensions)
+        ctx.drawImage(drawingImg, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      drawingImg.src = drawingDataUrl;
+    };
+    screenshotImg.src = screenshotDataUrl;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Send to Funny
 // ---------------------------------------------------------------------------
 async function sendToFunny() {
-  if (annotations.length === 0) {
-    showToast('No annotations to send');
+  if (annotations.length === 0 && !hasDrawingContent) {
+    showToast('No annotations or drawings to send');
     return;
   }
 
@@ -1895,8 +2148,21 @@ async function sendToFunny() {
   sendBtn.setAttribute('disabled', 'true');
 
   try {
+    // Exit draw mode if active so canvas is hidden before screenshot
+    const wasDrawing = isDrawing;
+    const drawingData = getDrawingDataUrl();
+    if (wasDrawing) toggleDrawMode();
+
     // Take screenshot
-    const screenshot = await captureScreenshot();
+    let screenshot = await captureScreenshot();
+
+    // Merge drawing overlay onto screenshot
+    if (screenshot && drawingData) {
+      screenshot = await mergeDrawingWithScreenshot(screenshot, drawingData);
+    } else if (!screenshot && drawingData) {
+      // No screenshot available — use drawing as the image
+      screenshot = drawingData;
+    }
 
     // Serialize annotations (strip _element refs from each element)
     const serialized = annotations.map((ann) => ({
@@ -1904,7 +2170,16 @@ async function sendToFunny() {
       elements: ann.elements.map(({ _element, ...rest }) => rest),
     }));
 
-    const markdown = generateMarkdown();
+    let markdown = generateMarkdown();
+
+    // Include draw prompt if provided
+    const drawPrompt = drawPromptInput?.value?.trim() || '';
+    if (drawPrompt) {
+      markdown = markdown ? `${drawPrompt}\n\n${markdown}` : drawPrompt;
+    }
+    if (hasDrawingContent && !drawPrompt && !markdown) {
+      markdown = 'See the annotated screenshot — the red drawings highlight the areas of interest.';
+    }
 
     // Send to background worker
     safeSendMessage(
@@ -1927,10 +2202,12 @@ async function sendToFunny() {
           // Save to history before clearing
           saveToHistory(serialized, response.threadId);
 
-          // Clear all annotations
+          // Clear all annotations and drawings
           annotations = [];
           _annotationCounter = 0;
           clearMultiSelect();
+          clearDrawing();
+          if (drawPromptInput) drawPromptInput.value = '';
           renderAnnotations();
           updateToolbarCount();
 
@@ -2005,7 +2282,7 @@ function showToast(message: string, isError = false) {
 // Event handlers
 // ---------------------------------------------------------------------------
 function onMouseMove(e: MouseEvent) {
-  if (!isActive || isBrowsing || popover.style.display === 'block') return;
+  if (!isActive || isBrowsing || isDrawing || popover.style.display === 'block') return;
 
   const el = document.elementFromPoint(e.clientX, e.clientY);
   if (!el || el === shadowHost || shadowHost.contains(el)) {
@@ -2026,8 +2303,8 @@ function onClick(e: MouseEvent) {
   // Ignore clicks on our own UI (use composedPath to reliably cross shadow DOM boundaries)
   if (e.composedPath().includes(shadowHost)) return;
 
-  // In browse mode, let clicks pass through to the page
-  if (isBrowsing) return;
+  // In browse mode or draw mode, let clicks pass through / be handled by canvas
+  if (isBrowsing || isDrawing) return;
 
   // Close settings panel if open
   if (settingsPanel.style.display === 'block') {
@@ -2078,7 +2355,9 @@ function onClick(e: MouseEvent) {
 function onKeyDown(e: KeyboardEvent) {
   if (!isActive) return;
   if (e.key === 'Escape') {
-    if (historyPanel.style.display === 'block') {
+    if (isDrawing) {
+      toggleDrawMode();
+    } else if (historyPanel.style.display === 'block') {
       hideHistoryPanel();
     } else if (settingsPanel.style.display === 'block') {
       hideSettingsPanel();
@@ -2149,6 +2428,10 @@ function deactivate() {
     cancelAnimationFrame(scrollRafId);
     scrollRafId = null;
   }
+
+  // Exit draw mode if active
+  if (isDrawing) toggleDrawMode();
+  clearDrawing();
 
   // Resume animations if paused
   if (isPaused) {
