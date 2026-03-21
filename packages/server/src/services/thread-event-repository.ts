@@ -31,7 +31,8 @@ export async function createThreadEvent(event: ThreadEvent): Promise<void> {
       createdAt,
     });
   } catch (error) {
-    log.error('[thread-event-service] Failed to persist event', {
+    log.error('Failed to persist event', {
+      namespace: 'thread-event',
       error,
       event,
     });
@@ -62,7 +63,7 @@ export async function getThreadEvents(threadId: string): Promise<ThreadEvent[]> 
       createdAt: row.createdAt,
     }));
   } catch (error) {
-    log.error('[thread-event-service] Failed to retrieve events', { error, threadId });
+    log.error('Failed to retrieve events', { namespace: 'thread-event', error, threadId });
     return [];
   }
 }
@@ -71,6 +72,6 @@ export async function deleteThreadEvents(threadId: string): Promise<void> {
   try {
     await db.delete(threadEvents).where(eq(threadEvents.threadId, threadId));
   } catch (error) {
-    log.error('[thread-event-service] Failed to delete events', { error, threadId });
+    log.error('Failed to delete events', { namespace: 'thread-event', error, threadId });
   }
 }

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 
 interface FolderPickerProps {
@@ -195,26 +196,24 @@ export function FolderPicker({ onSelect, onClose }: FolderPickerProps) {
 
         {/* Navigation bar: back/forward + breadcrumbs */}
         <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-4 py-2">
-          <Button
-            variant="ghost"
+          <TooltipIconButton
             size="icon"
             onClick={goBack}
             disabled={!canGoBack}
             className="h-6 w-6 flex-shrink-0"
-            title={t('folderPicker.back')}
+            tooltip={t('folderPicker.back')}
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
+          </TooltipIconButton>
+          <TooltipIconButton
             size="icon"
             onClick={goForward}
             disabled={!canGoForward}
             className="h-6 w-6 flex-shrink-0"
-            title={t('folderPicker.forward')}
+            tooltip={t('folderPicker.forward')}
           >
             <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+          </TooltipIconButton>
 
           {/* Breadcrumb path */}
           <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">

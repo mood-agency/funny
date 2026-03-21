@@ -135,9 +135,6 @@ function onGitChange(projectId: string): void {
 
 /** Emit `git:changed` for every non-archived thread in this project */
 async function emitForAllThreads(projectId: string, pw: ProjectWatcher): Promise<void> {
-  const project = await getServices().projects.getProject(projectId);
-  if (!project) return;
-
   // Query all active threads for this project once
   const threads = await listThreads({ projectId, userId: '', includeArchived: false });
   const threadMap = new Map(threads.map((t) => [t.id, t]));
@@ -152,7 +149,7 @@ async function emitForAllThreads(projectId: string, pw: ProjectWatcher): Promise
       projectId,
       userId: thread.userId,
       worktreePath: thread.worktreePath,
-      cwd: thread.worktreePath ?? project.path,
+      cwd: thread.worktreePath ?? pw.projectPath,
       toolName: 'external',
     });
     emitted++;
@@ -195,15 +192,21 @@ export function closeAllWatchers(): void {
  */
 export async function rehydrateWatchers(): Promise<void> {
   const projects = await getServices().projects.listProjects('');
+
+  // Fetch threads for all projects in parallel
+  const projectThreads = await Promise.all(
+    projects.map(async (project) => {
+      const threads = await listThreads({
+        projectId: project.id,
+        userId: '',
+        includeArchived: false,
+      });
+      return { project, threads };
+    }),
+  );
+
   let total = 0;
-
-  for (const project of projects) {
-    const threads = await listThreads({
-      projectId: project.id,
-      userId: '',
-      includeArchived: false,
-    });
-
+  for (const { project, threads } of projectThreads) {
     for (const thread of threads) {
       startWatching(project.id, project.path, thread.id);
       total++;

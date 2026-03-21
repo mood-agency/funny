@@ -251,8 +251,8 @@ threadRoutes.patch('/:id', async (c) => {
 
 // ── Thread creation (proxied to runner, then registered locally) ─
 
-// POST /api/threads — Create a new thread
-threadRoutes.post('/', async (c) => {
+/** Shared handler for creating threads on a runner and registering them locally. */
+async function createThreadOnRunner(c: any, runnerPath: string) {
   const userId = c.get('userId') as string;
   const body = await c.req.json();
   const projectId = body.projectId;
@@ -268,7 +268,7 @@ threadRoutes.post('/', async (c) => {
 
   try {
     const headers = buildForwardHeaders(userId, c.get('organizationId') as string | undefined);
-    const result = await fetchFromRunner(resolved, '/api/threads', {
+    const result = await fetchFromRunner(resolved, runnerPath, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -301,65 +301,17 @@ threadRoutes.post('/', async (c) => {
     log.error('Failed to create thread on runner', {
       namespace: 'threads',
       error: (err as Error).message,
+      path: runnerPath,
     });
     return c.json({ error: 'Runner unreachable' }, 502);
   }
-});
+}
+
+// POST /api/threads — Create a new thread
+threadRoutes.post('/', (c) => createThreadOnRunner(c, '/api/threads'));
 
 // POST /api/threads/idle — Create an idle thread
-threadRoutes.post('/idle', async (c) => {
-  const userId = c.get('userId') as string;
-  const body = await c.req.json();
-  const projectId = body.projectId;
-
-  if (!projectId) {
-    return c.json({ error: 'projectId is required' }, 400);
-  }
-
-  const resolved = await resolveRunnerForProject(projectId, userId);
-  if (!resolved) {
-    return c.json({ error: 'No online runner found for this project' }, 502);
-  }
-
-  try {
-    const headers = buildForwardHeaders(userId, c.get('organizationId') as string | undefined);
-    const result = await fetchFromRunner(resolved, '/api/threads/idle', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    if (!result.ok) {
-      return c.json({ error: `Runner error: ${result.body}` }, result.status as any);
-    }
-
-    const threadData = JSON.parse(result.body);
-
-    const threadId = threadData.id || threadData.thread?.id;
-    if (threadId && resolved.runnerId !== '__default__') {
-      await threadRegistry.registerThread({
-        id: threadId,
-        projectId,
-        runnerId: resolved.runnerId,
-        userId,
-        title: body.title || threadData.title,
-        model: body.model,
-        mode: body.mode,
-        branch: body.branch,
-      });
-
-      runnerResolver.cacheThreadRunner(threadId, resolved.runnerId, resolved.httpUrl);
-    }
-
-    return c.json(threadData, 201);
-  } catch (err) {
-    log.error('Failed to create idle thread on runner', {
-      namespace: 'threads',
-      error: (err as Error).message,
-    });
-    return c.json({ error: 'Runner unreachable' }, 502);
-  }
-});
+threadRoutes.post('/idle', (c) => createThreadOnRunner(c, '/api/threads/idle'));
 
 // ── Agent operations (proxied to runner) ─────────────────────────
 

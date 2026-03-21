@@ -37,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { PROVIDERS, getModelOptions } from '@/lib/providers';
 import { cn } from '@/lib/utils';
@@ -321,17 +322,17 @@ function ProjectUrlPatterns({
               placeholder="https://example.com"
               className="h-8 flex-1 font-mono text-xs"
             />
-            <Button
-              variant="ghost"
+            <TooltipIconButton
               size="icon-sm"
               className="shrink-0"
               onClick={() => {
                 const next = urls.filter((_, idx) => idx !== i);
                 save(next);
               }}
+              tooltip={t('common.delete')}
             >
               <X className="h-3.5 w-3.5" />
-            </Button>
+            </TooltipIconButton>
           </div>
         ))}
         <Button

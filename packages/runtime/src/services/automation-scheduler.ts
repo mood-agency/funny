@@ -293,10 +293,14 @@ async function cleanupOldRuns(automationId: string): Promise<void> {
   if (reviewedRuns.length > automation.maxRunHistory) {
     const toRemove = reviewedRuns.slice(automation.maxRunHistory);
     for (const run of toRemove) {
-      await tm.updateThread(run.threadId, { archived: 1 });
-      await am.updateRun(run.id, { status: 'archived' });
-
+      // Fetch thread before archiving so we have the userId for WS events
       const thread = await tm.getThread(run.threadId);
+
+      await Promise.all([
+        tm.updateThread(run.threadId, { archived: 1 }),
+        am.updateRun(run.id, { status: 'archived' }),
+      ]);
+
       const archiveEvent = {
         type: 'thread:updated' as const,
         threadId: run.threadId,

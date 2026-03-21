@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { colorFromName } from '@/components/ui/project-chip';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
@@ -38,6 +39,7 @@ function InstalledSkillCard({
   onRemove: () => void;
   removing: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-card px-3 py-2.5"
@@ -73,19 +75,18 @@ function InstalledSkillCard({
         </div>
       </div>
       {skill.scope !== 'project' && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <TooltipIconButton
           onClick={onRemove}
           disabled={removing}
           className="flex-shrink-0 text-muted-foreground hover:text-destructive"
+          tooltip={t('common.remove')}
         >
           {removing ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
             <Trash2 className="h-3.5 w-3.5" />
           )}
-        </Button>
+        </TooltipIconButton>
       )}
     </div>
   );

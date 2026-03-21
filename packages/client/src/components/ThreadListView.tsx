@@ -4,9 +4,9 @@ import { type ReactNode, useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import { BranchBadge } from '@/components/BranchBadge';
-import { Button } from '@/components/ui/button';
 import { HighlightText, normalize } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { statusConfig, timeAgo, getStatusLabels } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
@@ -264,25 +264,25 @@ export function ThreadListView({
             {paginationLabel({ from, to, total: totalCount })}
           </span>
           <div className="flex items-center gap-1.5">
-            <Button
+            <TooltipIconButton
               variant="outline"
-              size="icon-xs"
               disabled={currentPage <= 1}
               onClick={() => onPageChange(currentPage - 1)}
+              tooltip={t('common.previousPage')}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
+            </TooltipIconButton>
             <span className="px-2 text-sm text-muted-foreground">
               {currentPage} / {totalPages}
             </span>
-            <Button
+            <TooltipIconButton
               variant="outline"
-              size="icon-xs"
               disabled={currentPage >= totalPages}
               onClick={() => onPageChange(currentPage + 1)}
+              tooltip={t('common.nextPage')}
             >
               <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
+            </TooltipIconButton>
           </div>
         </div>
       )}

@@ -199,7 +199,10 @@ export async function upsertProfile(
 }
 
 export async function isSetupCompleted(userId: string): Promise<boolean> {
-  const rows = await db.select().from(userProfiles).where(eq(userProfiles.userId, userId));
+  const rows = await db
+    .select({ setupCompleted: userProfiles.setupCompleted })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId));
   return !!rows[0]?.setupCompleted;
 }
 

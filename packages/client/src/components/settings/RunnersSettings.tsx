@@ -18,6 +18,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/stores/app-store';
@@ -135,6 +138,7 @@ interface RunnerCardProps {
 }
 
 function RunnerCard({ runner, onDeleted }: RunnerCardProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [assignments, setAssignments] = useState<RunnerProjectAssignment[]>([]);
   const [showAssignForm, setShowAssignForm] = useState(false);
@@ -223,30 +227,35 @@ function RunnerCard({ runner, onDeleted }: RunnerCardProps) {
 
         {/* Actions */}
         <div className="flex items-center gap-1">
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              data-testid={`runner-item-${runner.runnerId}-expand`}
-            >
-              {open ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          </CollapsibleTrigger>
-          <Button
-            variant="ghost"
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  data-testid={`runner-item-${runner.runnerId}-expand`}
+                >
+                  {open ? (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </CollapsibleTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{open ? t('common.collapse') : t('common.expand')}</TooltipContent>
+          </Tooltip>
+          <TooltipIconButton
             size="icon"
             className="h-6 w-6 text-destructive hover:text-destructive"
             onClick={handleDelete}
             disabled={deleting}
             data-testid={`runner-item-${runner.runnerId}-delete`}
+            tooltip={t('common.delete')}
           >
             <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          </TooltipIconButton>
         </div>
       </div>
 
@@ -263,15 +272,15 @@ function RunnerCard({ runner, onDeleted }: RunnerCardProps) {
                   className="flex items-center justify-between rounded px-2 py-1 text-xs hover:bg-muted/40"
                 >
                   <span className="truncate">{project?.name ?? a.projectId}</span>
-                  <Button
-                    variant="ghost"
+                  <TooltipIconButton
                     size="icon"
                     className="h-5 w-5 text-destructive hover:text-destructive"
                     onClick={() => handleUnassign(a.projectId)}
                     data-testid={`runner-item-${runner.runnerId}-unassign-${a.projectId}`}
+                    tooltip={t('common.unassign')}
                   >
                     <Trash2 className="h-3 w-3" />
-                  </Button>
+                  </TooltipIconButton>
                 </div>
               );
             })

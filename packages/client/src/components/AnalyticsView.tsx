@@ -13,7 +13,6 @@ import { useEffect, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
-import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
@@ -22,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { buildPath } from '@/lib/url';
 import { useAppStore } from '@/stores/app-store';
@@ -99,14 +99,13 @@ export function AnalyticsView() {
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <TooltipIconButton
           onClick={() => navigate(buildPath('/'))}
           className="text-muted-foreground hover:text-foreground"
+          tooltip={t('common.back')}
         >
           <ChevronLeft className="h-4 w-4" />
-        </Button>
+        </TooltipIconButton>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-medium">{t('analytics.title')}</h2>
         </div>

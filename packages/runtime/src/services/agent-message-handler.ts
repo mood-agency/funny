@@ -12,6 +12,7 @@ import { getStatusSummary, deriveGitSyncState } from '@funny/core/git';
 import type { WSEvent, ThreadStatus } from '@funny/shared';
 
 import { log } from '../lib/logger.js';
+import { computeBranchKey } from '../utils/git-status-helpers.js';
 import type { AgentStateTracker } from './agent-state.js';
 import type { IThreadManager, IWSBroker } from './server-interfaces.js';
 import { getServices } from './service-registry.js';
@@ -619,7 +620,8 @@ export class AgentMessageHandler {
     }
 
     const isWaitingForUser = !!waitingReason;
-    const currentStatus = (await this.threadManager.getThread(threadId))?.status ?? 'running';
+    const preThread = await this.threadManager.getThread(threadId);
+    const currentStatus = preThread?.status ?? 'running';
 
     // Determine the machine event based on the result
     const resultEvent = isWaitingForUser
@@ -636,7 +638,9 @@ export class AgentMessageHandler {
     );
 
     log.info('handleResult final transition', {
-      ...(await this.threadCtx(threadId)),
+      namespace: 'agent-message',
+      threadId,
+      projectId: preThread?.projectId,
       eventType: resultEvent.type,
       from: currentStatus,
       to: finalStatus,
@@ -654,23 +658,24 @@ export class AgentMessageHandler {
 
     // Auto-transition stage to 'review' when agent completes/fails
     if (finalStatus !== 'waiting') {
-      const threadForStage = await this.threadManager.getThread(threadId);
-      if (threadForStage && threadForStage.stage === 'in_progress') {
+      // Re-fetch once after update to get the current stage
+      const updatedThread = await this.threadManager.getThread(threadId);
+      if (updatedThread && updatedThread.stage === 'in_progress') {
         await this.threadManager.updateThread(threadId, { stage: 'review' });
-        const project = await this.getProject(threadForStage.projectId);
+        const project = await this.getProject(updatedThread.projectId);
         threadEventBus.emit('thread:stage-changed', {
           threadId,
-          projectId: threadForStage.projectId,
-          userId: threadForStage.userId,
-          worktreePath: threadForStage.worktreePath ?? null,
-          cwd: threadForStage.worktreePath ?? project?.path ?? '',
+          projectId: updatedThread.projectId,
+          userId: updatedThread.userId,
+          worktreePath: updatedThread.worktreePath ?? null,
+          cwd: updatedThread.worktreePath ?? project?.path ?? '',
           fromStage: 'in_progress',
           toStage: 'review',
         });
       }
 
-      // Emit agent:completed
-      const t = await this.threadManager.getThread(threadId);
+      // Emit agent:completed (reuse already-fetched thread)
+      const t = updatedThread ?? preThread;
       if (t) {
         const proj = await this.getProject(t.projectId);
         threadEventBus.emit('agent:completed', {
@@ -685,7 +690,9 @@ export class AgentMessageHandler {
       }
     }
 
-    const threadWithStage = await this.threadManager.getThread(threadId);
+    // Re-fetch thread only if we didn't already in the block above
+    const threadWithStage =
+      finalStatus !== 'waiting' ? await this.threadManager.getThread(threadId) : preThread;
 
     // Build the error text from the result or errors array
     const errorText =
@@ -731,11 +738,7 @@ export class AgentMessageHandler {
     if (summaryResult.isErr()) return;
     const summary = summaryResult.value;
 
-    const branchKey = thread.branch
-      ? `${thread.projectId}:${thread.branch}`
-      : thread.baseBranch && thread.mergedAt
-        ? `tid:${threadId}`
-        : thread.projectId;
+    const branchKey = computeBranchKey(thread);
 
     await this.emitWS(threadId, 'git:status', {
       statuses: [

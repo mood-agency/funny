@@ -583,7 +583,19 @@
     "stop": "Stop",
     "continue": "Continue",
     "or": "or",
-    "retry": "Retry"
+    "retry": "Retry",
+    "back": "Back",
+    "copy": "Copy",
+    "copied": "Copied",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "remove": "Remove",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "revoke": "Revoke",
+    "unassign": "Unassign",
+    "run": "Run",
+    "copyLink": "Copy link"
   },
   "editor": {
     "failedToLoad": "Failed to load file",

@@ -1,6 +1,7 @@
 import type { Project } from '@funny/shared';
 import { FolderKanban, Trash2 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -13,9 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 
 export function TeamProjects() {
+  const { t } = useTranslation();
   const [teamProjects, setTeamProjects] = useState<Project[]>([]);
   const [userProjects, setUserProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
@@ -103,7 +106,7 @@ export function TeamProjects() {
               size="sm"
               data-testid="team-project-add-btn"
             >
-              <FolderKanban className="h-4 w-4 mr-1" />
+              <FolderKanban className="mr-1 h-4 w-4" />
               Share
             </Button>
           </div>
@@ -122,7 +125,7 @@ export function TeamProjects() {
         </h3>
         <div className="settings-card divide-y divide-border">
           {teamProjects.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-3 px-4">
+            <p className="px-4 py-3 text-sm text-muted-foreground">
               No projects shared with the team yet. Use the dropdown above to share one.
             </p>
           ) : (
@@ -132,25 +135,24 @@ export function TeamProjects() {
                 className="settings-row"
                 data-testid={`team-project-${project.id}`}
               >
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
                   {project.color && (
                     <div
-                      className="h-3 w-3 rounded-full shrink-0"
+                      className="h-3 w-3 shrink-0 rounded-full"
                       style={{ backgroundColor: project.color }}
                     />
                   )}
-                  <span className="text-sm font-medium truncate">{project.name}</span>
-                  <span className="text-xs text-muted-foreground truncate">{project.path}</span>
+                  <span className="truncate text-sm font-medium">{project.name}</span>
+                  <span className="truncate text-xs text-muted-foreground">{project.path}</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
+                <TooltipIconButton
                   onClick={() => setRemoving(project.id)}
-                  className="text-muted-foreground hover:text-destructive shrink-0"
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
                   data-testid={`team-project-remove-${project.id}`}
+                  tooltip={t('common.remove')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                </TooltipIconButton>
               </div>
             ))
           )}

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/app-store';
 
@@ -191,15 +192,14 @@ export function ProjectConfigSettings() {
                 }}
                 data-testid={`env-file-edit-${i}`}
               />
-              <Button
-                variant="ghost"
-                size="icon-xs"
+              <TooltipIconButton
                 onClick={() => removeEnvFile(i)}
                 className="text-muted-foreground opacity-0 hover:text-status-error group-hover:opacity-100"
                 data-testid={`env-file-remove-${i}`}
+                tooltip={t('common.delete')}
               >
                 <Trash2 className="h-3 w-3" />
-              </Button>
+              </TooltipIconButton>
             </div>
           ))}
         </div>
@@ -266,15 +266,14 @@ export function ProjectConfigSettings() {
                     data-testid={`port-group-${gi}-port`}
                   />
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
+                <TooltipIconButton
                   onClick={() => removePortGroup(gi)}
                   className="text-muted-foreground opacity-0 hover:text-status-error group-hover:opacity-100"
                   data-testid={`port-group-remove-${gi}`}
+                  tooltip={t('common.delete')}
                 >
                   <Trash2 className="h-3 w-3" />
-                </Button>
+                </TooltipIconButton>
               </div>
 
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -301,14 +300,13 @@ export function ProjectConfigSettings() {
                     }}
                     data-testid={`port-group-${gi}-var-input`}
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
+                  <TooltipIconButton
                     onClick={() => addEnvVarToGroup(gi)}
                     data-testid={`port-group-${gi}-var-add`}
+                    tooltip={t('common.add')}
                   >
                     <Plus className="h-3 w-3" />
-                  </Button>
+                  </TooltipIconButton>
                 </div>
               </div>
             </div>

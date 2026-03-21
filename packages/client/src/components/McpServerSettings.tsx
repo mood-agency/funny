@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
@@ -103,19 +104,18 @@ function InstalledServerCard({
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <TooltipIconButton
           onClick={onRemove}
           disabled={removing}
           className="flex-shrink-0 text-muted-foreground hover:text-destructive"
+          tooltip={t('common.delete')}
         >
           {removing ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
             <Trash2 className="h-3.5 w-3.5" />
           )}
-        </Button>
+        </TooltipIconButton>
       </div>
       {server.status === 'needs_auth' && (
         <div className="space-y-2 pl-7">

@@ -178,11 +178,11 @@ export const gitStashPopPersistenceHandler: EventHandler<'git:stash-popped'> = {
   event: 'git:stash-popped',
 
   async action(event: GitStashPoppedEvent, ctx) {
-    await ctx.saveThreadEvent(event.threadId, 'git:stash_pop', {
+    await ctx.saveThreadEvent(event.threadId, 'git:stash-pop', {
       output: event.output,
       cwd: event.cwd,
     });
-    broadcastThreadEvent(ctx, event.userId, event.threadId, 'git:stash_pop', {
+    broadcastThreadEvent(ctx, event.userId, event.threadId, 'git:stash-pop', {
       output: event.output,
     });
   },
@@ -193,11 +193,11 @@ export const gitResetSoftPersistenceHandler: EventHandler<'git:reset-soft'> = {
   event: 'git:reset-soft',
 
   async action(event: GitResetSoftEvent, ctx) {
-    await ctx.saveThreadEvent(event.threadId, 'git:reset_soft', {
+    await ctx.saveThreadEvent(event.threadId, 'git:reset-soft', {
       output: event.output,
       cwd: event.cwd,
     });
-    broadcastThreadEvent(ctx, event.userId, event.threadId, 'git:reset_soft', {
+    broadcastThreadEvent(ctx, event.userId, event.threadId, 'git:reset-soft', {
       output: event.output,
     });
   },

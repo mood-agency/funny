@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { ThreadListView } from '@/components/ThreadListView';
-import { Button } from '@/components/ui/button';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/app-store';
 
@@ -107,24 +107,20 @@ export function ArchivedThreadsSettings() {
         )}
         renderActions={(thread) => (
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            <TooltipIconButton
               onClick={() => handleUnarchive(thread)}
-              title={t('archived.restore')}
               className="text-muted-foreground hover:text-foreground"
+              tooltip={t('archived.restore')}
             >
               <ArchiveRestore className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            </TooltipIconButton>
+            <TooltipIconButton
               onClick={() => handleDelete(thread)}
-              title={t('common.delete')}
               className="text-muted-foreground hover:text-destructive"
+              tooltip={t('common.delete')}
             >
               <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            </TooltipIconButton>
           </div>
         )}
         paginationLabel={({ from, to, total: totalCount }) =>

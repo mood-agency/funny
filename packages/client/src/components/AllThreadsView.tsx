@@ -17,11 +17,11 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { KanbanView } from '@/components/KanbanView';
 import { ThreadListView } from '@/components/ThreadListView';
-import { Button } from '@/components/ui/button';
 import { normalize } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { ProjectChip } from '@/components/ui/project-chip';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { gitSyncStateConfig, getStatusLabels } from '@/lib/thread-utils';
 import { buildPath } from '@/lib/url';
@@ -415,9 +415,7 @@ export function AllThreadsView() {
     <div className="flex h-full min-w-0 flex-1 flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <TooltipIconButton
           onClick={() => {
             if (projectFilter) {
               navigate(buildPath(`/projects/${projectFilter}`));
@@ -426,9 +424,10 @@ export function AllThreadsView() {
             }
           }}
           className="text-muted-foreground hover:text-foreground"
+          tooltip={t('common.back')}
         >
           {projectFilter ? <ChevronLeft className="h-4 w-4" /> : <Search className="h-4 w-4" />}
-        </Button>
+        </TooltipIconButton>
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-medium">
             {projectFilter && filteredProject ? t('allThreads.title') : t('allThreads.globalTitle')}
@@ -443,26 +442,24 @@ export function AllThreadsView() {
         <div className="flex items-center gap-2">
           {/* View mode toggle */}
           <div className="flex items-center gap-1 rounded-md bg-secondary/50 p-0.5">
-            <Button
+            <TooltipIconButton
               variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-              size="icon-xs"
               onClick={() => handleViewModeChange('list')}
               className="h-6 w-6"
-              title={t('kanban.listView')}
               data-testid="all-threads-list-view"
+              tooltip={t('kanban.listView')}
             >
               <LayoutList className="h-3.5 w-3.5" />
-            </Button>
-            <Button
+            </TooltipIconButton>
+            <TooltipIconButton
               variant={viewMode === 'board' ? 'secondary' : 'ghost'}
-              size="icon-xs"
               onClick={() => handleViewModeChange('board')}
               className="h-6 w-6"
-              title={t('kanban.boardView')}
               data-testid="all-threads-board-view"
+              tooltip={t('kanban.boardView')}
             >
               <Columns3 className="h-3.5 w-3.5" />
-            </Button>
+            </TooltipIconButton>
           </div>
         </div>
       </div>

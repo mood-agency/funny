@@ -12,7 +12,7 @@ import { isGitRepoSync, ensureWeaveConfigured } from '@funny/core/git';
 import type { Project, FollowUpMode } from '@funny/shared';
 import { badRequest, notFound, conflict, internal, type DomainError } from '@funny/shared/errors';
 import { DEFAULT_FOLLOW_UP_MODE } from '@funny/shared/models';
-import { eq, and, asc, inArray, notInArray } from 'drizzle-orm';
+import { eq, and, asc, inArray, notInArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { ok, err, type Result } from 'neverthrow';
 
@@ -196,9 +196,13 @@ export async function createProject(
     }
   }
 
-  const existing = await dbAll(
-    db.select().from(schema.projects).where(eq(schema.projects.userId, userId)),
+  const countResult = await dbGet(
+    db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.projects)
+      .where(eq(schema.projects.userId, userId)),
   );
+  const projectCount = countResult?.count ?? 0;
 
   const PALETTE = [
     '#7CB9E8',
@@ -210,7 +214,7 @@ export async function createProject(
     '#89D4CF',
     '#F9B97C',
   ];
-  const autoColor = PALETTE[existing.length % PALETTE.length];
+  const autoColor = PALETTE[projectCount % PALETTE.length];
 
   const project: Project = {
     id: nanoid(),
@@ -218,7 +222,7 @@ export async function createProject(
     path,
     userId,
     color: autoColor,
-    sortOrder: existing.length,
+    sortOrder: projectCount,
     createdAt: new Date().toISOString(),
   };
 

@@ -66,24 +66,7 @@ export class AgentRunner {
     });
 
     this.orchestrator.on('agent:error', (threadId: string, err: Error) => {
-      void (async () => {
-        log.error('Agent error', { namespace: 'agent', threadId, error: err.message });
-        this.endRunSpan(threadId, 'error', err.message);
-        const thread = await this.threadManager.getThread(threadId);
-        const currentStatus = thread?.status ?? 'running';
-        const { status } = transitionStatus(
-          threadId,
-          { type: 'FAIL', error: err.message },
-          currentStatus as ThreadStatus,
-        );
-        await this.threadManager.updateThread(threadId, {
-          status,
-          completedAt: new Date().toISOString(),
-        });
-        await this.emitWS(threadId, 'agent:error', { error: err.message });
-        await this.emitWS(threadId, 'agent:status', { status });
-        await this.emitAgentCompleted(threadId, status as 'completed' | 'failed' | 'stopped');
-      })().catch((innerErr) => {
+      void this.handleAgentFailure(threadId, err.message).catch((innerErr) => {
         log.error('Unhandled error in agent:error handler', {
           namespace: 'agent',
           threadId,
@@ -93,26 +76,10 @@ export class AgentRunner {
     });
 
     this.orchestrator.on('agent:unexpected-exit', (threadId: string) => {
-      void (async () => {
-        log.error('Agent exited unexpectedly', { namespace: 'agent', threadId });
-        this.endRunSpan(threadId, 'error', 'unexpected exit');
-        const thread = await this.threadManager.getThread(threadId);
-        const currentStatus = thread?.status ?? 'running';
-        const { status } = transitionStatus(
-          threadId,
-          { type: 'FAIL' },
-          currentStatus as ThreadStatus,
-        );
-        await this.threadManager.updateThread(threadId, {
-          status,
-          completedAt: new Date().toISOString(),
-        });
-        await this.emitWS(threadId, 'agent:error', {
-          error: 'Agent process exited unexpectedly without a result',
-        });
-        await this.emitWS(threadId, 'agent:status', { status });
-        await this.emitAgentCompleted(threadId, status as 'completed' | 'failed' | 'stopped');
-      })().catch((err) => {
+      void this.handleAgentFailure(
+        threadId,
+        'Agent process exited unexpectedly without a result',
+      ).catch((err) => {
         log.error('Unhandled error in agent:unexpected-exit handler', {
           namespace: 'agent',
           threadId,
@@ -126,6 +93,7 @@ export class AgentRunner {
         log.info('Agent stopped', { namespace: 'agent', threadId });
         this.endRunSpan(threadId, 'ok');
         const thread = await this.threadManager.getThread(threadId);
+        const userId = thread?.userId;
         const currentStatus = thread?.status ?? 'running';
         const { status } = transitionStatus(
           threadId,
@@ -136,8 +104,10 @@ export class AgentRunner {
           status,
           completedAt: new Date().toISOString(),
         });
-        await this.emitWS(threadId, 'agent:status', { status });
-        await this.emitAgentCompleted(threadId, 'stopped');
+        this.emitWSToUser(threadId, userId, 'agent:status', { status });
+        if (thread) {
+          await this.emitAgentCompleted(threadId, thread, 'stopped');
+        }
       })().catch((err) => {
         log.error('Unhandled error in agent:stopped handler', {
           namespace: 'agent',
@@ -225,10 +195,13 @@ export class AgentRunner {
     metric('agents.running', this.runSpans.size, { type: 'gauge' });
   }
 
-  private async emitWS(threadId: string, type: WSEvent['type'], data: unknown): Promise<void> {
+  private emitWSToUser(
+    threadId: string,
+    userId: string | undefined,
+    type: WSEvent['type'],
+    data: unknown,
+  ): void {
     const event = { type, threadId, data } as WSEvent;
-    const thread = await this.threadManager.getThread(threadId);
-    const userId = thread?.userId;
     if (userId) {
       this.wsBroker.emitToUser(userId, event);
     } else {
@@ -243,10 +216,14 @@ export class AgentRunner {
    */
   private async emitAgentCompleted(
     threadId: string,
+    thread: {
+      projectId: string;
+      userId: string;
+      worktreePath?: string | null;
+      cost?: number | null;
+    },
     status: 'completed' | 'failed' | 'stopped',
   ): Promise<void> {
-    const thread = await this.threadManager.getThread(threadId);
-    if (!thread) return;
     const project = thread.projectId
       ? await getServices().projects.getProject(thread.projectId)
       : undefined;
@@ -259,6 +236,29 @@ export class AgentRunner {
       status,
       cost: thread.cost ?? 0,
     });
+  }
+
+  /** Shared handler for agent:error and agent:unexpected-exit events. */
+  private async handleAgentFailure(threadId: string, errorMessage: string): Promise<void> {
+    log.error('Agent failure', { namespace: 'agent', threadId, error: errorMessage });
+    this.endRunSpan(threadId, 'error', errorMessage);
+    const thread = await this.threadManager.getThread(threadId);
+    const userId = thread?.userId;
+    const currentStatus = thread?.status ?? 'running';
+    const { status } = transitionStatus(
+      threadId,
+      { type: 'FAIL', error: errorMessage },
+      currentStatus as ThreadStatus,
+    );
+    await this.threadManager.updateThread(threadId, {
+      status,
+      completedAt: new Date().toISOString(),
+    });
+    this.emitWSToUser(threadId, userId, 'agent:error', { error: errorMessage });
+    this.emitWSToUser(threadId, userId, 'agent:status', { status });
+    if (thread) {
+      await this.emitAgentCompleted(threadId, thread, status as 'completed' | 'failed' | 'stopped');
+    }
   }
 
   // ── Public API ─────────────────────────────────────────────────

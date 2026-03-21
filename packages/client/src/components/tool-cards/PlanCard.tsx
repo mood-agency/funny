@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { Button } from '@/components/ui/button';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 
 export function PlanCard({
   parsed,
@@ -37,19 +37,19 @@ export function PlanCard({
             <FileCode2 className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
             <span className="font-medium text-foreground">{t('tools.plan')}</span>
           </div>
-          <Button
-            variant="ghost"
+          <TooltipIconButton
             size="icon"
             className="h-5 w-5"
             onClick={handleCopy}
             data-testid="plan-copy-button"
+            tooltip={copied ? t('common.copied') : t('common.copy')}
           >
             {copied ? (
               <Check className="h-3 w-3 text-green-500" />
             ) : (
               <Copy className="h-3 w-3 text-muted-foreground" />
             )}
-          </Button>
+          </TooltipIconButton>
         </div>
       )}
 

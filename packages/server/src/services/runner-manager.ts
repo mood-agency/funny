@@ -15,7 +15,7 @@ import type {
   AssignProjectRequest,
   UnassignProjectRequest,
 } from '@funny/shared/runner-protocol';
-import { eq, and, lt, or, isNull } from 'drizzle-orm';
+import { eq, and, lt, or, isNull, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
 import { db } from '../db/index.js';
@@ -23,6 +23,31 @@ import { runners, runnerTasks, runnerProjectAssignments } from '../db/schema.js'
 import { log } from '../lib/logger.js';
 
 const HEARTBEAT_TIMEOUT_MS = 60_000;
+
+/** Map a raw runner DB row to a RunnerInfo object. */
+function toRunnerInfo(
+  r: typeof runners.$inferSelect,
+  assignedProjectIds: string[],
+  now = Date.now(),
+): RunnerInfo {
+  const lastHb = new Date(r.lastHeartbeatAt).getTime();
+  const isStale = now - lastHb > HEARTBEAT_TIMEOUT_MS;
+  const status = isStale ? 'offline' : (r.status as RunnerInfo['status']);
+
+  return {
+    runnerId: r.id,
+    name: r.name,
+    hostname: r.hostname,
+    os: r.os,
+    workspace: r.workspace ?? undefined,
+    httpUrl: r.httpUrl ?? undefined,
+    status,
+    activeThreadCount: (JSON.parse(r.activeThreadIds) as string[]).length,
+    assignedProjectIds,
+    registeredAt: r.registeredAt,
+    lastHeartbeatAt: r.lastHeartbeatAt,
+  };
+}
 
 // ── Registration ────────────────────────────────────────
 
@@ -158,50 +183,22 @@ export async function listRunners(): Promise<RunnerInfo[]> {
     assignmentsByRunner.set(a.runnerId, list);
   }
 
-  return rows.map((r) => {
-    const lastHb = new Date(r.lastHeartbeatAt).getTime();
-    const isStale = now - lastHb > HEARTBEAT_TIMEOUT_MS;
-    const status = isStale ? 'offline' : (r.status as RunnerInfo['status']);
-
-    return {
-      runnerId: r.id,
-      name: r.name,
-      hostname: r.hostname,
-      os: r.os,
-      workspace: r.workspace ?? undefined,
-      httpUrl: r.httpUrl ?? undefined,
-      status,
-      activeThreadCount: (JSON.parse(r.activeThreadIds) as string[]).length,
-      assignedProjectIds: assignmentsByRunner.get(r.id) ?? [],
-      registeredAt: r.registeredAt,
-      lastHeartbeatAt: r.lastHeartbeatAt,
-    };
-  });
+  return rows.map((r) => toRunnerInfo(r, assignmentsByRunner.get(r.id) ?? [], now));
 }
 
 export async function getRunner(runnerId: string): Promise<RunnerInfo | null> {
   const rows = await db.select().from(runners).where(eq(runners.id, runnerId));
   if (!rows[0]) return null;
-  const r = rows[0];
 
   const assignments = await db
     .select({ projectId: runnerProjectAssignments.projectId })
     .from(runnerProjectAssignments)
     .where(eq(runnerProjectAssignments.runnerId, runnerId));
 
-  return {
-    runnerId: r.id,
-    name: r.name,
-    hostname: r.hostname,
-    os: r.os,
-    workspace: r.workspace ?? undefined,
-    httpUrl: r.httpUrl ?? undefined,
-    status: r.status as RunnerInfo['status'],
-    activeThreadCount: (JSON.parse(r.activeThreadIds) as string[]).length,
-    assignedProjectIds: assignments.map((a) => a.projectId),
-    registeredAt: r.registeredAt,
-    lastHeartbeatAt: r.lastHeartbeatAt,
-  };
+  return toRunnerInfo(
+    rows[0],
+    assignments.map((a) => a.projectId),
+  );
 }
 
 // ── Project Assignment ──────────────────────────────────
@@ -325,8 +322,9 @@ export async function getPendingTasks(runnerId: string): Promise<RunnerTask[]> {
     .from(runnerTasks)
     .where(and(eq(runnerTasks.runnerId, runnerId), eq(runnerTasks.status, 'pending')));
 
-  for (const row of rows) {
-    await db.update(runnerTasks).set({ status: 'running' }).where(eq(runnerTasks.id, row.id));
+  if (rows.length > 0) {
+    const ids = rows.map((r) => r.id);
+    await db.update(runnerTasks).set({ status: 'running' }).where(inArray(runnerTasks.id, ids));
   }
 
   return rows.map((r) => ({
@@ -373,10 +371,11 @@ export async function purgeOfflineRunners(olderThanMs = 60_000): Promise<number>
     .from(runners)
     .where(and(eq(runners.status, 'offline'), lt(runners.lastHeartbeatAt, cutoff)));
 
-  for (const r of stale) {
-    await db.delete(runnerProjectAssignments).where(eq(runnerProjectAssignments.runnerId, r.id));
-    await db.delete(runners).where(eq(runners.id, r.id));
-  }
+  const staleIds = stale.map((r) => r.id);
+  await db
+    .delete(runnerProjectAssignments)
+    .where(inArray(runnerProjectAssignments.runnerId, staleIds));
+  await db.delete(runners).where(inArray(runners.id, staleIds));
 
   if (stale.length > 0) {
     log.info(`Purged ${stale.length} stale offline runner(s)`, { namespace: 'runner' });
@@ -435,48 +434,33 @@ export async function purgeStaleRunners(): Promise<void> {
   if (stale.length === 0) return;
 
   const staleIds = stale.map((r) => r.id);
-  for (const id of staleIds) {
-    await db.delete(runnerProjectAssignments).where(eq(runnerProjectAssignments.runnerId, id));
-  }
-  await db.delete(runners).where(lt(runners.lastHeartbeatAt, cutoff));
+  await db
+    .delete(runnerProjectAssignments)
+    .where(inArray(runnerProjectAssignments.runnerId, staleIds));
+  await db.delete(runners).where(inArray(runners.id, staleIds));
   log.info(`Purged ${staleIds.length} stale runner(s)`, { namespace: 'runner' });
 }
 
 /** List only the runners owned by a specific user. */
 export async function listRunnersByUser(userId: string): Promise<RunnerInfo[]> {
   const rows = await db.select().from(runners).where(eq(runners.userId, userId));
-  const now = Date.now();
+  if (rows.length === 0) return [];
 
-  const runnerIdSet = new Set(rows.map((r) => r.id));
-  const allAssignments = await db.select().from(runnerProjectAssignments);
-  const filteredAssignments = allAssignments.filter((a) => runnerIdSet.has(a.runnerId));
+  const now = Date.now();
+  const runnerIds = rows.map((r) => r.id);
+  const userAssignments = await db
+    .select()
+    .from(runnerProjectAssignments)
+    .where(inArray(runnerProjectAssignments.runnerId, runnerIds));
 
   const assignmentsByRunner = new Map<string, string[]>();
-  for (const a of filteredAssignments) {
+  for (const a of userAssignments) {
     const list = assignmentsByRunner.get(a.runnerId) ?? [];
     list.push(a.projectId);
     assignmentsByRunner.set(a.runnerId, list);
   }
 
-  return rows.map((r) => {
-    const lastHb = new Date(r.lastHeartbeatAt).getTime();
-    const isStale = now - lastHb > HEARTBEAT_TIMEOUT_MS;
-    const status = isStale ? 'offline' : (r.status as RunnerInfo['status']);
-
-    return {
-      runnerId: r.id,
-      name: r.name,
-      hostname: r.hostname,
-      os: r.os,
-      workspace: r.workspace ?? undefined,
-      httpUrl: r.httpUrl ?? undefined,
-      status,
-      activeThreadCount: (JSON.parse(r.activeThreadIds) as string[]).length,
-      assignedProjectIds: assignmentsByRunner.get(r.id) ?? [],
-      registeredAt: r.registeredAt,
-      lastHeartbeatAt: r.lastHeartbeatAt,
-    };
-  });
+  return rows.map((r) => toRunnerInfo(r, assignmentsByRunner.get(r.id) ?? [], now));
 }
 
 /** Delete a runner only if it belongs to the requesting user. Returns false if not found/owned. */

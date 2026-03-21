@@ -576,7 +576,19 @@
     "stop": "Parar",
     "continue": "Continuar",
     "or": "ou",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "back": "Voltar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "previousPage": "Página anterior",
+    "nextPage": "Próxima página",
+    "remove": "Remover",
+    "collapse": "Recolher",
+    "expand": "Expandir",
+    "revoke": "Revogar",
+    "unassign": "Desatribuir",
+    "run": "Executar",
+    "copyLink": "Copiar link"
   },
   "editor": {
     "failedToLoad": "Falha ao carregar o arquivo",

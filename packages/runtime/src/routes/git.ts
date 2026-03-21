@@ -62,6 +62,7 @@ import {
 import { listHooks } from '../services/project-hooks-service.js';
 import * as tm from '../services/thread-manager.js';
 import type { HonoEnv } from '../types/hono-env.js';
+import { computeBranchKey } from '../utils/git-status-helpers.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { requireThread, requireThreadCwd, requireProject } from '../utils/route-helpers.js';
 import {
@@ -75,23 +76,7 @@ import {
 
 export const gitRoutes = new Hono<HonoEnv>();
 
-/** Compute a stable cache key that groups threads sharing the same git working state. */
-export function computeBranchKey(thread: {
-  id: string;
-  projectId: string;
-  branch?: string | null;
-  worktreePath?: string | null;
-  baseBranch?: string | null;
-  mergedAt?: string | null;
-}): string {
-  // Merged threads (worktree cleaned up, mergedAt set): unique per thread
-  if (!thread.branch && !thread.worktreePath && thread.baseBranch && thread.mergedAt)
-    return `tid:${thread.id}`;
-  // Threads with a branch (worktree or local): group by project + branch
-  if (thread.branch) return `${thread.projectId}:${thread.branch}`;
-  // Local threads without a branch: group by project
-  return thread.projectId;
-}
+// computeBranchKey is imported from utils/git-status-helpers.ts
 
 // In-memory cache for bulk git status to avoid spawning excessive git processes.
 const _gitStatusCache = new Map<string, { data: any; ts: number }>();

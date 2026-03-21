@@ -11,9 +11,11 @@ import {
   Circle,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { FileExtensionIcon } from '@/lib/file-icons';
 import { cn } from '@/lib/utils';
 
@@ -78,6 +80,7 @@ function SpecItem({
   isRunning: boolean;
   onRunSpec: (file: string, line: number) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       data-testid={`test-spec-${spec.file}-${spec.line}`}
@@ -88,16 +91,16 @@ function SpecItem({
       <span className="flex-1 truncate font-mono-explorer text-xs" title={spec.title}>
         {spec.title}
       </span>
-      <Button
+      <TooltipIconButton
         data-testid={`test-spec-play-${spec.file}-${spec.line}`}
-        variant="ghost"
         size="icon"
         className="h-5 w-5 opacity-0 group-hover:opacity-100"
         disabled={isRunning}
         onClick={() => onRunSpec(spec.file, spec.line)}
+        tooltip={t('common.run')}
       >
         <Play className="h-2.5 w-2.5" />
-      </Button>
+      </TooltipIconButton>
     </div>
   );
 }

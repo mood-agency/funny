@@ -38,6 +38,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from '@/components/ui/sidebar';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
@@ -345,18 +346,17 @@ export function GeneralSettingsView() {
       <Sidebar collapsible="offcanvas">
         <SidebarHeader className="px-4 py-3">
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon-xs"
+            <TooltipIconButton
               onClick={() => {
                 useUIStore.getState().setGeneralSettingsOpen(false);
                 navigate(buildPath('/'));
               }}
               className="text-muted-foreground hover:text-foreground"
               data-testid="preferences-back"
+              tooltip={t('common.back')}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-            </Button>
+            </TooltipIconButton>
             <h1 className="text-sm font-medium">{t('settings.title')}</h1>
           </div>
         </SidebarHeader>

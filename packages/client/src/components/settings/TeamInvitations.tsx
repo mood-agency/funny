@@ -1,5 +1,6 @@
 import { Send, X } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { authClient } from '@/lib/auth-client';
 
 /** Better Auth org plugin only supports these roles for invitations */
@@ -31,6 +33,7 @@ const INVITE_ROLES: { value: InviteRole; label: string }[] = [
 ];
 
 export function TeamInvitations() {
+  const { t } = useTranslation();
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState('');
@@ -158,15 +161,15 @@ export function TeamInvitations() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{inv.role}</Badge>
-                <Button
-                  variant="ghost"
+                <TooltipIconButton
                   size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-destructive"
                   onClick={() => handleCancel(inv.id)}
                   data-testid={`team-invitation-cancel-${inv.id}`}
+                  tooltip={t('common.cancel')}
                 >
                   <X className="h-3.5 w-3.5" />
-                </Button>
+                </TooltipIconButton>
               </div>
             </div>
           ))

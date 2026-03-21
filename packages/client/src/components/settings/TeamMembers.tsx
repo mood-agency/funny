@@ -1,6 +1,7 @@
 import type { TeamRole } from '@funny/shared';
 import { Copy, Check, Link, MailWarning, Send, Trash2, UserMinus, X } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -14,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { authClient } from '@/lib/auth-client';
 import { useAuthStore } from '@/stores/auth-store';
@@ -67,6 +69,7 @@ interface InviteLink {
 }
 
 export function TeamMembers() {
+  const { t } = useTranslation();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [removeConfirm, setRemoveConfirm] = useState<Member | null>(null);
@@ -364,29 +367,29 @@ export function TeamMembers() {
                           ` · expires ${new Date(link.expiresAt).toLocaleDateString()}`}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
+                    <TooltipIconButton
                       size="icon"
                       className="h-7 w-7 shrink-0"
                       onClick={() => handleCopyLink(link)}
                       disabled={!isActive}
                       data-testid={`team-link-copy-${link.id}`}
+                      tooltip={t('common.copyLink')}
                     >
                       {copiedId === link.id ? (
                         <Check className="h-3.5 w-3.5 text-green-500" />
                       ) : (
                         <Copy className="h-3.5 w-3.5" />
                       )}
-                    </Button>
-                    <Button
-                      variant="ghost"
+                    </TooltipIconButton>
+                    <TooltipIconButton
                       size="icon"
                       className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                       onClick={() => handleRevokeLink(link.id)}
                       data-testid={`team-link-revoke-${link.id}`}
+                      tooltip={t('common.revoke')}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    </TooltipIconButton>
                   </div>
                 );
               })}
