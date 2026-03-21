@@ -90,6 +90,7 @@ class SessionTracker {
 
   listForUser(
     userId: string,
+    runnerMode = false,
   ): Array<{ ptyId: string; cwd: string; projectId?: string; label?: string; shell?: string }> {
     const result: Array<{
       ptyId: string;
@@ -100,6 +101,11 @@ class SessionTracker {
     }> = [];
 
     for (const [id, meta] of this.sessions) {
+      // In runner mode, reattached sessions lose their userId (no DB to store it).
+      // Since there's only one user per runner, adopt the first requesting userId.
+      if (runnerMode && !meta.userId) {
+        meta.userId = userId;
+      }
       if (meta.userId === userId) {
         result.push({
           ptyId: id,
@@ -422,5 +428,101 @@ describe('Kill cleanup', () => {
     killAllPtys();
 
     expect(tracker.size).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Runner-mode session adoption
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('Runner-mode session adoption', () => {
+  let tracker: SessionTracker;
+
+  beforeEach(() => {
+    tracker = new SessionTracker();
+  });
+
+  test('reattached sessions with empty userId are invisible without runner mode', () => {
+    // Simulate daemon reattach in non-runner mode — sessions have empty userId
+    // because DB returned nothing (this shouldn't happen in non-runner mode, but
+    // tests the filter logic)
+    tracker.set('pty-1', { userId: '', cwd: '/home' });
+    tracker.set('pty-2', { userId: '', cwd: '/work' });
+
+    // Without runner mode, empty userId sessions are not returned
+    const sessions = tracker.listForUser('user-1', false);
+    expect(sessions).toHaveLength(0);
+  });
+
+  test('runner mode adopts orphaned sessions (empty userId) for the requesting user', () => {
+    // Simulate daemon reattach after runtime restart in runner mode:
+    // daemon reports live sessions but DB is unavailable → userId = ''
+    tracker.set('pty-1', { userId: '', cwd: '/home', label: 'Terminal 1' });
+    tracker.set('pty-2', { userId: '', cwd: '/work', label: 'Terminal 2' });
+
+    // In runner mode, these orphaned sessions should be adopted
+    const sessions = tracker.listForUser('user-1', true);
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((s) => s.ptyId).sort()).toEqual(['pty-1', 'pty-2']);
+  });
+
+  test('runner mode adoption is persistent — adopted sessions keep the userId', () => {
+    tracker.set('pty-1', { userId: '', cwd: '/home' });
+
+    // First call adopts
+    tracker.listForUser('user-1', true);
+
+    // Second call (even without runner mode) should still find them
+    // because the userId was mutated in-place
+    const sessions = tracker.listForUser('user-1', false);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].ptyId).toBe('pty-1');
+  });
+
+  test('runner mode does not adopt sessions that already have a userId', () => {
+    tracker.set('pty-1', { userId: 'user-1', cwd: '/home' });
+    tracker.set('pty-2', { userId: '', cwd: '/work' });
+
+    const sessions = tracker.listForUser('user-2', true);
+    // Only pty-2 is orphaned and gets adopted by user-2
+    // pty-1 belongs to user-1 and should not be returned
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].ptyId).toBe('pty-2');
+  });
+
+  test('runner mode preserves metadata during adoption', () => {
+    tracker.set('pty-1', {
+      userId: '',
+      cwd: '/home/dev',
+      projectId: 'proj-1',
+      label: 'Dev Terminal',
+      shell: '/bin/zsh',
+    });
+
+    const sessions = tracker.listForUser('user-1', true);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toEqual({
+      ptyId: 'pty-1',
+      cwd: '/home/dev',
+      projectId: 'proj-1',
+      label: 'Dev Terminal',
+      shell: '/bin/zsh',
+    });
+
+    // Verify the underlying meta was updated
+    expect(tracker.get('pty-1')?.userId).toBe('user-1');
+  });
+
+  test('mixed: owned + orphaned sessions in runner mode', () => {
+    tracker.set('pty-owned', { userId: 'user-1', cwd: '/owned' });
+    tracker.set('pty-orphan', { userId: '', cwd: '/orphan' });
+    tracker.set('pty-other', { userId: 'user-2', cwd: '/other' });
+
+    const sessions = tracker.listForUser('user-1', true);
+    // pty-owned: matches userId, included
+    // pty-orphan: adopted by user-1, included
+    // pty-other: belongs to user-2, excluded
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((s) => s.ptyId).sort()).toEqual(['pty-orphan', 'pty-owned']);
   });
 });

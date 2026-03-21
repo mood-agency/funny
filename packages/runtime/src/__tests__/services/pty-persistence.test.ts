@@ -29,8 +29,13 @@ class SessionTracker {
     this.sessions.set(id, meta);
   }
 
+  get(id: string): SessionMeta | undefined {
+    return this.sessions.get(id);
+  }
+
   listForUser(
     userId: string,
+    runnerMode = false,
   ): Array<{ ptyId: string; cwd: string; projectId?: string; label?: string; shell?: string }> {
     const result: Array<{
       ptyId: string;
@@ -40,6 +45,9 @@ class SessionTracker {
       shell?: string;
     }> = [];
     for (const [id, meta] of this.sessions) {
+      if (runnerMode && !meta.userId) {
+        meta.userId = userId;
+      }
       if (meta.userId === userId) {
         result.push({
           ptyId: id,
@@ -536,5 +544,172 @@ describe('listActiveSessions with DB merge', () => {
     const sessions = listActiveSessions('user-1', true);
     expect(sessions).toHaveLength(1);
     expect(sessions[0].ptyId).toBe('pty-1');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Runner-mode reattach simulation (no DB available)
+//
+// In runner mode (TEAM_SERVER_URL set), the runtime has no local DB.
+// After a runtime restart, daemon sessions are discovered via IPC
+// but their userId is lost (DB returned nothing). The listActiveSessions
+// must still return these sessions and adopt them for the requesting user.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('Runner-mode reattach (no DB)', () => {
+  let tracker: SessionTracker;
+
+  /** Simulates what reattachSessions() does when daemon reports live sessions but DB is empty. */
+  function simulateDaemonReattach(
+    daemonSessions: Array<{ id: string; cwd: string; shell?: string }>,
+    dbRows: PtySessionRow[],
+  ): void {
+    const dbMap = new Map(dbRows.map((r) => [r.id, r]));
+    for (const ds of daemonSessions) {
+      const dbRow = dbMap.get(ds.id);
+      tracker.set(ds.id, {
+        userId: dbRow?.user_id ?? '', // Empty when DB is unavailable
+        cwd: ds.cwd,
+        projectId: dbRow?.project_id ?? undefined,
+        label: dbRow?.label ?? undefined,
+        shell: ds.shell,
+      });
+    }
+  }
+
+  /**
+   * Simulate listActiveSessions in runner mode:
+   * no DB access, relies on in-memory sessions with runner-mode adoption.
+   */
+  function listActiveSessionsRunnerMode(
+    userId: string,
+  ): Array<{ ptyId: string; cwd: string; projectId?: string; label?: string; shell?: string }> {
+    const result = new Map<
+      string,
+      { ptyId: string; cwd: string; projectId?: string; label?: string; shell?: string }
+    >();
+
+    for (const session of tracker.listForUser(userId, /* runnerMode */ true)) {
+      result.set(session.ptyId, session);
+    }
+
+    // In runner mode, loadPtySessionsForUser returns [] — no DB merge
+    return Array.from(result.values());
+  }
+
+  beforeEach(() => {
+    tracker = new SessionTracker();
+  });
+
+  test('daemon sessions with no DB: sessions are discovered but have empty userId', () => {
+    // Daemon reports 2 live sessions, DB has nothing (runner mode)
+    simulateDaemonReattach(
+      [
+        { id: 'pty-1', cwd: '/home/dev', shell: '/bin/bash' },
+        { id: 'pty-2', cwd: '/home/work', shell: '/bin/zsh' },
+      ],
+      [], // No DB rows
+    );
+
+    // Verify sessions exist but have empty userId
+    expect(tracker.get('pty-1')?.userId).toBe('');
+    expect(tracker.get('pty-2')?.userId).toBe('');
+  });
+
+  test('BUG REGRESSION: empty-userId sessions are invisible without runner mode', () => {
+    // This was the original bug — sessions with empty userId were never returned
+    simulateDaemonReattach(
+      [
+        { id: 'pty-1', cwd: '/home/dev' },
+        { id: 'pty-2', cwd: '/home/work' },
+      ],
+      [],
+    );
+
+    // Without runner mode, these sessions are invisible (THE BUG)
+    const sessions = tracker.listForUser('user-1', false);
+    expect(sessions).toHaveLength(0);
+  });
+
+  test('runner mode: orphaned sessions are adopted and returned', () => {
+    simulateDaemonReattach(
+      [
+        { id: 'pty-1', cwd: '/home/dev', shell: '/bin/bash' },
+        { id: 'pty-2', cwd: '/home/work', shell: '/bin/zsh' },
+      ],
+      [],
+    );
+
+    const sessions = listActiveSessionsRunnerMode('user-1');
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((s) => s.ptyId).sort()).toEqual(['pty-1', 'pty-2']);
+    expect(sessions.find((s) => s.ptyId === 'pty-1')?.shell).toBe('/bin/bash');
+    expect(sessions.find((s) => s.ptyId === 'pty-2')?.shell).toBe('/bin/zsh');
+  });
+
+  test('runner mode: adoption persists — subsequent calls use adopted userId', () => {
+    simulateDaemonReattach([{ id: 'pty-1', cwd: '/home' }], []);
+
+    // First call adopts
+    listActiveSessionsRunnerMode('user-1');
+    expect(tracker.get('pty-1')?.userId).toBe('user-1');
+
+    // Subsequent call (even non-runner mode listForUser) finds them
+    const sessions = tracker.listForUser('user-1', false);
+    expect(sessions).toHaveLength(1);
+  });
+
+  test('runner mode: daemon + DB rows merge correctly when DB is available', () => {
+    // Simulate non-runner mode where DB IS available:
+    // daemon reports session, DB has metadata
+    simulateDaemonReattach(
+      [{ id: 'pty-1', cwd: '/home/dev', shell: '/bin/bash' }],
+      [
+        {
+          id: 'pty-1',
+          tmux_session: 'funny-pty-1',
+          user_id: 'user-1',
+          cwd: '/home/dev',
+          project_id: 'proj-1',
+          label: 'My Terminal',
+          shell: '/bin/bash',
+          cols: 80,
+          rows: 24,
+          terminal_state: null,
+        },
+      ],
+    );
+
+    // userId should come from DB row, not be empty
+    expect(tracker.get('pty-1')?.userId).toBe('user-1');
+    expect(tracker.get('pty-1')?.projectId).toBe('proj-1');
+    expect(tracker.get('pty-1')?.label).toBe('My Terminal');
+
+    // Works with standard (non-runner) filtering
+    const sessions = tracker.listForUser('user-1', false);
+    expect(sessions).toHaveLength(1);
+  });
+
+  test('runner mode: full lifecycle — reattach, adopt, list, pty:restore', () => {
+    // 1. Runtime starts in runner mode, daemon has 2 sessions
+    simulateDaemonReattach(
+      [
+        { id: 'pty-1', cwd: '/project-a' },
+        { id: 'pty-2', cwd: '/project-b' },
+      ],
+      [],
+    );
+
+    // 2. Browser connects, sends pty:list → listActiveSessions(userId)
+    const sessions = listActiveSessionsRunnerMode('user-1');
+    expect(sessions).toHaveLength(2);
+
+    // 3. Sessions are now adopted — onData/onExit can use session.userId
+    expect(tracker.get('pty-1')?.userId).toBe('user-1');
+    expect(tracker.get('pty-2')?.userId).toBe('user-1');
+
+    // 4. Subsequent pty:list from same user still works
+    const sessions2 = listActiveSessionsRunnerMode('user-1');
+    expect(sessions2).toHaveLength(2);
   });
 });

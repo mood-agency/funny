@@ -135,7 +135,9 @@ function evictIfStale(projectId: string): void {
   const run = activeRuns.get(projectId);
   if (!run) return;
 
-  const processExited = run.process && !run.process.killed && run.process.exitCode !== null;
+  const processExited = run.process
+    ? run.process.exitCode !== null
+    : Date.now() - run.startedAt > 10_000; // null process for >10s = stale
   const timedOut = Date.now() - run.startedAt > STALE_RUN_TIMEOUT;
 
   if (processExited || timedOut) {

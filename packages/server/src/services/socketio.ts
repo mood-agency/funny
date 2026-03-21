@@ -168,6 +168,7 @@ function setupBrowserPtyHandlers(socket: Socket, userId: string): void {
     'pty:kill',
     'pty:rename',
     'pty:reconnect',
+    'pty:restore',
   ];
 
   for (const eventName of ptyEvents) {

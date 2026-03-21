@@ -20,6 +20,9 @@ import { log } from '../lib/logger.js';
 import type { PtyBackend } from './pty-backend.js';
 import { wsBroker } from './ws-broker.js';
 
+/** In runner mode there is no local DB — one user per runner. */
+const isRunnerMode = !!process.env.TEAM_SERVER_URL;
+
 // ── Backend selection ───────────────────────────────────────────────
 
 function selectBackend(): PtyBackend {
@@ -404,6 +407,11 @@ export function listActiveSessions(
   >();
 
   for (const [id, meta] of activeSessions) {
+    // In runner mode, reattached sessions lose their userId (no DB to store it).
+    // Since there's only one user per runner, adopt the first requesting userId.
+    if (isRunnerMode && !meta.userId) {
+      meta.userId = userId;
+    }
     if (meta.userId === userId) {
       result.set(id, {
         ptyId: id,
