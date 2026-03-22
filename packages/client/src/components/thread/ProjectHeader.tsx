@@ -21,13 +21,13 @@ import {
   FolderOpen,
   FlaskConical,
   ListChecks,
+  Activity,
 } from 'lucide-react';
 import { memo, useState, useEffect, useCallback, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
 
-import { BranchBadge } from '@/components/BranchBadge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DiffStats } from '@/components/DiffStats';
 import {
@@ -419,8 +419,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
     activeThreadStatus,
     activeThreadWorktreePath,
     activeThreadParentId,
-    activeThreadBranch,
-    activeThreadBaseBranch,
     activeThreadArcId,
   } = useThreadStore(
     useShallow((s) => ({
@@ -431,8 +429,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
       activeThreadStatus: s.activeThread?.status,
       activeThreadWorktreePath: s.activeThread?.worktreePath,
       activeThreadParentId: s.activeThread?.parentThreadId,
-      activeThreadBranch: s.activeThread?.branch,
-      activeThreadBaseBranch: s.activeThread?.baseBranch,
       activeThreadArcId: s.activeThread?.arcId,
     })),
   );
@@ -442,6 +438,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
   const setTestPaneOpen = useUIStore((s) => s.setTestPaneOpen);
   const setTasksPaneOpen = useUIStore((s) => s.setTasksPaneOpen);
+  const setActivityPaneOpen = useUIStore((s) => s.setActivityPaneOpen);
   const rightPaneTab = useUIStore((s) => s.rightPaneTab);
   const kanbanContext = useUIStore((s) => s.kanbanContext);
   const { openPreview, isTauri } = usePreviewWindow();
@@ -570,17 +567,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
                     {activeThreadTitle}
                   </span>
                 </BreadcrumbItem>
-              )}
-              {(activeThreadBranch || activeThreadBaseBranch) && (
-                <>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem className="flex-shrink-0">
-                    <BranchBadge
-                      branch={(activeThreadBranch || activeThreadBaseBranch)!}
-                      size="sm"
-                    />
-                  </BreadcrumbItem>
-                </>
               )}
             </BreadcrumbList>
           </Breadcrumb>
@@ -761,6 +747,32 @@ export const ProjectHeader = memo(function ProjectHeader() {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{t('tests.title', 'Tests')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() =>
+                    startTransition(() => {
+                      if (reviewPaneOpen && rightPaneTab === 'activity') {
+                        setActivityPaneOpen(false);
+                      } else {
+                        setActivityPaneOpen(true);
+                      }
+                    })
+                  }
+                  data-testid="header-toggle-activity"
+                  className={
+                    reviewPaneOpen && rightPaneTab === 'activity'
+                      ? 'text-foreground'
+                      : 'text-muted-foreground'
+                  }
+                >
+                  <Activity className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('activity.title', 'Activity')}</TooltipContent>
             </Tooltip>
             {activeThreadArcId && (
               <Tooltip>

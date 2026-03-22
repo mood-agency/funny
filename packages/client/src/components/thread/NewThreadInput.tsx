@@ -1,10 +1,11 @@
 import type { ThreadPurpose } from '@funny/shared';
 import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { useNavigationBlock } from '@/hooks/use-navigation-block';
 import { api } from '@/lib/api';
 import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
@@ -14,6 +15,7 @@ import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
 
 import { PromptInput } from '../PromptInput';
+import { SaveBacklogDialog } from './SaveBacklogDialog';
 
 /** Generate a kebab-case arc name from a prompt with a short unique suffix. */
 function generateArcName(prompt: string): string {
@@ -47,6 +49,57 @@ export function NewThreadInput() {
     : undefined;
   const defaultThreadMode = project?.defaultMode ?? DEFAULT_THREAD_MODE;
   const toolPermissions = useSettingsStore((s) => s.toolPermissions);
+
+  // ── Save-to-backlog guard ──
+  const hasContentRef = useRef(false);
+  const latestPromptTextRef = useRef('');
+  const [savingBacklog, setSavingBacklog] = useState(false);
+  // Skip blocking when the user just submitted (created a thread successfully)
+  const justSubmittedRef = useRef(false);
+
+  const handleContentChange = useCallback((hasContent: boolean, text: string) => {
+    hasContentRef.current = hasContent;
+    latestPromptTextRef.current = text;
+  }, []);
+
+  // Block navigation when the editor has unsaved content
+  const blocker = useNavigationBlock((currentPath, nextPath) => {
+    if (justSubmittedRef.current) return false;
+    if (currentPath === nextPath) return false;
+    return hasContentRef.current;
+  });
+
+  const handleSaveToBacklog = useCallback(async () => {
+    if (!effectiveProjectId) return;
+    const text = latestPromptTextRef.current.trim();
+    if (!text) {
+      blocker.proceed?.();
+      return;
+    }
+    setSavingBacklog(true);
+    const result = await api.createIdleThread({
+      projectId: effectiveProjectId,
+      title: text.slice(0, 200),
+      mode: defaultThreadMode,
+      prompt: text,
+    });
+    setSavingBacklog(false);
+    if (result.isErr()) {
+      toastError(result.error, 'createThread');
+      return;
+    }
+    await loadThreadsForProject(effectiveProjectId);
+    toast.success(t('toast.threadCreated', { title: text.slice(0, 200) }));
+    blocker.proceed?.();
+  }, [effectiveProjectId, defaultThreadMode, loadThreadsForProject, blocker, t]);
+
+  const handleDiscard = useCallback(() => {
+    blocker.proceed?.();
+  }, [blocker]);
+
+  const handleCancel = useCallback(() => {
+    blocker.reset?.();
+  }, [blocker]);
 
   const [creating, setCreating] = useState(false);
 
@@ -142,10 +195,8 @@ export function NewThreadInput() {
       return false;
     }
 
-    // Thread created — navigate immediately (worktree setup runs in background).
-    // Navigate BEFORE awaiting loadThreadsForProject: the await yields execution,
-    // React re-renders, and this component unmounts (selectedThreadId is now set),
-    // which can cause navigate() to silently fail from an unmounted component.
+    // Thread created — skip the blocker and navigate immediately
+    justSubmittedRef.current = true;
     useThreadStore.setState({ selectedThreadId: result.value.id });
     setCreating(false);
     setReviewPaneOpen(false);
@@ -165,8 +216,17 @@ export function NewThreadInput() {
           isNewThread
           showBacklog
           projectId={effectiveProjectId || undefined}
+          onContentChange={handleContentChange}
         />
       </div>
+
+      <SaveBacklogDialog
+        open={blocker.state === 'blocked'}
+        loading={savingBacklog}
+        onSave={handleSaveToBacklog}
+        onDiscard={handleDiscard}
+        onCancel={handleCancel}
+      />
     </div>
   );
 }

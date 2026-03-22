@@ -96,6 +96,13 @@ export function buildGroupedRenderItems(
   let lastWrittenPlanContent: string | undefined;
   for (const msg of messages) {
     const hasExitPlanMode = msg.toolCalls?.some((tc: any) => tc.name === 'ExitPlanMode');
+    // Emit Think tool calls BEFORE the message text so the thinking
+    // appears above the response in the UI (natural reading order).
+    for (const tc of msg.toolCalls ?? []) {
+      if (tc.name === 'Think' && !tc.parentToolCallId) {
+        flat.push({ type: 'toolcall', tc });
+      }
+    }
     // Only add message bubble if there's actual text content.
     // Skip if the message has an ExitPlanMode tool call — the plan text
     // will be shown inside the ExitPlanModeCard instead.
@@ -103,6 +110,8 @@ export function buildGroupedRenderItems(
       flat.push({ type: 'message', msg });
     }
     for (const tc of msg.toolCalls ?? []) {
+      // Skip Think — already emitted above before the message text
+      if (tc.name === 'Think') continue;
       // EnterPlanMode carries no useful data (empty input) — skip it entirely.
       // The actual plan content is rendered by ExitPlanMode.
       if (tc.name === 'EnterPlanMode') continue;

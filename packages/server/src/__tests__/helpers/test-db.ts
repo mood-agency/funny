@@ -71,6 +71,7 @@ export function createTestDb() {
       init_cwd TEXT,
       runner_id TEXT,
       merged_at TEXT,
+      context_recovery_reason TEXT,
       created_at TEXT NOT NULL,
       completed_at TEXT
     )

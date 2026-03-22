@@ -825,6 +825,12 @@ const migrations: Migration[] = [
       await ctx().addColumn('user_profiles', 'provider_keys', 'TEXT');
     },
   },
+  {
+    name: '033_threads_context_recovery_reason',
+    async up() {
+      await ctx().addColumn('threads', 'context_recovery_reason', 'TEXT');
+    },
+  },
 ];
 
 export async function autoMigrate() {

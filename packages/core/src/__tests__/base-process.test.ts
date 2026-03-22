@@ -35,6 +35,10 @@ class TestProcess extends BaseAgentProcess {
   public getIsAborted(): boolean {
     return this.isAborted;
   }
+
+  public callExtractErrorMessage(err: unknown): string {
+    return this.extractErrorMessage(err);
+  }
 }
 
 function createOptions(overrides?: Partial<ClaudeProcessOptions>): ClaudeProcessOptions {
@@ -255,6 +259,45 @@ describe('BaseAgentProcess', () => {
 
       const msg = messages[0] as CLIResultMessage;
       expect(msg.errors).toBeUndefined();
+    });
+  });
+
+  // ── extractErrorMessage ────────────────────────────────────
+
+  describe('extractErrorMessage', () => {
+    test('returns message from a plain Error', () => {
+      expect(proc.callExtractErrorMessage(new Error('something broke'))).toBe('something broke');
+    });
+
+    test('extracts details from ACP RequestError-shaped object', () => {
+      const acpError = {
+        message: 'Internal error',
+        code: -32603,
+        data: {
+          details:
+            'Unable to infer model provider for { model: google:gemini-3-flash-preview }, please specify modelProvider directly.',
+        },
+      };
+      expect(proc.callExtractErrorMessage(acpError)).toBe(
+        'Unable to infer model provider for { model: google:gemini-3-flash-preview }, please specify modelProvider directly.',
+      );
+    });
+
+    test('falls back to message when data has no details', () => {
+      const err = { message: 'Internal error', code: -32603, data: { other: 'info' } };
+      expect(proc.callExtractErrorMessage(err)).toBe('Internal error');
+    });
+
+    test('handles null input', () => {
+      expect(proc.callExtractErrorMessage(null)).toBe('Unknown error');
+    });
+
+    test('handles undefined input', () => {
+      expect(proc.callExtractErrorMessage(undefined)).toBe('Unknown error');
+    });
+
+    test('handles string input', () => {
+      expect(proc.callExtractErrorMessage('raw string error')).toBe('raw string error');
     });
   });
 });

@@ -6,6 +6,12 @@ export { CodexProcess } from './codex.js';
 export { GeminiACPProcess } from './gemini-acp.js';
 export { DeepAgentProcess } from './deepagent-process.js';
 export {
+  inferACPToolName,
+  buildACPToolInput,
+  extractACPToolOutput,
+  type ACPToolCallData,
+} from './acp-tool-input.js';
+export {
   AgentOrchestrator,
   type StartAgentOptions,
   type OrchestratorEvents,

@@ -107,6 +107,7 @@ export const threads = pgTable('threads', {
   initCwd: text('init_cwd'),
   runnerId: text('runner_id'),
   mergedAt: text('merged_at'),
+  contextRecoveryReason: text('context_recovery_reason'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 });

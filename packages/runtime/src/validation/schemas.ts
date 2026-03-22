@@ -13,7 +13,7 @@ import { z } from 'zod';
 
 export const threadModeSchema = z.enum(['local', 'worktree']);
 export const threadRuntimeSchema = z.enum(['local', 'remote']);
-export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini']);
+export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini', 'deepagent']);
 export const claudeModelSchema = z.enum(['sonnet', 'sonnet-4.6', 'opus', 'haiku']);
 export const codexModelSchema = z.enum(['o3', 'o4-mini', 'codex-mini']);
 export const geminiModelSchema = z.enum([
@@ -23,7 +23,22 @@ export const geminiModelSchema = z.enum([
   'gemini-3-flash-preview',
   'gemini-3-pro-preview',
 ]);
-export const agentModelSchema = z.union([claudeModelSchema, codexModelSchema, geminiModelSchema]);
+export const deepagentModelSchema = z.enum([
+  'minimax-m2.7',
+  'minimax-m2.7-highspeed',
+  'deepagent-gpt-4o',
+  'deepagent-sonnet',
+  'deepagent-gemini-2.5-flash',
+  'deepagent-gemini-2.5-pro',
+  'deepagent-gemini-3-flash',
+  'deepagent-gemini-3-pro',
+]);
+export const agentModelSchema = z.union([
+  claudeModelSchema,
+  codexModelSchema,
+  geminiModelSchema,
+  deepagentModelSchema,
+]);
 export const permissionModeSchema = z.enum(['plan', 'autoEdit', 'confirmEdit', 'ask']);
 export const threadStageSchema = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done']);
 export const threadSourceSchema = z.enum([

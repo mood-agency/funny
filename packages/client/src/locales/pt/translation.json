@@ -67,7 +67,11 @@
       "minimaxM27": "MiniMax M2.7",
       "minimaxM27Highspeed": "MiniMax M2.7 Highspeed",
       "deepagentGpt4o": "GPT-4o",
-      "deepagentSonnet": "Sonnet 4.5"
+      "deepagentSonnet": "Sonnet 4.5",
+      "deepagentGemini25flash": "Gemini 2.5 Flash",
+      "deepagentGemini25pro": "Gemini 2.5 Pro",
+      "deepagentGemini3flash": "Gemini 3 Flash",
+      "deepagentGemini3pro": "Gemini 3 Pro"
     },
     "createdBy": "Criado por {{creator}}",
     "readyToLaunch": "Pronto para lançar",
@@ -110,6 +114,12 @@
     "sendFailed": "Não foi possível enviar a mensagem — servidor indisponível",
     "sendFailedGeneric": "Não foi possível enviar a mensagem: {{error}}",
     "queuedMessages": "{{count}} mensagem(ns) enfileirada(s)",
+    "searchPlaceholder": "Pesquisar no tópico...",
+    "searchResults": "{{current}} de {{total}}",
+    "searchNoResults": "Sem resultados",
+    "searchClose": "Fechar pesquisa",
+    "searchPrev": "Resultado anterior",
+    "searchNext": "Próximo resultado",
     "source": {
       "web": "Criado pela interface web",
       "chrome_extension": "Criado pela extensão do Chrome",
@@ -387,6 +397,8 @@
     "todos": "Tarefas",
     "editNotebook": "Editar Notebook",
     "question": "Pergunta",
+    "thinking": "Pensando",
+    "providerError": "Erro do Provedor",
     "tool": "Ferramenta",
     "done": "pronto",
     "questions": "pergunta",
@@ -694,6 +706,13 @@
     "linesAdded": "{{count}} linhas adicionadas desde o último commit",
     "linesDeleted": "{{count}} linhas removidas desde o último commit",
     "dirtyFiles": "{{count}} arquivos com alterações não commitadas"
+  },
+  "saveBacklog": {
+    "title": "Prompt não salvo",
+    "description": "Você tem um prompt não salvo. O que gostaria de fazer?",
+    "save": "Salvar no backlog",
+    "discard": "Descartar",
+    "cancel": "Cancelar"
   },
   "kanban": {
     "backlog": "Pendentes",

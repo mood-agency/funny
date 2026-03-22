@@ -77,6 +77,7 @@ import { GitEventCard } from './thread/GitEventCard';
 import { NewThreadInput } from './thread/NewThreadInput';
 import { ProjectHeader } from './thread/ProjectHeader';
 import { PromptTimeline } from './thread/PromptTimeline';
+import { ThreadSearchBar } from './thread/ThreadSearchBar';
 import { WorkflowEventGroup } from './thread/WorkflowEventGroup';
 import { ToolCallCard } from './ToolCallCard';
 import { ToolCallGroup } from './ToolCallGroup';
@@ -453,6 +454,9 @@ function estimateItemHeight(item: RenderItem): number {
 
 interface MemoizedMessageListHandle {
   expandToItem: (id: string) => void;
+  hasHiddenItems: () => boolean;
+  captureScrollAnchor: () => void;
+  restoreScrollAnchor: () => void;
 }
 
 /** Custom comparator for MemoizedMessageList — avoids re-renders when only
@@ -533,6 +537,21 @@ const MemoizedMessageList = memo(
     );
 
     /* ── Windowed rendering ──────────────────────────────────────────── */
+
+    // Ensure the render window is large enough to include the last user
+    // message — when tool calls expand the grouped-item count well beyond
+    // the raw message count, INITIAL_WINDOW (30) may not reach it.
+    const effectiveInitialWindow = useMemo(() => {
+      for (let i = groupedItems.length - 1; i >= 0; i--) {
+        const item = groupedItems[i];
+        if (item.type === 'message' && item.msg.role === 'user') {
+          const needed = groupedItems.length - i + 5; // +5 buffer
+          return Math.max(INITIAL_WINDOW, needed);
+        }
+      }
+      return INITIAL_WINDOW;
+    }, [groupedItems]);
+
     const [renderCount, setRenderCount] = useState(INITIAL_WINDOW);
 
     // Reset render window when switching threads (synchronous state reset
@@ -542,6 +561,12 @@ const MemoizedMessageList = memo(
       prevThreadIdRef.current = threadId;
       setRenderCount(INITIAL_WINDOW);
     }
+
+    // Bump renderCount when effectiveInitialWindow grows (e.g. after
+    // messages load asynchronously following a thread switch).
+    useEffect(() => {
+      setRenderCount((prev) => Math.max(prev, effectiveInitialWindow));
+    }, [effectiveInitialWindow]);
 
     const windowStart = Math.max(0, groupedItems.length - renderCount);
     const visibleItems = groupedItems.slice(windowStart);
@@ -585,28 +610,106 @@ const MemoizedMessageList = memo(
       return map;
     }, [groupedItems]);
 
-    // Expose expandToItem so ThreadView can expand the window before scrolling
-    useImperativeHandle(
-      ref,
-      () => ({
-        expandToItem: (id: string) => {
-          const index = itemIndexMap.get(id);
-          if (index !== undefined) {
-            const needed = groupedItems.length - index + 5;
-            if (needed > renderCount) {
-              flushSync(() => setRenderCount(Math.min(groupedItems.length, needed)));
-            }
-          }
-        },
-      }),
-      [itemIndexMap, renderCount, groupedItems.length],
-    );
+    // ── Height cache: measured heights from ResizeObserver ──────────
+    // Used to produce accurate spacer heights instead of estimates.
+    const heightCacheRef = useRef(new Map<string, number>());
+    const itemContainerRef = useRef<HTMLDivElement>(null);
 
-    // Estimated spacer height for items above the render window
+    // Clear cache on thread switch
+    const prevCacheThreadRef = useRef(threadId);
+    if (prevCacheThreadRef.current !== threadId) {
+      prevCacheThreadRef.current = threadId;
+      heightCacheRef.current.clear();
+    }
+
+    // ResizeObserver: record measured heights of rendered items
+    useEffect(() => {
+      const container = itemContainerRef.current;
+      if (!container) return;
+
+      const cache = heightCacheRef.current;
+      const ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const key = (entry.target as HTMLElement).dataset.itemKey;
+          if (key) {
+            const h =
+              entry.borderBoxSize?.[0]?.blockSize ?? entry.target.getBoundingClientRect().height;
+            cache.set(key, h);
+          }
+        }
+      });
+
+      // Observe all current items and watch for new ones
+      const observeAll = () => {
+        container.querySelectorAll<HTMLElement>('[data-item-key]').forEach((el) => ro.observe(el));
+      };
+      observeAll();
+
+      const mo = new MutationObserver(observeAll);
+      mo.observe(container, { childList: true, subtree: true });
+
+      return () => {
+        ro.disconnect();
+        mo.disconnect();
+      };
+    }, [threadId]);
+
+    // ── Scroll anchor: capture/restore for jank-free scroll preservation ──
+    // Before content changes (window expansion or pagination), we remember
+    // which item is at the viewport top and its pixel offset.  After the DOM
+    // updates we re-read that element's position and correct scrollTop by the
+    // drift, keeping the viewport visually stable.
+    const scrollAnchorRef = useRef<{
+      key: string;
+      offsetFromViewportTop: number;
+    } | null>(null);
+
+    const captureScrollAnchor = useCallback(() => {
+      const viewport = scrollRef.current;
+      const container = itemContainerRef.current;
+      if (!viewport || !container) return;
+
+      const vpRect = viewport.getBoundingClientRect();
+      const items = container.querySelectorAll<HTMLElement>('[data-item-key]');
+      for (const item of items) {
+        const rect = item.getBoundingClientRect();
+        if (rect.bottom > vpRect.top) {
+          scrollAnchorRef.current = {
+            key: item.dataset.itemKey!,
+            offsetFromViewportTop: rect.top - vpRect.top,
+          };
+          return;
+        }
+      }
+    }, [scrollRef]);
+
+    const restoreScrollAnchor = useCallback(() => {
+      const viewport = scrollRef.current;
+      const container = itemContainerRef.current;
+      const anchor = scrollAnchorRef.current;
+      if (!viewport || !container || !anchor) return;
+
+      const el = container.querySelector<HTMLElement>(
+        `[data-item-key="${CSS.escape(anchor.key)}"]`,
+      );
+      if (el) {
+        const vpRect = viewport.getBoundingClientRect();
+        const rect = el.getBoundingClientRect();
+        const currentOffset = rect.top - vpRect.top;
+        const drift = currentOffset - anchor.offsetFromViewportTop;
+        viewport.scrollTop += drift;
+      }
+      scrollAnchorRef.current = null;
+    }, [scrollRef]);
+
+    // Spacer height for items above the render window — prefers cached
+    // measured heights, falling back to estimates for items never rendered.
     const spacerHeight = useMemo(() => {
       let h = 0;
+      const cache = heightCacheRef.current;
       for (let i = 0; i < windowStart; i++) {
-        h += estimateItemHeight(groupedItems[i]);
+        const key = getItemKey(groupedItems[i]);
+        h += cache.get(key) ?? estimateItemHeight(groupedItems[i]);
         if (i < windowStart - 1) h += 16; // space-y-4 gap
       }
       return h;
@@ -620,8 +723,30 @@ const MemoizedMessageList = memo(
     const groupedLenRef = useRef(groupedItems.length);
     groupedLenRef.current = groupedItems.length;
 
+    // Expose helpers so ThreadView can interact with the windowed list
+    useImperativeHandle(
+      ref,
+      () => ({
+        expandToItem: (id: string) => {
+          const index = itemIndexMap.get(id);
+          if (index !== undefined) {
+            const needed = groupedItems.length - index + 5;
+            if (needed > renderCount) {
+              flushSync(() => setRenderCount(Math.min(groupedItems.length, needed)));
+            }
+          }
+        },
+        hasHiddenItems: () => windowStartRef.current > 0,
+        captureScrollAnchor,
+        restoreScrollAnchor,
+      }),
+      [itemIndexMap, renderCount, groupedItems.length, captureScrollAnchor, restoreScrollAnchor],
+    );
+
     // Scroll-based window expansion — fires on every scroll event so fast
     // mouse-wheel scrolling is always caught (IntersectionObserver can miss it).
+    // Captures a scroll anchor before expanding so restoreScrollAnchor can
+    // correct scroll drift after the DOM update.
     useEffect(() => {
       const scrollEl = scrollRef.current;
       if (!scrollEl) return;
@@ -629,17 +754,22 @@ const MemoizedMessageList = memo(
       const onScroll = () => {
         if (windowStartRef.current <= 0) return;
         if (scrollEl.scrollTop < spacerHeightRef.current + 600) {
+          captureScrollAnchor();
           setRenderCount((prev) => Math.min(groupedLenRef.current, prev + EXPAND_BATCH));
         }
       };
 
       scrollEl.addEventListener('scroll', onScroll, { passive: true });
       return () => scrollEl.removeEventListener('scroll', onScroll);
-    }, [scrollRef]);
+    }, [scrollRef, captureScrollAnchor]);
 
-    // After each expansion, check if the user has already scrolled past the
-    // newly rendered items (fast-scroll catch-up).  Runs once per frame via
-    // rAF and chains until the spacer is far enough from the viewport.
+    // After each expansion, restore the scroll anchor to prevent visible
+    // jumps, then check if the user has already scrolled past the newly
+    // rendered items (fast-scroll catch-up).
+    useLayoutEffect(() => {
+      restoreScrollAnchor();
+    }, [windowStart, restoreScrollAnchor]);
+
     useEffect(() => {
       if (windowStart <= 0) return;
       const scrollEl = scrollRef.current;
@@ -647,11 +777,12 @@ const MemoizedMessageList = memo(
 
       const rafId = requestAnimationFrame(() => {
         if (scrollEl.scrollTop < spacerHeightRef.current + 600) {
+          captureScrollAnchor();
           setRenderCount((prev) => Math.min(groupedLenRef.current, prev + EXPAND_BATCH));
         }
       });
       return () => cancelAnimationFrame(rafId);
-    }, [windowStart, scrollRef]);
+    }, [windowStart, scrollRef, captureScrollAnchor]);
 
     const renderToolItem = useCallback(
       (ti: ToolItem) => {
@@ -785,6 +916,7 @@ const MemoizedMessageList = memo(
           return (
             <div
               key={key}
+              data-item-key={key}
               style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 60px' }}
               className="group/msg relative w-full text-sm text-foreground"
             >
@@ -828,6 +960,7 @@ const MemoizedMessageList = memo(
           return (
             <div
               key={key}
+              data-item-key={key}
               style={
                 isInteractive
                   ? undefined
@@ -841,7 +974,11 @@ const MemoizedMessageList = memo(
 
         if (item.type === 'toolcall-run') {
           return (
-            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' }}>
+            <div
+              key={key}
+              data-item-key={key}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 40px' }}
+            >
               <div className="space-y-1">{item.items.map(renderToolItem)}</div>
             </div>
           );
@@ -849,7 +986,11 @@ const MemoizedMessageList = memo(
 
         if (item.type === 'workflow-event-group') {
           return (
-            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}>
+            <div
+              key={key}
+              data-item-key={key}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}
+            >
               <WorkflowEventGroup events={item.events} />
             </div>
           );
@@ -857,7 +998,11 @@ const MemoizedMessageList = memo(
 
         if (item.type === 'thread-event') {
           return (
-            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}>
+            <div
+              key={key}
+              data-item-key={key}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}
+            >
               <GitEventCard event={item.event} />
             </div>
           );
@@ -865,7 +1010,11 @@ const MemoizedMessageList = memo(
 
         if (item.type === 'compaction-event') {
           return (
-            <div key={key} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}>
+            <div
+              key={key}
+              data-item-key={key}
+              style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 32px' }}
+            >
               <CompactionEventCard event={item.event} />
             </div>
           );
@@ -880,7 +1029,11 @@ const MemoizedMessageList = memo(
       (item: Extract<RenderItem, { type: 'message' }>) => {
         const msg = item.msg;
         return (
-          <div className="sticky top-0 z-20 pb-3 pt-3" data-user-msg={msg.id}>
+          <div
+            className="sticky top-0 z-20 pb-3 pt-3"
+            data-user-msg={msg.id}
+            data-item-key={msg.id}
+          >
             <UserMessageCard
               data-testid={`user-message-${msg.id}`}
               content={msg.content}
@@ -905,7 +1058,7 @@ const MemoizedMessageList = memo(
     );
 
     return (
-      <>
+      <div ref={itemContainerRef}>
         {hasHiddenItems && <div style={{ height: spacerHeight }} aria-hidden="true" />}
         {sections.map((section, sIdx) => {
           const sectionKey = section.userItem ? getItemKey(section.userItem) : `preamble-${sIdx}`;
@@ -928,7 +1081,7 @@ const MemoizedMessageList = memo(
             </div>
           );
         })}
-      </>
+      </div>
     );
   }),
   messageListAreEqual,
@@ -997,6 +1150,110 @@ export function ThreadView() {
     images?: any[];
   } | null>(null);
   const setPromptRef = useRef<((text: string) => void) | null>(null);
+
+  // ── In-thread search (Ctrl+F) ───────────────────────────────────
+  const [searchOpen, setSearchOpen] = useState(false);
+  const highlightedMsgRef = useRef<string | null>(null);
+
+  // Intercept Ctrl+F to open in-thread search instead of browser find
+  useEffect(() => {
+    if (!activeThread) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [activeThread]);
+
+  /** Remove all injected <mark> highlights inside the scroll viewport */
+  const clearSearchHighlights = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    viewport.querySelectorAll('mark[data-search-hl]').forEach((mark) => {
+      const parent = mark.parentNode;
+      if (parent) {
+        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+        parent.normalize();
+      }
+    });
+  }, []);
+
+  /** Walk text nodes inside `root` and wrap matches of `query` with <mark> */
+  const highlightTextInElement = useCallback((root: Element, query: string) => {
+    if (!query) return;
+    const queryLower = query.toLowerCase();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const matches: { node: Text; index: number }[] = [];
+
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      const text = node.textContent || '';
+      let idx = text.toLowerCase().indexOf(queryLower);
+      while (idx !== -1) {
+        matches.push({ node, index: idx });
+        idx = text.toLowerCase().indexOf(queryLower, idx + queryLower.length);
+      }
+    }
+
+    // Apply in reverse so indices stay valid
+    for (let i = matches.length - 1; i >= 0; i--) {
+      const { node: textNode, index } = matches[i];
+      const after = textNode.splitText(index + queryLower.length);
+      const matchNode = textNode.splitText(index);
+      const mark = document.createElement('mark');
+      mark.setAttribute('data-search-hl', '');
+      mark.style.backgroundColor = '#FFE500';
+      mark.style.color = 'black';
+      mark.className = 'rounded-sm px-px font-semibold';
+      mark.textContent = matchNode.textContent;
+      matchNode.parentNode!.replaceChild(mark, matchNode);
+      // `after` stays in place automatically
+      void after;
+    }
+  }, []);
+
+  const handleSearchNavigate = useCallback(
+    (messageId: string, query: string) => {
+      // Clear previous highlights
+      clearSearchHighlights();
+
+      highlightedMsgRef.current = messageId;
+
+      // Expand render window if the message is hidden
+      messageListRef.current?.expandToItem(messageId);
+
+      // Scroll to the message and highlight matching text
+      const scrollToMsg = () => {
+        const el = scrollViewportRef.current?.querySelector(
+          `[data-item-key="${CSS.escape(messageId)}"]`,
+        );
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          highlightTextInElement(el, query);
+          // Scroll to first <mark> within the element for precision
+          const firstMark = el.querySelector('mark[data-search-hl]');
+          if (firstMark) {
+            firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      };
+
+      scrollToMsg();
+      // Retry after a frame in case expandToItem needed to flush
+      requestAnimationFrame(scrollToMsg);
+    },
+    [clearSearchHighlights, highlightTextInElement],
+  );
+
+  const handleSearchClose = useCallback(() => {
+    setSearchOpen(false);
+    clearSearchHighlights();
+    highlightedMsgRef.current = null;
+  }, [clearSearchHighlights]);
 
   // Track which message/tool-call IDs existed when the thread was loaded.
   // Messages in this set skip entrance animations to prevent CLS.
@@ -1202,8 +1459,12 @@ export function ThreadView() {
         scrollDownRef.current.style.display = shouldShow ? '' : 'none';
       }
 
-      // Load older messages when scrolled near the top
-      if (scrollTop < 200 && hasMore && !loadingMore) {
+      // Load older messages when scrolled near the top — but only once all
+      // in-memory items are rendered (render window fully expanded).  This
+      // prevents pagination and render expansion from fighting over scroll
+      // position simultaneously.
+      if (scrollTop < 200 && hasMore && !loadingMore && !messageListRef.current?.hasHiddenItems()) {
+        messageListRef.current?.captureScrollAnchor();
         loadOlderMessages();
       }
 
@@ -1350,19 +1611,29 @@ export function ThreadView() {
     scrollFingerprint,
   ]);
 
-  // Preserve scroll position when older messages are prepended
+  // Preserve scroll position when older messages are prepended.
+  // Uses anchor-based restoration from MemoizedMessageList if available,
+  // with a height-delta fallback for safety.
   const firstMessageId = selectFirstMessage(activeThread)?.id ?? null;
   useLayoutEffect(() => {
     const oldestId = firstMessageId;
     const viewport = scrollViewportRef.current;
 
     if (viewport && prevOldestIdRef.current && oldestId && prevOldestIdRef.current !== oldestId) {
-      const addedHeight = viewport.scrollHeight - prevScrollHeightRef.current;
       // Ensure the user stays marked as scrolled-up during pagination —
       // the scrollTop adjustment below fires a scroll event which could
       // otherwise re-evaluate the at-bottom threshold incorrectly.
       userHasScrolledUp.current = true;
-      viewport.scrollTop += addedHeight;
+
+      // Try anchor-based restoration first (set by the scroll handler
+      // before loadOlderMessages was called).
+      messageListRef.current?.restoreScrollAnchor();
+
+      // Fallback: if no anchor was set, use height delta
+      const addedHeight = viewport.scrollHeight - prevScrollHeightRef.current;
+      if (addedHeight > 0 && !messageListRef.current) {
+        viewport.scrollTop += addedHeight;
+      }
     }
 
     prevOldestIdRef.current = oldestId;
@@ -1878,6 +2149,14 @@ export function ThreadView() {
       <div className="thread-container flex min-h-0 flex-1">
         {/* Messages column + input */}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {activeThread?.id && (
+            <ThreadSearchBar
+              threadId={activeThread.id}
+              open={searchOpen}
+              onClose={handleSearchClose}
+              onNavigateToMessage={handleSearchNavigate}
+            />
+          )}
           <div
             className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
             ref={scrollViewportRef}

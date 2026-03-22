@@ -13,6 +13,7 @@ import { ExitPlanModeCard } from './tool-cards/ExitPlanModeCard';
 import { PlanCard } from './tool-cards/PlanCard';
 import { ReadFileCard } from './tool-cards/ReadFileCard';
 import { TaskCard } from './tool-cards/TaskCard';
+import { ThinkCard } from './tool-cards/ThinkCard';
 import { TodoList } from './tool-cards/TodoList';
 import {
   formatInput,
@@ -124,6 +125,8 @@ export const ToolCallCard = memo(
           childToolCalls={childToolCalls}
         />
       );
+    if (name === 'Think')
+      return <ThinkCard parsed={parsed} output={output} hideLabel={hideLabel} />;
 
     return (
       <div className="max-w-full overflow-hidden rounded-lg border border-border text-sm">

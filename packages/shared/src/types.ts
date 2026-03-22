@@ -235,7 +235,11 @@ export type DeepAgentModel =
   | 'minimax-m2.7'
   | 'minimax-m2.7-highspeed'
   | 'deepagent-gpt-4o'
-  | 'deepagent-sonnet';
+  | 'deepagent-sonnet'
+  | 'deepagent-gemini-2.5-flash'
+  | 'deepagent-gemini-2.5-pro'
+  | 'deepagent-gemini-3-flash'
+  | 'deepagent-gemini-3-pro';
 export type AgentModel = ClaudeModel | CodexModel | GeminiModel | DeepAgentModel;
 export type PermissionMode = 'plan' | 'autoEdit' | 'confirmEdit' | 'ask';
 
@@ -287,6 +291,8 @@ export interface Thread {
   containerUrl?: string;
   containerName?: string;
   commentCount?: number;
+  /** Why context recovery is needed (e.g. model/provider changed mid-thread) */
+  contextRecoveryReason?: string | null;
   createdAt: string;
   completedAt?: string;
   /** Creator/agent that generated this thread (user ID, 'external', 'pipeline', 'automation', etc.) */

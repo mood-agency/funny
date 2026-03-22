@@ -96,6 +96,7 @@ export const threads = sqliteTable('threads', {
   initCwd: text('init_cwd'),
   runnerId: text('runner_id'), // which runner handles this thread (multi/team mode)
   mergedAt: text('merged_at'), // set when worktree is merged+cleaned — explicit post-merge signal
+  contextRecoveryReason: text('context_recovery_reason'), // why context recovery is needed (model_changed, provider_changed)
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
 });

@@ -15,24 +15,40 @@ import * as tm from './thread-manager.js';
  * Returns a string that can be prepended to the user's new message
  * to provide full context when the session cannot be resumed.
  */
+/** Maximum number of recent messages to include in context recovery. */
+const MAX_CONTEXT_MESSAGES = 40;
+
+/** Maximum total character length for the recovered context string. */
+const MAX_CONTEXT_LENGTH = 200_000;
+
 export async function buildThreadContext(threadId: string): Promise<string | null> {
   const threadData = await tm.getThreadWithMessages(threadId);
   if (!threadData || !threadData.messages.length) {
     return null;
   }
 
+  // Only keep the most recent messages to avoid OOM in the agent subprocess
+  const allMessages = threadData.messages;
+  const truncated = allMessages.length > MAX_CONTEXT_MESSAGES;
+  const messages = truncated ? allMessages.slice(-MAX_CONTEXT_MESSAGES) : allMessages;
+
   const parts: string[] = [];
 
   // Add system note explaining this is a recovered context
   parts.push(
-    '[SYSTEM NOTE: Your previous session cannot be resumed (the working directory was removed after a merge). Below is the complete conversation history to restore context. Continue naturally from where the conversation left off.]',
+    '[SYSTEM NOTE: Your previous session cannot be resumed. Below is the conversation history to restore context. Continue naturally from where the conversation left off.]',
   );
+  if (truncated) {
+    parts.push(
+      `[NOTE: Showing last ${MAX_CONTEXT_MESSAGES} of ${allMessages.length} messages. Earlier messages were omitted to save memory.]`,
+    );
+  }
   parts.push('');
   parts.push('=== CONVERSATION HISTORY ===');
   parts.push('');
 
   // Format each message in the conversation
-  for (const msg of threadData.messages) {
+  for (const msg of messages) {
     if (msg.role === 'user') {
       parts.push('USER:');
       parts.push(msg.content);
@@ -79,18 +95,29 @@ export async function buildThreadContext(threadId: string): Promise<string | nul
   parts.push('=== END CONVERSATION HISTORY ===');
   parts.push('');
 
-  return parts.join('\n');
+  let result = parts.join('\n');
+
+  // Hard cap on total context length to prevent OOM in agent subprocesses
+  if (result.length > MAX_CONTEXT_LENGTH) {
+    result = result.slice(-MAX_CONTEXT_LENGTH);
+    result = '[...context truncated for length...]\n' + result;
+  }
+
+  return result;
 }
 
 /**
  * Check if a thread needs context recovery.
- * Uses the explicit `mergedAt` flag set during merge+cleanup.
+ * Triggered by:
+ * - Post-merge: worktree was merged+cleaned (mergedAt is set, sessionId exists)
+ * - Model/provider change: sessionId was cleared, contextRecoveryReason was set
  */
 export async function needsContextRecovery(threadId: string): Promise<boolean> {
   const thread = await tm.getThread(threadId);
-  if (!thread || !thread.sessionId) {
-    return false;
-  }
-
-  return !!thread.mergedAt;
+  if (!thread) return false;
+  // Post-merge: sessionId still exists + mergedAt flag
+  if (thread.sessionId && thread.mergedAt) return true;
+  // Model/provider changed: sessionId was cleared, recovery flag was set
+  if (thread.contextRecoveryReason) return true;
+  return false;
 }

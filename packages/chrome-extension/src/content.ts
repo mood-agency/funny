@@ -1341,6 +1341,19 @@ function createDrawToolbar(): HTMLDivElement {
   const bar = createElement('div', 'draw-toolbar');
   bar.style.display = 'none';
 
+  // Drag handle (grip dots)
+  const dragHandle = createElement('div', 'draw-toolbar-drag');
+  dragHandle.innerHTML = `<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor">
+    <circle cx="2" cy="2" r="1.2"/><circle cx="6" cy="2" r="1.2"/>
+    <circle cx="2" cy="7" r="1.2"/><circle cx="6" cy="7" r="1.2"/>
+    <circle cx="2" cy="12" r="1.2"/><circle cx="6" cy="12" r="1.2"/>
+  </svg>`;
+  dragHandle.title = 'Drag to move';
+  bar.appendChild(dragHandle);
+
+  // Separator before colors
+  bar.appendChild(createElement('div', 'draw-toolbar-sep'));
+
   // Color swatches
   const colors = createElement('div', 'draw-colors');
   DRAW_COLORS.forEach((color) => {
@@ -1411,6 +1424,53 @@ function createDrawToolbar(): HTMLDivElement {
   });
   bar.appendChild(sendBtn);
 
+  // Separator before close
+  bar.appendChild(createElement('div', 'draw-toolbar-sep'));
+
+  // Close button (same style as main toolbar close)
+  const closeBtn = createElement('button', 'toolbar-btn draw-toolbar-close');
+  closeBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <line x1="18" y1="6" x2="6" y2="18"></line>
+    <line x1="6" y1="6" x2="18" y2="18"></line>
+  </svg>`;
+  closeBtn.title = 'Close draw mode';
+  closeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleDrawMode();
+  });
+  bar.appendChild(closeBtn);
+
+  // --- Drag logic ---
+  let isDragging = false;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  const onDragMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    const x = e.clientX - dragOffsetX;
+    const y = e.clientY - dragOffsetY;
+    bar.style.left = `${x}px`;
+    bar.style.top = `${y}px`;
+    bar.style.transform = 'none';
+  };
+
+  const onDragEnd = () => {
+    isDragging = false;
+    window.removeEventListener('mousemove', onDragMove);
+    window.removeEventListener('mouseup', onDragEnd);
+  };
+
+  dragHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    isDragging = true;
+    const rect = bar.getBoundingClientRect();
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    window.addEventListener('mousemove', onDragMove);
+    window.addEventListener('mouseup', onDragEnd);
+  });
+
   return bar;
 }
 
@@ -1444,7 +1504,10 @@ function toggleDrawMode() {
     drawingCtx.lineCap = 'round';
     drawingCtx.lineJoin = 'round';
 
-    // Show draw toolbar
+    // Show draw toolbar (reset position to center)
+    drawToolbar.style.left = '50%';
+    drawToolbar.style.top = '16px';
+    drawToolbar.style.transform = 'translateX(-50%)';
     drawToolbar.style.display = 'flex';
 
     // Attach drawing listeners on canvas

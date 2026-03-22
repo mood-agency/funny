@@ -9,7 +9,7 @@
  * DB-agnostic message repository. Accepts db + schema via dependency injection.
  */
 
-import { eq, and, lt, asc, desc, inArray } from 'drizzle-orm';
+import { eq, and, lt, asc, desc, inArray, like } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
 import type {
@@ -193,10 +193,60 @@ export function createMessageRepository(deps: MessageRepositoryDeps) {
     await dbRun(db.update(schema.messages).set(updates).where(eq(schema.messages.id, id)));
   }
 
+  /** Search messages within a thread by content substring.
+   *  Returns matching message IDs, roles, timestamps and a snippet. */
+  async function searchMessages(opts: {
+    threadId: string;
+    query: string;
+    limit?: number;
+  }): Promise<
+    { messageId: string; role: string; content: string; timestamp: string; snippet: string }[]
+  > {
+    const { threadId, query, limit = 100 } = opts;
+    const safeQuery = query.replace(/%/g, '\\%').replace(/_/g, '\\_');
+
+    const rows = await dbAll(
+      db
+        .select({
+          id: schema.messages.id,
+          role: schema.messages.role,
+          content: schema.messages.content,
+          timestamp: schema.messages.timestamp,
+        })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.threadId, threadId),
+            like(schema.messages.content, `%${safeQuery}%`),
+          ),
+        )
+        .orderBy(asc(schema.messages.timestamp))
+        .limit(limit),
+    );
+
+    const queryLower = query.toLowerCase();
+    return rows.map((row) => {
+      const idx = row.content.toLowerCase().indexOf(queryLower);
+      const start = Math.max(0, idx - 40);
+      const end = Math.min(row.content.length, idx + queryLower.length + 60);
+      let snippet = row.content.slice(start, end).replace(/\n/g, ' ');
+      if (start > 0) snippet = '…' + snippet;
+      if (end < row.content.length) snippet = snippet + '…';
+      return {
+        messageId: row.id,
+        role: row.role,
+        content: row.content,
+        timestamp: row.timestamp,
+        snippet,
+      };
+    });
+  }
+
   return {
     enrichMessages,
     getThreadWithMessages,
     getThreadMessages,
+    searchMessages,
     insertMessage,
     updateMessage,
   };

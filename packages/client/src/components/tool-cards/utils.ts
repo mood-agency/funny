@@ -150,6 +150,16 @@ export function getSummary(
       if (!questions) return null;
       return `${questions.length} ${questions.length > 1 ? t('tools.questionsPlural') : t('tools.questions')}`;
     }
+    case 'Think': {
+      const thought = (parsed.content as string) ?? (parsed.description as string) ?? '';
+      const firstLine = thought
+        .split('\n')
+        .find((l) => l.trim())
+        ?.trim();
+      return firstLine ? (firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine) : null;
+    }
+    case 'ProviderError':
+      return (parsed.error as string) ?? null;
     default:
       // For Gemini ACP tool calls, the description field contains the
       // human-readable title from the ACP protocol (e.g. file path or search query)
@@ -171,6 +181,8 @@ export function getToolLabel(name: string, t: (key: string) => string): string {
     TodoWrite: t('tools.todos'),
     NotebookEdit: t('tools.editNotebook'),
     AskUserQuestion: t('tools.question'),
+    Think: t('tools.thinking'),
+    ProviderError: t('tools.providerError'),
     Tool: t('tools.tool'),
   };
   return labels[name] ?? name;

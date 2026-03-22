@@ -175,6 +175,21 @@ threadRoutes.get('/:id/messages', async (c) => {
   return c.json(result);
 });
 
+// GET /api/threads/:id/messages/search?q=xxx&limit=100
+threadRoutes.get('/:id/messages/search', async (c) => {
+  const id = c.req.param('id');
+  const q = c.req.query('q') || '';
+  const limitParam = c.req.query('limit');
+  const limit = Math.min(200, Math.max(1, parseInt(limitParam || '100', 10)));
+
+  if (!q.trim()) {
+    return c.json({ results: [] });
+  }
+
+  const results = await messageRepo.searchMessages({ threadId: id, query: q.trim(), limit });
+  return c.json({ results });
+});
+
 // GET /api/threads/:id/comments
 threadRoutes.get('/:id/comments', async (c) => {
   const comments = await commentRepo.listComments(c.req.param('id'));

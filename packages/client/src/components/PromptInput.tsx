@@ -60,6 +60,8 @@ interface PromptInputProps {
   setPromptRef?: React.RefObject<((text: string) => void) | null>;
   /** Callback to trigger phase transition from an existing thread to a new purpose */
   onPhaseTransition?: (newPurpose: ThreadPurpose) => void;
+  /** Called when the editor content changes — reports whether it has content and the current text */
+  onContentChange?: (hasContent: boolean, text: string) => void;
 }
 
 // ── Connected wrapper ───────────────────────────────────────────
@@ -80,6 +82,7 @@ export const PromptInput = memo(function PromptInput({
   initialImages: initialImagesProp,
   setPromptRef,
   onPhaseTransition,
+  onContentChange,
 }: PromptInputProps) {
   const { t } = useTranslation();
 
@@ -664,6 +667,15 @@ export const PromptInput = memo(function PromptInput({
     switchBranchResolverRef.current = null;
   }, []);
 
+  // ── Editor change handler (for content tracking) ──
+  const handleEditorChange = useCallback(() => {
+    if (onContentChange) {
+      const hasContent = !(editorRef.current?.isEmpty() ?? true);
+      const text = editorRef.current?.getText() ?? '';
+      onContentChange(hasContent, text);
+    }
+  }, [onContentChange]);
+
   // ── Editor paste handler (for draft tracking) ──
   const handleEditorPaste = useCallback(async (e: ClipboardEvent) => {
     const items = e.clipboardData?.items;
@@ -743,6 +755,7 @@ export const PromptInput = memo(function PromptInput({
         editorContainerRef={editorContainerRef}
         initialPrompt={initialPromptProp}
         initialImages={initialImagesProp}
+        onEditorChange={handleEditorChange}
         onEditorPaste={handleEditorPaste}
         onCheckoutPreflight={handleCheckoutPreflight}
         purpose={purpose}

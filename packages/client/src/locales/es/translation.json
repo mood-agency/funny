@@ -67,7 +67,11 @@
       "minimaxM27": "MiniMax M2.7",
       "minimaxM27Highspeed": "MiniMax M2.7 Highspeed",
       "deepagentGpt4o": "GPT-4o",
-      "deepagentSonnet": "Sonnet 4.5"
+      "deepagentSonnet": "Sonnet 4.5",
+      "deepagentGemini25flash": "Gemini 2.5 Flash",
+      "deepagentGemini25pro": "Gemini 2.5 Pro",
+      "deepagentGemini3flash": "Gemini 3 Flash",
+      "deepagentGemini3pro": "Gemini 3 Pro"
     },
     "createdBy": "Creado por {{creator}}",
     "readyToLaunch": "Listo para lanzar",
@@ -115,6 +119,12 @@
     "followUpQueue": "Encolar",
     "followUpCancel": "Cancelar",
     "queuedMessages": "{{count}} mensaje(s) en cola",
+    "searchPlaceholder": "Buscar en el hilo...",
+    "searchResults": "{{current}} de {{total}}",
+    "searchNoResults": "Sin resultados",
+    "searchClose": "Cerrar búsqueda",
+    "searchPrev": "Resultado anterior",
+    "searchNext": "Siguiente resultado",
     "source": {
       "web": "Creado desde la interfaz web",
       "chrome_extension": "Creado desde la extensión de Chrome",
@@ -393,6 +403,8 @@
     "todos": "Tareas",
     "editNotebook": "Editar Notebook",
     "question": "Pregunta",
+    "thinking": "Pensando",
+    "providerError": "Error del Proveedor",
     "tool": "Herramienta",
     "done": "listo",
     "questions": "pregunta",
@@ -704,6 +716,13 @@
     "linesAdded": "{{count}} líneas agregadas desde el último commit",
     "linesDeleted": "{{count}} líneas eliminadas desde el último commit",
     "dirtyFiles": "{{count}} archivos con cambios sin commitear"
+  },
+  "saveBacklog": {
+    "title": "Prompt sin guardar",
+    "description": "Tienes un prompt sin guardar. ¿Qué te gustaría hacer?",
+    "save": "Guardar en backlog",
+    "discard": "Descartar",
+    "cancel": "Cancelar"
   },
   "kanban": {
     "backlog": "Pendientes",

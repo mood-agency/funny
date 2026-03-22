@@ -66,6 +66,9 @@ const TestRunnerPane = lazy(() =>
 const TasksPane = lazy(() =>
   import('@/components/sidebar/TasksPanel').then((m) => ({ default: m.TasksPanel })),
 );
+const ActivityPane = lazy(() =>
+  import('@/components/ActivityPane').then((m) => ({ default: m.ActivityPane })),
+);
 const TerminalPanel = lazy(() =>
   import('@/components/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
 );
@@ -280,6 +283,8 @@ export function App() {
                   <ReviewPane />
                 ) : rightPaneTab === 'tasks' ? (
                   <TasksPane />
+                ) : rightPaneTab === 'activity' ? (
+                  <ActivityPane />
                 ) : (
                   <TestRunnerPane />
                 )}

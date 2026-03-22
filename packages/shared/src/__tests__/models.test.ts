@@ -73,6 +73,66 @@ describe('resolveModelId', () => {
     });
   });
 
+  describe('deepagent provider', () => {
+    test('resolves deepagent-gemini-3-flash with google-genai provider prefix', () => {
+      expect(resolveModelId('deepagent', 'deepagent-gemini-3-flash')).toBe(
+        'google-genai:gemini-3-flash-preview',
+      );
+    });
+
+    test('resolves deepagent-gemini-2.5-flash with google-genai provider prefix', () => {
+      expect(resolveModelId('deepagent', 'deepagent-gemini-2.5-flash')).toBe(
+        'google-genai:gemini-2.5-flash',
+      );
+    });
+
+    test('resolves deepagent-sonnet to bare model name', () => {
+      expect(resolveModelId('deepagent', 'deepagent-sonnet')).toBe('claude-sonnet-4-5-20250929');
+    });
+
+    test('resolves deepagent-gpt-4o to bare model name', () => {
+      expect(resolveModelId('deepagent', 'deepagent-gpt-4o')).toBe('gpt-4o');
+    });
+
+    test('resolves minimax models with openai provider prefix', () => {
+      expect(resolveModelId('deepagent', 'minimax-m2.7')).toBe('openai:MiniMax-M2.7');
+    });
+
+    test('throws on unknown deepagent model', () => {
+      expect(() => resolveModelId('deepagent', 'sonnet' as any)).toThrow(
+        'Unknown Deep Agent model',
+      );
+    });
+
+    // Regression test: LangChain's initChatModel cannot infer providers from
+    // prefixes like "google:" or "anthropic:" — only bare model names
+    // (gemini-*, claude-*, gpt-*) or LangChain-specific prefixes like
+    // "google-genai:" and "openai:" are supported. Model IDs for standard
+    // providers must NOT include an unsupported provider prefix.
+    test('non-minimax model IDs do not contain unsupported provider prefixes', () => {
+      const unsupportedPrefixes = ['google:', 'anthropic:'];
+      const models = getProviderModels('deepagent');
+      for (const model of models) {
+        if (model.startsWith('minimax')) continue; // minimax routes via openai: prefix
+        const resolvedId = resolveModelId('deepagent', model);
+        for (const prefix of unsupportedPrefixes) {
+          expect(resolvedId.startsWith(prefix)).toBe(false);
+        }
+      }
+    });
+
+    // google-genai: is a supported LangChain prefix — Gemini models must use it
+    // to avoid LangChain inferring google-vertexai (which requires GCP credentials)
+    test('gemini model IDs use google-genai: prefix for AI Studio API key support', () => {
+      const geminiModels = getProviderModels('deepagent').filter((m) => m.includes('gemini'));
+      expect(geminiModels.length).toBeGreaterThan(0);
+      for (const model of geminiModels) {
+        const resolvedId = resolveModelId('deepagent', model);
+        expect(resolvedId.startsWith('google-genai:')).toBe(true);
+      }
+    });
+  });
+
   describe('llm-api provider', () => {
     test('passes model ID through directly', () => {
       expect(resolveModelId('llm-api', 'any-model-id' as any)).toBe('any-model-id');
@@ -403,7 +463,7 @@ describe('getAskModeTools', () => {
 
 describe('cross-cutting consistency', () => {
   test('default model for each provider is in its model list', () => {
-    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+    for (const provider of ['claude', 'codex', 'gemini', 'deepagent'] as const) {
       const defaultModel = getDefaultModel(provider);
       const models = getProviderModels(provider);
       expect(models).toContain(defaultModel);
@@ -411,7 +471,7 @@ describe('cross-cutting consistency', () => {
   });
 
   test('every model in provider list can be resolved to an ID', () => {
-    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+    for (const provider of ['claude', 'codex', 'gemini', 'deepagent'] as const) {
       const models = getProviderModels(provider);
       for (const model of models) {
         expect(() => resolveModelId(provider, model)).not.toThrow();
@@ -421,7 +481,7 @@ describe('cross-cutting consistency', () => {
   });
 
   test('every model in provider list passes isModelForProvider', () => {
-    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+    for (const provider of ['claude', 'codex', 'gemini', 'deepagent'] as const) {
       const models = getProviderModels(provider);
       for (const model of models) {
         expect(isModelForProvider(provider, model)).toBe(true);
@@ -442,7 +502,7 @@ describe('cross-cutting consistency', () => {
   });
 
   test('every provider with labels has matching model count', () => {
-    for (const provider of ['claude', 'codex', 'gemini'] as const) {
+    for (const provider of ['claude', 'codex', 'gemini', 'deepagent'] as const) {
       const models = getProviderModels(provider);
       const labels = getProviderModelsWithLabels(provider);
       expect(labels).toHaveLength(models.length);

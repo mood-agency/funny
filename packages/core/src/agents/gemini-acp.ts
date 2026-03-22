@@ -15,6 +15,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import { Readable, Writable } from 'stream';
 
+import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 import type { CLIMessage } from './types.js';
 
@@ -91,7 +92,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
     const child = spawn(geminiBin, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: this.options.cwd,
-      env: { ...process.env },
+      env: { ...process.env, ...this.options.env },
       signal: this.abortController.signal,
       shell: process.platform === 'win32',
     });
@@ -116,9 +117,17 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
     });
 
-    // Pipe stderr to console for debugging
+    // Surface stderr errors as tool call cards so they appear in the thread
+    // with full history. ACP subprocesses write JSON-RPC errors and API errors
+    // to stderr — these are critical for the user (rate limits, auth failures, etc.).
     child.stderr?.on('data', (data: Buffer) => {
-      console.error('[gemini-acp:stderr]', data.toString());
+      const raw = data.toString().trim();
+      if (!raw) return;
+
+      const errorText = this.parseStderrError(raw);
+      if (errorText) {
+        this.emitErrorToolCall(errorText);
+      }
     });
 
     try {
@@ -153,8 +162,9 @@ export class GeminiACPProcess extends BaseAgentProcess {
     // Accumulate text chunks so we emit the full content, not just deltas
     let accumulatedText = '';
 
-    // Track tool calls for deduplication
-    const toolCallsSeen = new Map<string, boolean>();
+    // Track tool calls for deduplication and pending state.
+    // Value: tool name while pending, 'done' after result emitted.
+    const toolCallsSeen = new Map<string, string>();
 
     // Create ACP client implementation
     const acpClient: ACPClient = {
@@ -257,16 +267,17 @@ export class GeminiACPProcess extends BaseAgentProcess {
         totalCost,
         result: lastAssistantText || undefined,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!this.isAborted) {
+        const errorMessage = this.extractErrorMessage(err);
         this.emitResult({
           sessionId,
           subtype: 'error_during_execution',
           startTime,
           numTurns,
           totalCost,
-          result: err.message,
-          errors: [err.message],
+          result: errorMessage,
+          errors: [errorMessage],
         });
       }
     } finally {
@@ -281,55 +292,13 @@ export class GeminiACPProcess extends BaseAgentProcess {
   // ── Update translation ──────────────────────────────────────
 
   /**
-   * Map ACP ToolKind to a normalized tool name that matches the labels
-   * the client already knows how to render (Read, Glob, Grep, etc.).
-   *
-   * ACP only exposes `title` (human-readable description) and `kind`
-   * (category enum), so we use `kind` as the primary signal and fall
-   * back to heuristics on the `title` string.
-   */
-  private static inferToolName(kind: string | undefined, title: string): string {
-    // 1. Map well-known ACP kinds to our normalized tool names
-    switch (kind) {
-      case 'read':
-        return 'Read';
-      case 'edit':
-        return 'Edit';
-      case 'delete':
-        return 'Edit';
-      case 'search':
-        // Distinguish Glob vs Grep by looking at the title
-        if (title.includes(' in ') || /\bin\b.*within/.test(title)) return 'Grep';
-        if (title.includes('*') || title.includes('?')) return 'Glob';
-        return 'Grep';
-      case 'execute':
-        return 'Bash';
-      case 'fetch':
-        return 'WebFetch';
-      case 'think':
-        return 'Task';
-      case 'move':
-        return 'Bash';
-      case 'switch_mode':
-        return 'Task';
-    }
-
-    // 2. Heuristic fallback: try to detect from title patterns
-    if (/\bin\b.*\bwithin\b/.test(title) || /\bin\b.*\.\w+$/.test(title)) return 'Grep';
-    if (title.includes('*') || title.includes('?')) return 'Glob';
-    if (/^packages\/|^src\/|^\.\/|^\//.test(title) && !title.includes(' ')) return 'Read';
-
-    return 'Tool';
-  }
-
-  /**
    * Translate an ACP SessionUpdate into CLIMessage(s).
    * Returns the updated accumulated text and assistant message ID.
    */
   private translateUpdate(
     update: ACPSessionUpdate,
     assistantMsgId: string,
-    toolCallsSeen: Map<string, boolean>,
+    toolCallsSeen: Map<string, string>,
     accumulatedText: string,
   ): { text: string; msgId: string } {
     const ret = (text: string, msgId?: string) => ({ text, msgId: msgId ?? assistantMsgId });
@@ -357,31 +326,27 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       case 'tool_call': {
-        // New tool call from the agent
         const toolCallId = update.toolCallId;
         if (toolCallsSeen.has(toolCallId)) return ret(accumulatedText);
-        toolCallsSeen.set(toolCallId, true);
 
-        // ACP has no `name` field — only `title` (human-readable) and `kind` (category).
-        // Infer a normalized tool name from kind + title, and store the
-        // original title in the input so it shows as the summary.
         const acpKind = (update as any).kind as string | undefined;
         const title = update.title || '';
+        const locations = (update as any).locations as
+          | Array<{ path: string; line?: number | null }>
+          | undefined;
         console.debug(
           `[gemini-acp] tool_call: id=${toolCallId}, kind=${acpKind}, title=${title}, hasRawInput=${update.rawInput != null}`,
         );
-        const toolName = GeminiACPProcess.inferToolName(acpKind, title);
+        const toolName = inferACPToolName(acpKind, title);
 
-        // Build input: preserve rawInput if available, and always include
-        // the title as a description so the UI can show a meaningful summary.
-        let input: Record<string, unknown> = {};
-        if (update.rawInput != null && typeof update.rawInput === 'object') {
-          input = { ...(update.rawInput as Record<string, unknown>) };
-        }
-        // Add the ACP title as a summary hint for the client
-        if (title) {
-          input.description = title;
-        }
+        toolCallsSeen.set(toolCallId, toolName);
+
+        const input = buildACPToolInput(toolName, {
+          kind: acpKind,
+          title,
+          rawInput: update.rawInput,
+          locations,
+        });
 
         const msg: CLIMessage = {
           type: 'assistant',
@@ -404,29 +369,8 @@ export class GeminiACPProcess extends BaseAgentProcess {
         // result immediately without waiting for a separate tool_call_update.
         const tcStatus = (update as any).status as string | undefined;
         if (tcStatus === 'completed' || tcStatus === 'failed') {
-          const rawOut = update.rawOutput;
-          let tcOutput = '';
-          if (rawOut != null) {
-            tcOutput = typeof rawOut === 'string' ? rawOut : JSON.stringify(rawOut);
-          } else if ((update as any).content?.length) {
-            tcOutput = ((update as any).content as any[])
-              .map((c: any) => {
-                if (c.type === 'content' && c.content) {
-                  const items = Array.isArray(c.content) ? c.content : [c.content];
-                  return items
-                    .filter((b: any) => b.type === 'text')
-                    .map((b: any) => b.text)
-                    .join('\n');
-                }
-                if (c.type === 'diff') return c.diff ?? '';
-                if (c.type === 'terminal') return c.output ?? '';
-                return '';
-              })
-              .filter(Boolean)
-              .join('\n');
-          }
-          if (!tcOutput) tcOutput = title || 'Done';
-
+          toolCallsSeen.set(toolCallId, 'done');
+          const tcOutput = extractACPToolOutput(update.rawOutput, (update as any).content, title);
           this.emit('message', {
             type: 'user',
             message: {
@@ -441,54 +385,22 @@ export class GeminiACPProcess extends BaseAgentProcess {
           } as CLIMessage);
         }
 
-        // Reset accumulated text and rotate the message ID — tool calls
-        // break the text flow, so the next text chunk starts a new DB message.
         return ret('', randomUUID());
       }
 
       case 'tool_call_update': {
-        // Tool call result/update
         const toolCallId = update.toolCallId;
         console.debug(
           `[gemini-acp] tool_call_update: id=${toolCallId}, status=${update.status}, hasRawOutput=${update.rawOutput != null}, hasContent=${!!(update as any).content?.length}, title=${update.title ?? ''}`,
         );
 
         if (update.status === 'completed' || update.status === 'failed') {
-          // Extract output from multiple possible ACP sources:
-          // 1. rawOutput — structured output from the tool (preferred)
-          // 2. content[] — rich content blocks (text, diff, terminal)
-          // 3. title — fallback human-readable summary
-          let output = '';
-          if (update.rawOutput != null) {
-            output =
-              typeof update.rawOutput === 'string'
-                ? update.rawOutput
-                : JSON.stringify(update.rawOutput);
-          } else if ((update as any).content?.length) {
-            // Extract text from ToolCallContent blocks
-            output = ((update as any).content as any[])
-              .map((c: any) => {
-                if (c.type === 'content' && c.content) {
-                  // Content block wraps ContentBlock items
-                  const items = Array.isArray(c.content) ? c.content : [c.content];
-                  return items
-                    .filter((b: any) => b.type === 'text')
-                    .map((b: any) => b.text)
-                    .join('\n');
-                }
-                if (c.type === 'diff') return c.diff ?? '';
-                if (c.type === 'terminal') return c.output ?? '';
-                return '';
-              })
-              .filter(Boolean)
-              .join('\n');
-          }
-          // Ensure output is never empty — the handler checks `block.content`
-          // truthiness before persisting, so an empty string would be dropped.
-          if (!output) {
-            output = update.title || 'Done';
-          }
-
+          toolCallsSeen.set(toolCallId, 'done');
+          const output = extractACPToolOutput(
+            update.rawOutput,
+            (update as any).content,
+            update.title || '',
+          );
           const msg: CLIMessage = {
             type: 'user',
             message: {
@@ -517,6 +429,25 @@ export class GeminiACPProcess extends BaseAgentProcess {
               return `${status} ${i + 1}. ${e.title ?? e.description ?? 'Task'}`;
             })
             .join('\n');
+
+          // Close any pending Task (think/switch_mode) tool calls with the plan text
+          for (const [tcId, tcState] of toolCallsSeen) {
+            if (tcState === 'Task') {
+              toolCallsSeen.set(tcId, 'done');
+              this.emit('message', {
+                type: 'user',
+                message: {
+                  content: [
+                    {
+                      type: 'tool_result',
+                      tool_use_id: tcId,
+                      content: planText,
+                    },
+                  ],
+                },
+              } as CLIMessage);
+            }
+          }
 
           // Plan text is a standalone block — don't mix with accumulated text
           const msg: CLIMessage = {

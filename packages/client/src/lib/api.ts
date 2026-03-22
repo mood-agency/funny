@@ -269,6 +269,18 @@ export const api = {
     const params = new URLSearchParams({ cursor, limit: String(limit) });
     return request<PaginatedMessages>(`/threads/${threadId}/messages?${params.toString()}`);
   },
+  searchThreadMessages: (threadId: string, query: string, limit = 100) => {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    return request<{
+      results: Array<{
+        messageId: string;
+        role: string;
+        content: string;
+        timestamp: string;
+        snippet: string;
+      }>;
+    }>(`/threads/${threadId}/messages/search?${params.toString()}`);
+  },
   getThreadEvents: (threadId: string) => {
     return request<{ events: Array<import('@funny/shared').ThreadEvent> }>(
       `/threads/${threadId}/events`,

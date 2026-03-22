@@ -16,8 +16,16 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
+import { existsSync, mkdirSync, readdirSync, symlinkSync } from 'fs';
+import { createRequire } from 'module';
+import { dirname, join as pathJoin, resolve as pathResolve } from 'path';
 import { Readable, Writable } from 'stream';
+import { fileURLToPath } from 'url';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+
+import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 import type { CLIMessage } from './types.js';
 
@@ -46,6 +54,10 @@ const DEEPAGENT_BUILTIN_TOOLS = [
 
 export class DeepAgentProcess extends BaseAgentProcess {
   private childProcess: ChildProcess | null = null;
+
+  // Accumulate thought chunks — emitted as a Think tool call
+  private accumulatedThought = '';
+  private thinkToolCallId: string | null = null;
 
   // ── Overrides ──────────────────────────────────────────────────
 
@@ -81,11 +93,45 @@ export class DeepAgentProcess extends BaseAgentProcess {
       args.push('--model', this.options.model);
     }
 
+    // Build env — alias provider API keys so that LangChain integrations
+    // (used internally by deepagents-acp) can find them.
+    const spawnEnv = { ...process.env, ...this.options.env };
+
+    // Increase Node.js heap limit for the subprocess to prevent OOM crashes
+    // during long-running sessions. Default Node limit (~2GB) is too low.
+    const existingNodeOpts = spawnEnv.NODE_OPTIONS ?? '';
+    if (!existingNodeOpts.includes('--max-old-space-size')) {
+      spawnEnv.NODE_OPTIONS = `${existingNodeOpts} --max-old-space-size=8192`.trim();
+    }
+    if (spawnEnv.GEMINI_API_KEY && !spawnEnv.GOOGLE_API_KEY) {
+      spawnEnv.GOOGLE_API_KEY = spawnEnv.GEMINI_API_KEY;
+    }
+
+    // MiniMax models use the OpenAI-compatible API via openai: prefix.
+    // Route MINIMAX_API_KEY → OPENAI_API_KEY and set the MiniMax base URL.
+    const resolvedModel = this.options.model ?? '';
+    const isMinimax = resolvedModel.includes('MiniMax');
+    if (isMinimax) {
+      if (spawnEnv.MINIMAX_API_KEY && !spawnEnv.OPENAI_API_KEY) {
+        spawnEnv.OPENAI_API_KEY = spawnEnv.MINIMAX_API_KEY;
+      }
+      if (!spawnEnv.OPENAI_BASE_URL) {
+        spawnEnv.OPENAI_BASE_URL = 'https://api.minimax.io/v1';
+      }
+    }
+
+    // Ensure LangChain provider packages (e.g. @langchain/openai) are resolvable
+    // by the subprocess. Bun's flat package layout isolates each dependency, so
+    // langchain can't find @langchain/openai even if it's installed at the root.
+    // We fix this by ensuring a symlink exists in the langchain package's
+    // node_modules/@langchain directory.
+    this.ensureLangChainPeerLinks();
+
     // Spawn deepagents-acp subprocess with stdio pipes
     const child = spawn(bin.command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: this.options.cwd,
-      env: { ...process.env, ...this.options.env },
+      env: spawnEnv,
       signal: this.abortController.signal,
       shell: process.platform === 'win32',
     });
@@ -110,9 +156,17 @@ export class DeepAgentProcess extends BaseAgentProcess {
       }
     });
 
-    // Pipe stderr to console for debugging
+    // Surface stderr errors as tool call cards so they appear in the thread
+    // with full history. ACP subprocesses write JSON-RPC errors and API errors
+    // to stderr — these are critical for the user (rate limits, auth failures, etc.).
     child.stderr?.on('data', (data: Buffer) => {
-      console.error('[deepagent-acp:stderr]', data.toString());
+      const raw = data.toString().trim();
+      if (!raw) return;
+
+      const errorText = this.parseStderrError(raw);
+      if (errorText) {
+        this.emitErrorToolCall(errorText);
+      }
     });
 
     try {
@@ -143,8 +197,13 @@ export class DeepAgentProcess extends BaseAgentProcess {
     // Accumulate text chunks so we emit the full content, not just deltas
     let accumulatedText = '';
 
-    // Track tool calls for deduplication
-    const toolCallsSeen = new Map<string, boolean>();
+    // Reset thought accumulation for this run
+    this.accumulatedThought = '';
+    this.thinkToolCallId = null;
+
+    // Track tool calls for deduplication and pending state.
+    // Value: tool name while pending, 'done' after result emitted.
+    const toolCallsSeen = new Map<string, string>();
 
     // Create ACP client implementation
     const acpClient: ACPClient = {
@@ -242,16 +301,17 @@ export class DeepAgentProcess extends BaseAgentProcess {
         totalCost,
         result: accumulatedText || undefined,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!this.isAborted) {
+        const errorMessage = this.extractErrorMessage(err);
         this.emitResult({
           sessionId,
           subtype: 'error_during_execution',
           startTime,
           numTurns,
           totalCost,
-          result: err.message,
-          errors: [err.message],
+          result: errorMessage,
+          errors: [errorMessage],
         });
       }
     } finally {
@@ -265,74 +325,156 @@ export class DeepAgentProcess extends BaseAgentProcess {
   // ── Update translation ──────────────────────────────────────
 
   /**
-   * Map ACP tool kind/title to a normalized tool name for the UI.
-   * Deep Agents uses well-known tool names, so we map them directly.
-   */
-  private static inferToolName(kind: string | undefined, title: string): string {
-    switch (kind) {
-      case 'read':
-        return 'Read';
-      case 'edit':
-        return 'Edit';
-      case 'delete':
-        return 'Edit';
-      case 'search':
-        if (title.includes(' in ') || /\bin\b.*within/.test(title)) return 'Grep';
-        if (title.includes('*') || title.includes('?')) return 'Glob';
-        return 'Grep';
-      case 'execute':
-        return 'Bash';
-      case 'fetch':
-        return 'WebFetch';
-      case 'think':
-        return 'Task';
-      case 'move':
-        return 'Bash';
-      case 'switch_mode':
-        return 'Task';
-    }
-
-    // Heuristic fallback
-    const titleLower = title.toLowerCase();
-    if (titleLower.includes('read_file') || titleLower.includes('read file')) return 'Read';
-    if (titleLower.includes('write_file') || titleLower.includes('write file')) return 'Edit';
-    if (titleLower.includes('edit_file') || titleLower.includes('edit file')) return 'Edit';
-    if (titleLower.includes('execute') || titleLower.includes('shell')) return 'Bash';
-    if (titleLower.includes('glob')) return 'Glob';
-    if (titleLower.includes('grep')) return 'Grep';
-    if (titleLower.includes('task') || titleLower.includes('subagent')) return 'Task';
-    if (titleLower.includes('todo') || titleLower.includes('plan')) return 'TodoWrite';
-
-    return 'Tool';
-  }
-
-  /**
    * Translate an ACP SessionUpdate into CLIMessage(s).
    * Returns the updated accumulated text and assistant message ID.
    */
   private translateUpdate(
     update: ACPSessionUpdate,
     assistantMsgId: string,
-    toolCallsSeen: Map<string, boolean>,
+    toolCallsSeen: Map<string, string>,
     accumulatedText: string,
   ): { text: string; msgId: string } {
     const ret = (text: string, msgId?: string) => ({ text, msgId: msgId ?? assistantMsgId });
 
+    // Log non-streaming ACP update types at debug level (skip noise like available_commands_update)
+    if (
+      update.sessionUpdate !== 'agent_message_chunk' &&
+      update.sessionUpdate !== 'agent_thought_chunk' &&
+      update.sessionUpdate !== 'available_commands_update' &&
+      update.sessionUpdate !== 'current_mode_update'
+    ) {
+      console.debug(
+        `[deepagent-acp] update: ${update.sessionUpdate}`,
+        JSON.stringify(update).slice(0, 500),
+      );
+    }
+
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk':
-      case 'agent_thought_chunk': {
+      case 'agent_message_chunk': {
         const content = update.content;
         if (content.type === 'text' && content.text) {
           accumulatedText += content.text;
 
-          const msg: CLIMessage = {
+          // Extract <think>...</think> blocks from the accumulated text.
+          // MiniMax embeds thinking inside regular message text rather than
+          // using agent_thought_chunk events.
+          const { cleaned, thoughts } = DeepAgentProcess.extractThinkBlocks(accumulatedText);
+
+          // Emit any extracted thoughts as Think tool calls
+          if (thoughts.length > 0) {
+            const thoughtText = thoughts.join('\n\n');
+            this.accumulatedThought = thoughtText;
+
+            if (!this.thinkToolCallId) {
+              this.thinkToolCallId = randomUUID();
+              toolCallsSeen.set(this.thinkToolCallId, 'Think');
+            }
+          }
+
+          // Build a single assistant message with both Think (as tool_use)
+          // and visible text (as text block) so they land in the same DB row.
+          // This prevents ordering issues when loading from DB on refresh.
+          const contentBlocks: any[] = [];
+
+          if (this.thinkToolCallId && this.accumulatedThought) {
+            contentBlocks.push({
+              type: 'tool_use',
+              id: this.thinkToolCallId,
+              name: 'Think',
+              input: { content: this.accumulatedThought },
+            });
+          }
+
+          const visibleText = cleaned.trim();
+          if (visibleText) {
+            contentBlocks.push({ type: 'text', text: visibleText });
+          }
+
+          if (contentBlocks.length > 0) {
+            this.emit('message', {
+              type: 'assistant',
+              message: {
+                id: assistantMsgId,
+                content: contentBlocks,
+              },
+            } as CLIMessage);
+          }
+
+          // Emit tool result for completed Think blocks
+          if (this.thinkToolCallId && thoughts.length > 0) {
+            const thoughtText = thoughts.join('\n\n');
+            toolCallsSeen.set(this.thinkToolCallId, 'done');
+            this.emit('message', {
+              type: 'user',
+              message: {
+                content: [
+                  {
+                    type: 'tool_result',
+                    tool_use_id: this.thinkToolCallId,
+                    content: thoughtText,
+                  },
+                ],
+              },
+            } as CLIMessage);
+          }
+        }
+        return ret(accumulatedText);
+      }
+
+      case 'agent_thought_chunk': {
+        // Emit thoughts as a dedicated Think tool call so they render
+        // in a collapsible ThinkCard instead of mixing with assistant text.
+        const content = update.content;
+        if (content.type === 'text' && content.text) {
+          this.accumulatedThought += content.text;
+
+          // Create the Think tool call ID on first chunk
+          if (!this.thinkToolCallId) {
+            this.thinkToolCallId = randomUUID();
+            toolCallsSeen.set(this.thinkToolCallId, 'Think');
+          }
+
+          // Build a single assistant message combining Think + any visible text.
+          // This ensures Think and text always share the same DB message row,
+          // preventing ordering issues on refresh.
+          const contentBlocks: any[] = [
+            {
+              type: 'tool_use',
+              id: this.thinkToolCallId,
+              name: 'Think',
+              input: { content: this.accumulatedThought },
+            },
+          ];
+
+          // Include visible text if we already have some from agent_message_chunk
+          const { cleaned } = DeepAgentProcess.extractThinkBlocks(accumulatedText);
+          const visibleText = cleaned.trim();
+          if (visibleText) {
+            contentBlocks.push({ type: 'text', text: visibleText });
+          }
+
+          this.emit('message', {
             type: 'assistant',
             message: {
               id: assistantMsgId,
-              content: [{ type: 'text', text: accumulatedText }],
+              content: contentBlocks,
             },
-          };
-          this.emit('message', msg);
+          } as CLIMessage);
+
+          // Update the tool result with accumulated thought content
+          toolCallsSeen.set(this.thinkToolCallId, 'done');
+          this.emit('message', {
+            type: 'user',
+            message: {
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: this.thinkToolCallId,
+                  content: this.accumulatedThought,
+                },
+              ],
+            },
+          } as CLIMessage);
         }
         return ret(accumulatedText);
       }
@@ -340,19 +482,22 @@ export class DeepAgentProcess extends BaseAgentProcess {
       case 'tool_call': {
         const toolCallId = update.toolCallId;
         if (toolCallsSeen.has(toolCallId)) return ret(accumulatedText);
-        toolCallsSeen.set(toolCallId, true);
 
         const acpKind = (update as any).kind as string | undefined;
         const title = update.title || '';
-        const toolName = DeepAgentProcess.inferToolName(acpKind, title);
+        const locations = (update as any).locations as
+          | Array<{ path: string; line?: number | null }>
+          | undefined;
+        const toolName = inferACPToolName(acpKind, title, { thinkToolName: 'Think' });
 
-        let input: Record<string, unknown> = {};
-        if (update.rawInput != null && typeof update.rawInput === 'object') {
-          input = { ...(update.rawInput as Record<string, unknown>) };
-        }
-        if (title) {
-          input.description = title;
-        }
+        toolCallsSeen.set(toolCallId, toolName);
+
+        const input = buildACPToolInput(toolName, {
+          kind: acpKind,
+          title,
+          rawInput: update.rawInput,
+          locations,
+        });
 
         const msg: CLIMessage = {
           type: 'assistant',
@@ -373,7 +518,8 @@ export class DeepAgentProcess extends BaseAgentProcess {
         // If tool_call already carries a completed result, emit it immediately
         const tcStatus = (update as any).status as string | undefined;
         if (tcStatus === 'completed' || tcStatus === 'failed') {
-          const output = this.extractToolOutput(update, title);
+          toolCallsSeen.set(toolCallId, 'done');
+          const output = extractACPToolOutput(update.rawOutput, (update as any).content, title);
           this.emit('message', {
             type: 'user',
             message: {
@@ -393,9 +539,17 @@ export class DeepAgentProcess extends BaseAgentProcess {
 
       case 'tool_call_update': {
         const toolCallId = update.toolCallId;
+        console.debug(
+          `[deepagent-acp] tool_call_update: id=${toolCallId}, status=${update.status}, title=${update.title ?? ''}`,
+        );
 
         if (update.status === 'completed' || update.status === 'failed') {
-          const output = this.extractToolOutput(update, update.title || '');
+          toolCallsSeen.set(toolCallId, 'done');
+          const output = extractACPToolOutput(
+            update.rawOutput,
+            (update as any).content,
+            update.title || '',
+          );
           const msg: CLIMessage = {
             type: 'user',
             message: {
@@ -424,6 +578,25 @@ export class DeepAgentProcess extends BaseAgentProcess {
             })
             .join('\n');
 
+          // Close any pending Task (think/switch_mode) tool calls with the plan text
+          for (const [tcId, tcState] of toolCallsSeen) {
+            if (tcState === 'Task') {
+              toolCallsSeen.set(tcId, 'done');
+              this.emit('message', {
+                type: 'user',
+                message: {
+                  content: [
+                    {
+                      type: 'tool_result',
+                      tool_use_id: tcId,
+                      content: planText,
+                    },
+                  ],
+                },
+              } as CLIMessage);
+            }
+          }
+
           const msg: CLIMessage = {
             type: 'assistant',
             message: {
@@ -443,33 +616,29 @@ export class DeepAgentProcess extends BaseAgentProcess {
 
   // ── Helpers ────────────────────────────────────────────────────
 
-  /** Extract tool output from ACP update, handling multiple content formats. */
-  private extractToolOutput(update: ACPSessionUpdate, fallbackTitle: string): string {
-    const rawOut = update.rawOutput;
-    if (rawOut != null) {
-      return typeof rawOut === 'string' ? rawOut : JSON.stringify(rawOut);
+  /**
+   * Extract completed <think>...</think> blocks from text.
+   * Returns the cleaned text (without think blocks) and the extracted thoughts.
+   * Partial/unclosed <think> tags at the end are also stripped from the
+   * visible text (the user shouldn't see raw `<think>` markup while streaming).
+   */
+  private static extractThinkBlocks(text: string): { cleaned: string; thoughts: string[] } {
+    const thoughts: string[] = [];
+    // Match completed <think>...</think> blocks (non-greedy, handles multiline)
+    let cleaned = text.replace(/<think>([\s\S]*?)<\/think>/gi, (_match, thought: string) => {
+      const trimmed = thought.trim();
+      if (trimmed) thoughts.push(trimmed);
+      return '';
+    });
+    // Also strip any trailing unclosed <think>... (partial block still streaming)
+    const unclosedIdx = cleaned.search(/<think>/i);
+    if (unclosedIdx !== -1) {
+      // Extract the partial thought content for display in the ThinkCard
+      const partialThought = cleaned.slice(unclosedIdx + '<think>'.length).trim();
+      if (partialThought) thoughts.push(partialThought);
+      cleaned = cleaned.slice(0, unclosedIdx);
     }
-
-    if ((update as any).content?.length) {
-      const output = ((update as any).content as any[])
-        .map((c: any) => {
-          if (c.type === 'content' && c.content) {
-            const items = Array.isArray(c.content) ? c.content : [c.content];
-            return items
-              .filter((b: any) => b.type === 'text')
-              .map((b: any) => b.text)
-              .join('\n');
-          }
-          if (c.type === 'diff') return c.diff ?? '';
-          if (c.type === 'terminal') return c.output ?? '';
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n');
-      if (output) return output;
-    }
-
-    return fallbackTitle || 'Done';
+    return { cleaned, thoughts };
   }
 
   // ── Binary resolution ───────────────────────────────────────
@@ -483,7 +652,114 @@ export class DeepAgentProcess extends BaseAgentProcess {
     const acpEnvPath = process.env.DEEPAGENT_ACP_BIN;
     if (acpEnvPath) return { command: acpEnvPath };
 
-    // 3. Default: use npx to run deepagents-acp
+    // 3. Try locally installed deepagents-acp binary (from node_modules/.bin)
+    const rootNodeModules = this.findRootNodeModules();
+    if (rootNodeModules) {
+      const localBin = pathJoin(rootNodeModules, '.bin', 'deepagents-acp');
+      if (existsSync(localBin)) {
+        return { command: localBin };
+      }
+    }
+
+    // 4. Default: use npx to run deepagents-acp
     return { command: 'npx', args: ['deepagents-acp'] };
+  }
+
+  // ── LangChain peer dependency linking ──────────────────────
+
+  /**
+   * Bun's flat package layout isolates each dependency in its own
+   * `node_modules/.bun/<pkg>/node_modules/` directory. When `langchain`
+   * does `await import('@langchain/openai')`, it can only see packages
+   * that Bun has symlinked into its isolated node_modules — and
+   * `@langchain/openai` is NOT a direct dependency of `langchain` or
+   * `deepagents-acp`, so it's missing.
+   *
+   * This method finds the Bun-managed `langchain` and `deepagents-acp`
+   * isolated node_modules directories and creates symlinks to the
+   * required `@langchain/*` provider packages so dynamic imports succeed.
+   */
+  private ensureLangChainPeerLinks(): void {
+    // LangChain provider packages needed by the subprocess
+    const peersToLink = ['@langchain/openai', '@langchain/google-genai'];
+
+    try {
+      // Find the root node_modules/.bun directory by walking up from __dirname.
+      // In dev: __dirname = packages/core/src/agents/ (4 levels up)
+      // In bundle: __dirname = packages/runtime/dist/ (3 levels up)
+      // So we just walk up until we find a node_modules/.bun directory.
+      const rootNodeModules = this.findRootNodeModules();
+      if (!rootNodeModules) return;
+      const bunDir = pathJoin(rootNodeModules, '.bun');
+
+      if (!existsSync(bunDir)) return;
+
+      // Find peer packages' real locations from the top-level node_modules
+      const peerPaths = new Map<string, string>();
+      for (const peer of peersToLink) {
+        const topLevel = pathJoin(rootNodeModules, ...peer.split('/'));
+        if (existsSync(topLevel)) {
+          peerPaths.set(peer, topLevel);
+        }
+      }
+
+      if (peerPaths.size === 0) return;
+
+      // Find all langchain-related isolated node_modules directories in .bun/
+      // These are directories like: .bun/langchain@x.x.x+hash/node_modules/
+      // and .bun/deepagents-acp@x.x.x+hash/node_modules/
+      const packagesToPatch = ['langchain@', 'deepagents-acp@', 'deepagents@'];
+      let entries: string[];
+      try {
+        entries = readdirSync(bunDir);
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        if (!packagesToPatch.some((p) => entry.startsWith(p))) continue;
+
+        const isolatedModulesDir = pathJoin(bunDir, entry, 'node_modules');
+        if (!existsSync(isolatedModulesDir)) continue;
+
+        for (const [peer, peerPath] of peerPaths) {
+          const parts = peer.split('/');
+          const targetDir = pathJoin(isolatedModulesDir, ...parts);
+
+          if (existsSync(targetDir)) continue; // Already linked
+
+          // Ensure the scope directory exists (e.g. @langchain/)
+          if (parts.length > 1) {
+            const scopeDir = pathJoin(isolatedModulesDir, parts[0]);
+            if (!existsSync(scopeDir)) {
+              mkdirSync(scopeDir, { recursive: true });
+            }
+          }
+
+          try {
+            symlinkSync(peerPath, targetDir, 'dir');
+          } catch {
+            // Race condition or permissions — non-fatal
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — if linking fails, the subprocess may still work via NODE_PATH
+    }
+  }
+
+  /** Walk up from __dirname to find the nearest node_modules/.bun directory. */
+  private findRootNodeModules(): string | null {
+    let dir = __dirname;
+    for (let i = 0; i < 10; i++) {
+      const candidate = pathJoin(dir, 'node_modules');
+      if (existsSync(pathJoin(candidate, '.bun'))) {
+        return candidate;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break; // reached filesystem root
+      dir = parent;
+    }
+    return null;
   }
 }

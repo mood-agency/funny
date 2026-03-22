@@ -614,16 +614,27 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     thread.permissionMode ||
     'autoEdit') as PermissionMode;
 
-  // Update thread's permission mode, model, and baseBranch if they changed
+  // Update thread's permission mode, model, provider, and baseBranch if they changed
   const updates: Record<string, any> = {};
+  const modelChanged = !!(params.model && params.model !== thread.model);
+  const providerChanged = !!(params.provider && params.provider !== thread.provider);
+
   if (params.permissionMode && params.permissionMode !== thread.permissionMode) {
     updates.permissionMode = params.permissionMode;
   }
-  if (params.model && params.model !== thread.model) {
+  if (modelChanged) {
     updates.model = params.model;
+  }
+  if (providerChanged) {
+    updates.provider = params.provider;
   }
   if (params.baseBranch && params.baseBranch !== thread.baseBranch) {
     updates.baseBranch = params.baseBranch;
+  }
+  // Clear sessionId when model or provider changes — the old session is incompatible
+  if ((modelChanged || providerChanged) && thread.sessionId) {
+    updates.sessionId = null;
+    updates.contextRecoveryReason = providerChanged ? 'provider_changed' : 'model_changed';
   }
   if (Object.keys(updates).length > 0) {
     await tm.updateThread(params.threadId, updates);

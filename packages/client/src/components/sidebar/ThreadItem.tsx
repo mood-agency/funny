@@ -11,7 +11,7 @@ import {
   Bot,
   Pencil,
 } from 'lucide-react';
-import { useState, memo, useCallback } from 'react';
+import { useState, memo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DiffStats } from '@/components/DiffStats';
@@ -94,13 +94,21 @@ export const ThreadItem = memo(function ThreadItem({
     : 'text-muted-foreground';
   const displayTime = timeValue ?? timeAgo(thread.createdAt, t);
 
+  // Keep the last known git status so the widget doesn't flicker away
+  // during transient undefined gaps (e.g. thread selection race conditions).
+  const lastGitStatusRef = useRef(gitStatus);
+  if (gitStatus) lastGitStatusRef.current = gitStatus;
+  const effectiveGitStatus = gitStatus ?? lastGitStatusRef.current;
+
   // Git status — only used for diff stats
-  const showGitIcon = !!gitStatus && gitStatus.state !== 'clean';
+  const showGitIcon = !!effectiveGitStatus && effectiveGitStatus.state !== 'clean';
 
   // Whether to show the second row (has project subtitle or git diff stats)
   const hasDiffStats =
     showGitIcon &&
-    (gitStatus.linesAdded > 0 || gitStatus.linesDeleted > 0 || gitStatus.dirtyFileCount > 0);
+    (effectiveGitStatus.linesAdded > 0 ||
+      effectiveGitStatus.linesDeleted > 0 ||
+      effectiveGitStatus.dirtyFileCount > 0);
   const hasSnippet = !!thread.lastAssistantMessage;
   const showLaunching = isBusy && !hasSnippet;
   const isBacklog = !hasSnippet && !isBusy && (!thread.stage || thread.stage === 'backlog');
@@ -123,13 +131,16 @@ export const ThreadItem = memo(function ThreadItem({
       >
         {/* Row 1: Status icon + Title */}
         <div className="flex min-w-0 items-center gap-1.5">
-          {/* Thread status / pin icon — active statuses always show status, pin only when idle */}
+          {/* Thread status / pin icon — pin only shown when onPin is provided (i.e. pin has effect on ordering) */}
           <div className="relative h-3.5 w-3.5 flex-shrink-0">
-            {thread.pinned && thread.status !== 'running' && thread.status !== 'setting_up' ? (
+            {onPin &&
+            thread.pinned &&
+            thread.status !== 'running' &&
+            thread.status !== 'setting_up' ? (
               <span
                 className={cn(
                   'absolute inset-0 flex items-center justify-center text-muted-foreground',
-                  onPin && 'group-hover/thread:hidden',
+                  'group-hover/thread:hidden',
                 )}
               >
                 <Pin className="h-3.5 w-3.5" />
@@ -206,9 +217,9 @@ export const ThreadItem = memo(function ThreadItem({
             )}
             {hasDiffStats && (
               <DiffStats
-                linesAdded={gitStatus.linesAdded}
-                linesDeleted={gitStatus.linesDeleted}
-                dirtyFileCount={gitStatus.dirtyFileCount}
+                linesAdded={effectiveGitStatus.linesAdded}
+                linesDeleted={effectiveGitStatus.linesDeleted}
+                dirtyFileCount={effectiveGitStatus.dirtyFileCount}
                 size="xs"
               />
             )}

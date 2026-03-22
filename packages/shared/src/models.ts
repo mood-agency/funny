@@ -46,10 +46,14 @@ const GEMINI_MODEL_IDS: Record<GeminiModel, string> = {
 };
 
 const DEEPAGENT_MODEL_IDS: Record<DeepAgentModel, string> = {
-  'minimax-m2.7': 'minimax:MiniMax-M2.7',
-  'minimax-m2.7-highspeed': 'minimax:MiniMax-M2.7-highspeed',
-  'deepagent-gpt-4o': 'openai:gpt-4o',
-  'deepagent-sonnet': 'anthropic:claude-sonnet-4-5-20250929',
+  'minimax-m2.7': 'openai:MiniMax-M2.7',
+  'minimax-m2.7-highspeed': 'openai:MiniMax-M2.7-highspeed',
+  'deepagent-gpt-4o': 'gpt-4o',
+  'deepagent-sonnet': 'claude-sonnet-4-5-20250929',
+  'deepagent-gemini-2.5-flash': 'google-genai:gemini-2.5-flash',
+  'deepagent-gemini-2.5-pro': 'google-genai:gemini-2.5-pro',
+  'deepagent-gemini-3-flash': 'google-genai:gemini-3-flash-preview',
+  'deepagent-gemini-3-pro': 'google-genai:gemini-3-pro-preview',
 };
 
 // ── Model display labels ────────────────────────────────────────
@@ -85,6 +89,10 @@ const DEEPAGENT_MODEL_LABELS: Record<DeepAgentModel, string> = {
   'minimax-m2.7-highspeed': 'MiniMax M2.7 Highspeed',
   'deepagent-gpt-4o': 'GPT-4o',
   'deepagent-sonnet': 'Sonnet 4.5',
+  'deepagent-gemini-2.5-flash': 'Gemini 2.5 Flash',
+  'deepagent-gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'deepagent-gemini-3-flash': 'Gemini 3 Flash',
+  'deepagent-gemini-3-pro': 'Gemini 3 Pro',
 };
 
 // ── Provider labels ─────────────────────────────────────────────
@@ -156,6 +164,22 @@ export const PROVIDER_KEY_REGISTRY: ProviderKeyConfig[] = [
     helpUrl: 'https://github.com/settings/tokens',
     description: 'Used for push, PR, and private repo operations.',
     envVar: 'GH_TOKEN',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini API Key',
+    helpUrl: 'https://aistudio.google.com/apikey',
+    description: 'Required for Gemini models (Flash, Pro).',
+    envVar: 'GEMINI_API_KEY',
+    requiredByProviders: ['gemini', 'deepagent'],
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI API Key',
+    helpUrl: 'https://platform.openai.com/api-keys',
+    description: 'Required for Codex models and Deep Agent GPT-4o.',
+    envVar: 'OPENAI_API_KEY',
+    requiredByProviders: ['codex', 'deepagent'],
   },
   {
     id: 'minimax',

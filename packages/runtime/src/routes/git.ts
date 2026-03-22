@@ -176,25 +176,44 @@ gitRoutes.get('/status', async (c) => {
         );
       }),
     ),
-    Promise.allSettled(
-      localThreads.map(async (thread) => {
-        const summaryResult = await getStatusSummary(
-          project.path,
-          thread.baseBranch ?? undefined,
-          project.path,
-        );
-        if (summaryResult.isErr()) return null;
-        const summary = summaryResult.value;
-        return Object.assign(
-          {
-            threadId: thread.id,
-            branchKey: computeBranchKey(thread),
-            state: deriveGitSyncState(summary),
-          },
-          summary,
-        );
-      }),
-    ),
+    // Group local threads by branchKey so we call getStatusSummary once per
+    // unique key instead of once per thread (they share the same cwd).
+    (async () => {
+      const groupedByBranch = new Map<string, typeof localThreads>();
+      for (const thread of localThreads) {
+        const bk = computeBranchKey(thread);
+        const group = groupedByBranch.get(bk);
+        if (group) group.push(thread);
+        else groupedByBranch.set(bk, [thread]);
+      }
+
+      const results: Array<PromiseSettledResult<any>> = [];
+      await Promise.all(
+        Array.from(groupedByBranch.entries()).map(async ([bk, threads]) => {
+          const representative = threads[0];
+          const summaryResult = await getStatusSummary(
+            project.path,
+            representative.baseBranch ?? undefined,
+            project.path,
+          );
+          if (summaryResult.isErr()) {
+            for (const t of threads) {
+              results.push({ status: 'fulfilled', value: null });
+            }
+            return;
+          }
+          const summary = summaryResult.value;
+          const state = deriveGitSyncState(summary);
+          for (const t of threads) {
+            results.push({
+              status: 'fulfilled',
+              value: Object.assign({ threadId: t.id, branchKey: bk, state }, summary),
+            });
+          }
+        }),
+      );
+      return results;
+    })(),
   ]);
 
   statusSpan.end('ok');

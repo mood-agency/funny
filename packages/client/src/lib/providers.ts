@@ -102,6 +102,30 @@ export const PROVIDER_MODELS: Record<string, ModelConfig[]> = {
       fallback: 'Sonnet 4.5',
       contextWindow: 200_000,
     },
+    {
+      value: 'deepagent-gemini-2.5-flash',
+      i18nKey: 'deepagentGemini25flash',
+      fallback: 'Gemini 2.5 Flash',
+      contextWindow: 1_048_576,
+    },
+    {
+      value: 'deepagent-gemini-2.5-pro',
+      i18nKey: 'deepagentGemini25pro',
+      fallback: 'Gemini 2.5 Pro',
+      contextWindow: 1_048_576,
+    },
+    {
+      value: 'deepagent-gemini-3-flash',
+      i18nKey: 'deepagentGemini3flash',
+      fallback: 'Gemini 3 Flash',
+      contextWindow: 1_000_000,
+    },
+    {
+      value: 'deepagent-gemini-3-pro',
+      i18nKey: 'deepagentGemini3pro',
+      fallback: 'Gemini 3 Pro',
+      contextWindow: 1_000_000,
+    },
   ],
 };
 

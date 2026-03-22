@@ -68,7 +68,11 @@
       "minimaxM27": "MiniMax M2.7",
       "minimaxM27Highspeed": "MiniMax M2.7 Highspeed",
       "deepagentGpt4o": "GPT-4o",
-      "deepagentSonnet": "Sonnet 4.5"
+      "deepagentSonnet": "Sonnet 4.5",
+      "deepagentGemini25flash": "Gemini 2.5 Flash",
+      "deepagentGemini25pro": "Gemini 2.5 Pro",
+      "deepagentGemini3flash": "Gemini 3 Flash",
+      "deepagentGemini3pro": "Gemini 3 Pro"
     },
     "createdBy": "Created by {{creator}}",
     "readyToLaunch": "Ready to Launch",
@@ -116,6 +120,12 @@
     "followUpQueue": "Queue",
     "followUpCancel": "Cancel",
     "queuedMessages": "{{count}} message(s) queued",
+    "searchPlaceholder": "Search in thread...",
+    "searchResults": "{{current}} of {{total}}",
+    "searchNoResults": "No results",
+    "searchClose": "Close search",
+    "searchPrev": "Previous result",
+    "searchNext": "Next result",
     "source": {
       "web": "Created from web UI",
       "chrome_extension": "Created from Chrome extension",
@@ -394,6 +404,8 @@
     "todos": "Todos",
     "editNotebook": "Edit Notebook",
     "question": "Question",
+    "thinking": "Thinking",
+    "providerError": "Provider Error",
     "tool": "Tool",
     "done": "done",
     "questions": "question",
@@ -711,6 +723,13 @@
     "linesAdded": "{{count}} lines added since last commit",
     "linesDeleted": "{{count}} lines deleted since last commit",
     "dirtyFiles": "{{count}} files with uncommitted changes"
+  },
+  "saveBacklog": {
+    "title": "Unsaved prompt",
+    "description": "You have an unsaved prompt. What would you like to do?",
+    "save": "Save to backlog",
+    "discard": "Discard",
+    "cancel": "Cancel"
   },
   "kanban": {
     "backlog": "Backlog",

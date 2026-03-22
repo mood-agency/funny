@@ -40,6 +40,11 @@ export class AgentRunner {
   private state: AgentStateTracker;
   private messageHandler: AgentMessageHandler;
   private runSpans = new Map<string, ReturnType<typeof startSpan>>();
+  /** Per-thread message queue to serialize async message handling.
+   *  Without this, rapid sequential messages (e.g. Think tool_use → tool_result → text)
+   *  from providers like DeepAgent race each other, causing missing messages and
+   *  incorrect ordering in the DB. */
+  private messageQueues = new Map<string, Promise<void>>();
 
   constructor(
     private threadManager: IThreadManager,
@@ -53,16 +58,24 @@ export class AgentRunner {
 
     // Subscribe to orchestrator events — bridge to DB + WebSocket
     this.orchestrator.on('agent:message', (threadId: string, msg: any) => {
-      void (async () => {
-        await this.messageHandler.handle(threadId, msg);
-        metric('agent.messages', 1, { type: 'sum', attributes: { threadId } });
-      })().catch((err) => {
-        log.error('Unhandled error in agent:message handler', {
-          namespace: 'agent',
-          threadId,
-          error: (err as Error).message,
+      // Enqueue message handling per thread to guarantee serial processing.
+      // This prevents race conditions when multiple messages arrive in rapid
+      // succession (common with DeepAgent which emits Think + tool_result +
+      // text response nearly simultaneously).
+      const prev = this.messageQueues.get(threadId) ?? Promise.resolve();
+      const next = prev
+        .then(async () => {
+          await this.messageHandler.handle(threadId, msg);
+          metric('agent.messages', 1, { type: 'sum', attributes: { threadId } });
+        })
+        .catch((err) => {
+          log.error('Unhandled error in agent:message handler', {
+            namespace: 'agent',
+            threadId,
+            error: (err as Error).message,
+          });
         });
-      });
+      this.messageQueues.set(threadId, next);
     });
 
     this.orchestrator.on('agent:error', (threadId: string, err: Error) => {
@@ -341,21 +354,30 @@ export class AgentRunner {
     // Read session ID from DB for resume
     const thread = await this.threadManager.getThread(threadId);
 
-    // Check if this thread needs context recovery (post-merge, session exists but worktree gone)
+    // Check if this thread needs context recovery (post-merge or model/provider change)
     const needsRecovery = await needsContextRecovery(threadId);
     let effectivePrompt = prompt;
     let effectiveSessionId = thread?.sessionId ?? undefined;
 
     if (needsRecovery) {
-      log.info('Thread needs context recovery (post-merge)', { namespace: 'agent', threadId });
+      const recoveryReason = thread?.contextRecoveryReason ?? 'post-merge';
+      log.info('Thread needs context recovery', {
+        namespace: 'agent',
+        threadId,
+        isPostMerge: !!thread?.mergedAt,
+        reason: recoveryReason,
+      });
       // Build conversation history from DB
       const context = await buildThreadContext(threadId);
       if (context) {
         // Prepend context to the user's new message
         effectivePrompt = `${context}\n\nUSER (new message):\n${prompt}`;
       }
-      // Clear sessionId to force a fresh session with the full context
-      await this.threadManager.updateThread(threadId, { sessionId: null });
+      // Clear sessionId and recovery flags
+      await this.threadManager.updateThread(threadId, {
+        sessionId: null,
+        contextRecoveryReason: null,
+      });
       effectiveSessionId = undefined;
     }
 
@@ -576,6 +598,7 @@ export class AgentRunner {
   cleanupThreadState(threadId: string): void {
     this.orchestrator.cleanupThread(threadId);
     this.state.cleanupThread(threadId);
+    this.messageQueues.delete(threadId);
   }
 
   /**
