@@ -1132,6 +1132,12 @@ function createToolbar(): HTMLDivElement {
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
       </svg>
     </button>
+    <button class="toolbar-btn" data-action="copy-screenshot" title="Copy screenshot to clipboard">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+        <circle cx="12" cy="13" r="4"></circle>
+      </svg>
+    </button>
     <button class="toolbar-btn" data-action="clear" title="Clear all annotations">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="3 6 5 6 21 6"></polyline>
@@ -1261,6 +1267,9 @@ function handleToolbarAction(action: string) {
       break;
     case 'copy':
       copyAsMarkdown();
+      break;
+    case 'copy-screenshot':
+      copyScreenshotToClipboard();
       break;
     case 'clear':
       annotations = [];
@@ -1393,6 +1402,19 @@ function createDrawToolbar(): HTMLDivElement {
     showToast('Drawing cleared');
   });
   bar.appendChild(clearBtn);
+
+  // Copy screenshot button
+  const copyBtn = createElement('button', 'draw-copy-btn');
+  copyBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>`;
+  copyBtn.title = 'Copy screenshot to clipboard';
+  copyBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    copyScreenshotToClipboard();
+  });
+  bar.appendChild(copyBtn);
 
   // Separator
   const sep2 = createElement('div', 'draw-toolbar-sep');
@@ -2321,6 +2343,49 @@ function captureScreenshot(): Promise<string | null> {
       resolve(response?.screenshot || null);
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Copy screenshot to clipboard
+// ---------------------------------------------------------------------------
+async function copyScreenshotToClipboard() {
+  try {
+    // Get drawing overlay if any
+    const drawingData = getDrawingDataUrl();
+
+    // Hide toolbars temporarily for a clean screenshot
+    const drawToolbarDisplay = drawToolbar.style.display;
+    const toolbarDisplay = toolbarEl.style.display;
+    drawToolbar.style.display = 'none';
+    toolbarEl.style.display = 'none';
+
+    let screenshot = await captureScreenshot();
+
+    // Restore toolbars
+    drawToolbar.style.display = drawToolbarDisplay;
+    toolbarEl.style.display = toolbarDisplay;
+
+    // Merge drawing overlay onto screenshot if there are drawings
+    if (screenshot && drawingData) {
+      screenshot = await mergeDrawingWithScreenshot(screenshot, drawingData);
+    } else if (!screenshot && drawingData) {
+      screenshot = drawingData;
+    }
+
+    if (!screenshot) {
+      showToast('Failed to capture screenshot', true);
+      return;
+    }
+
+    // Convert data URL to blob and copy to clipboard
+    const response = await fetch(screenshot);
+    const blob = await response.blob();
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+
+    showToast('Screenshot copied to clipboard!');
+  } catch (err: any) {
+    showToast(`Failed to copy: ${err.message}`, true);
+  }
 }
 
 // ---------------------------------------------------------------------------

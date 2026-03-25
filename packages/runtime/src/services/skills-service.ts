@@ -105,7 +105,8 @@ export function listProjectSkills(projectPath: string): Skill[] {
     const skills: Skill[] = [];
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+      // Accept both real directories and symlinks (skills CLI creates symlinks)
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
       const skillMdPath = join(projectSkillsDir, entry.name, 'SKILL.md');
       if (!existsSync(skillMdPath)) continue;
@@ -160,6 +161,8 @@ export function listDirectClaudeSkills(lockFileNames: Set<string>): Skill[] {
     const skills: Skill[] = [];
 
     for (const entry of entries) {
+      // Accept both real directories and symlinks (skills CLI creates symlinks)
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       // Skip entries already covered by the lock file
       if (lockFileNames.has(entry.name)) continue;
 

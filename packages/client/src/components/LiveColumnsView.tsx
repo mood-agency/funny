@@ -1,6 +1,5 @@
-import type { Thread } from '@funny/shared';
 import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
-import { Loader2, Columns3, Grid2x2, Plus, Search, FileText, FolderOpen } from 'lucide-react';
+import { Loader2, Columns3, Grid2x2, Plus, Search, FileText, FolderOpen, X } from 'lucide-react';
 import { useReducedMotion } from 'motion/react';
 import {
   useState,
@@ -14,7 +13,6 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { BranchBadge } from '@/components/BranchBadge';
@@ -23,8 +21,16 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ProjectChip, colorFromName } from '@/components/ui/project-chip';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { api } from '@/lib/api';
+import {
+  getGridCells,
+  setGridCell,
+  clearGridCell,
+  getAssignedThreadIds,
+  type GridCellAssignments,
+} from '@/lib/grid-storage';
 import { remarkPlugins, baseMarkdownComponents } from '@/lib/markdown-components';
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 import { buildGroupedRenderItems, type ToolItem } from '@/lib/render-items';
@@ -39,11 +45,11 @@ import { useThreadStore, type ThreadWithMessages } from '@/stores/thread-store';
 import { D4CAnimation } from './D4CAnimation';
 import { PromptInput } from './PromptInput';
 import { SlideUpPrompt } from './SlideUpPrompt';
+import { ThreadPickerDialog } from './ThreadPickerDialog';
 import { ToolCallCard } from './ToolCallCard';
 import { ToolCallGroup } from './ToolCallGroup';
 
 const ACTIVE_STATUSES = new Set(['running', 'waiting', 'pending']);
-const FINISHED_STATUSES = new Set(['completed', 'failed', 'stopped', 'interrupted']);
 
 const MAX_GRID_COLS = 5;
 const MAX_GRID_ROWS = 5;
@@ -115,7 +121,13 @@ function GridPicker({
 }
 
 /** A single column that loads and streams a thread in real-time */
-const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string }) {
+const ThreadColumn = memo(function ThreadColumn({
+  threadId,
+  onRemove,
+}: {
+  threadId: string;
+  onRemove?: () => void;
+}) {
   const { t } = useTranslation();
   const _prefersReducedMotion = useReducedMotion();
   const [thread, setThread] = useState<ThreadWithMessages | null>(null);
@@ -292,7 +304,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
 
   return (
     <div
-      className="flex min-w-0 flex-col overflow-hidden rounded-sm border border-border"
+      className="group/col flex min-w-0 flex-col overflow-hidden rounded-sm border border-border"
       data-testid={`grid-column-${threadId}`}
     >
       {/* Column header */}
@@ -302,6 +314,16 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
           <span className="flex-1 truncate text-sm font-medium" title={thread.title}>
             {thread.title}
           </span>
+          {onRemove && (
+            <TooltipIconButton
+              tooltip={t('live.removeFromGrid', 'Remove from grid')}
+              onClick={onRemove}
+              className="h-5 w-5 shrink-0 opacity-0 transition-opacity group-hover/col:opacity-100"
+              data-testid={`grid-remove-${threadId}`}
+            >
+              <X className="h-3 w-3" />
+            </TooltipIconButton>
+          )}
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-1.5">
           {projectName && (
@@ -468,9 +490,7 @@ const ThreadColumn = memo(function ThreadColumn({ threadId }: { threadId: string
 
 export function LiveColumnsView() {
   const { t } = useTranslation();
-  const _navigate = useNavigate();
   useMinuteTick();
-  const threadsByProject = useThreadStore((s) => s.threadsByProject);
   const projects = useProjectStore((s) => s.projects);
   const loadThreadsForProject = useThreadStore((s) => s.loadThreadsForProject);
   const toolPermissions = useSettingsStore((s) => s.toolPermissions);
@@ -580,118 +600,28 @@ export function LiveColumnsView() {
     return () => clearInterval(interval);
   }, [projects, loadThreadsForProject]);
 
-  // Collect active threads + recent finished threads (matching sidebar activity)
-  const activeThreads = useMemo(() => {
-    const running: Thread[] = [];
-    const finished: Thread[] = [];
-    for (const threads of Object.values(threadsByProject)) {
-      for (const thread of threads) {
-        if (thread.archived) continue;
-        if (ACTIVE_STATUSES.has(thread.status)) {
-          running.push(thread);
-        } else if (FINISHED_STATUSES.has(thread.status)) {
-          finished.push(thread);
-        }
-      }
-    }
-    // Sort finished by completion date
-    finished.sort((a, b) => {
-      const dateA = new Date(a.completedAt ?? a.createdAt).getTime();
-      const dateB = new Date(b.completedAt ?? b.createdAt).getTime();
-      return dateB - dateA;
-    });
-    // Active threads first (sorted by creation), then fill remaining slots with recent finished
-    running.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const remainingSlots = Math.max(0, maxSlots - running.length);
-    return [...running, ...finished.slice(0, remainingSlots)];
-  }, [threadsByProject, maxSlots]);
+  // --- Grid cell assignments (manual selection) ---
+  const [gridCells, setGridCells] = useState<GridCellAssignments>(getGridCells);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerCellIndex, setPickerCellIndex] = useState(0);
 
-  if (activeThreads.length === 0) {
-    return (
-      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden" data-testid="grid-view">
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-          <Columns3 className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">{t('live.title', 'Grid')}</span>
-          <Popover
-            open={projectPickerOpen}
-            onOpenChange={(v) => {
-              setProjectPickerOpen(v);
-              if (!v) setProjectSearch('');
-            }}
-          >
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                className="h-6 min-w-0 gap-1.5 px-2 text-[10px]"
-                data-testid="grid-add-thread"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-0">
-              <div className="flex items-center gap-2 border-b border-border/50 px-2.5 py-2">
-                <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <Input
-                  value={projectSearch}
-                  onChange={(e) => setProjectSearch(e.target.value)}
-                  placeholder={t('kanban.searchProject', 'Search project...')}
-                  className="h-auto flex-1 border-0 bg-transparent px-0 py-0 text-xs shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
-                  autoFocus
-                />
-              </div>
-              <div className="max-h-48 overflow-y-auto py-1">
-                {filteredProjects.length === 0 ? (
-                  <div className="py-3 text-center text-xs text-muted-foreground">
-                    {t('commandPalette.noResults', 'No results')}
-                  </div>
-                ) : (
-                  filteredProjects.map((p) => (
-                    <button
-                      key={p.id}
-                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-accent"
-                      onClick={() => {
-                        setProjectPickerOpen(false);
-                        setProjectSearch('');
-                        handleAddThread(p.id);
-                      }}
-                    >
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: p.color || colorFromName(p.name) }}
-                      />
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-        <div
-          className="flex flex-1 items-center justify-center text-muted-foreground"
-          data-testid="grid-empty-state"
-        >
-          <div className="space-y-2 text-center">
-            <Columns3 className="mx-auto h-10 w-10 text-muted-foreground/40" />
-            <p className="text-sm font-medium">{t('live.noActiveThreads', 'No active threads')}</p>
-            <p className="text-xs text-muted-foreground/60">
-              {t(
-                'live.noActiveThreadsDesc',
-                'Start some agents and they will appear here in real-time',
-              )}
-            </p>
-          </div>
-        </div>
-        <SlideUpPrompt
-          open={slideUpOpen}
-          onClose={() => setSlideUpOpen(false)}
-          onSubmit={handlePromptSubmit}
-          loading={creating}
-          projectId={slideUpProjectId}
-        />
-      </div>
-    );
-  }
+  const assignedThreadIds = useMemo(() => getAssignedThreadIds(gridCells), [gridCells]);
+
+  const handlePickThread = useCallback((cellIndex: number) => {
+    setPickerCellIndex(cellIndex);
+    setPickerOpen(true);
+  }, []);
+
+  const handleThreadPicked = useCallback(
+    (threadId: string) => {
+      setGridCells(setGridCell(pickerCellIndex, threadId));
+    },
+    [pickerCellIndex],
+  );
+
+  const handleRemoveFromGrid = useCallback((cellIndex: number) => {
+    setGridCells(clearGridCell(cellIndex));
+  }, []);
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden" data-testid="grid-view">
@@ -699,7 +629,7 @@ export function LiveColumnsView() {
       <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <Columns3 className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">{t('live.title', 'Grid')}</span>
-        {/* Add thread */}
+        {/* Create new thread */}
         <Popover
           open={projectPickerOpen}
           onOpenChange={(v) => {
@@ -708,8 +638,13 @@ export function LiveColumnsView() {
           }}
         >
           <PopoverTrigger asChild>
-            <Button variant="ghost" className="h-6 min-w-0 gap-1.5 px-2 text-[10px]">
+            <Button
+              variant="ghost"
+              className="h-6 min-w-0 gap-1.5 px-2 text-[10px]"
+              data-testid="grid-new-thread"
+            >
               <Plus className="h-3.5 w-3.5" />
+              {t('sidebar.newThread', 'New thread')}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-56 p-0">
@@ -776,10 +711,39 @@ export function LiveColumnsView() {
           gridTemplateRows: `repeat(${gridRows}, 1fr)`,
         }}
       >
-        {activeThreads.slice(0, maxSlots).map((thread) => (
-          <ThreadColumn key={thread.id} threadId={thread.id} />
-        ))}
+        {Array.from({ length: maxSlots }, (_, i) => {
+          const threadId = gridCells[String(i)];
+          if (threadId) {
+            return (
+              <ThreadColumn
+                key={threadId}
+                threadId={threadId}
+                onRemove={() => handleRemoveFromGrid(i)}
+              />
+            );
+          }
+          return (
+            <button
+              key={`empty-${i}`}
+              onClick={() => handlePickThread(i)}
+              className="flex flex-col items-center justify-center gap-2 rounded-sm border-2 border-dashed border-border/60 bg-muted/10 transition-colors hover:border-primary/50 hover:bg-muted/30"
+              data-testid={`grid-empty-cell-${i}`}
+            >
+              <Plus className="h-8 w-8 text-muted-foreground/40" />
+              <span className="text-xs text-muted-foreground/60">
+                {t('live.addThread', 'Add thread')}
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      <ThreadPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onSelect={handleThreadPicked}
+        excludeIds={assignedThreadIds}
+      />
 
       <SlideUpPrompt
         open={slideUpOpen}

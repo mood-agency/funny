@@ -286,6 +286,9 @@ export const api = {
       `/threads/${threadId}/events`,
     );
   },
+  getTouchedFiles: (threadId: string) => {
+    return request<{ files: string[] }>(`/threads/${threadId}/touched-files`);
+  },
   createThread: (data: {
     projectId: string;
     title: string;

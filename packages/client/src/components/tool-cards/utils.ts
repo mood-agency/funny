@@ -46,16 +46,7 @@ export const DIFF_VIEWER_STYLES = {
     fontFamily: 'var(--font-mono)',
   },
   contentText: {
-    whiteSpace: 'pre',
     fontFamily: 'var(--font-mono)',
-    // wordBreak: 'break-all',
-    // overflow: 'hidden',
-  },
-  diffContainer: {
-    width: '100%',
-    maxWidth: '100%',
-    // overflow: 'hidden', // Removed to allow scrolling
-    // tableLayout: 'auto', // Removed to fix type error and allow natural layout
   },
   gutter: {
     whiteSpace: 'nowrap',

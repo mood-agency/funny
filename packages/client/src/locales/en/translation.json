@@ -12,7 +12,7 @@
     "rename": "Rename",
     "openDirectory": "Open directory",
     "openTerminal": "Open terminal",
-    "openInEditor": "Open in Editor",
+    "openInEditor": "Open in {{editor}}",
     "openInEditorError": "Failed to open in editor",
     "noThreads": "No threads yet",
     "viewAll": "View all",

@@ -44,9 +44,9 @@ interface GitStatusState {
   clearForBranch: (bk: string) => void;
 }
 
-const FETCH_COOLDOWN_MS = 5_000;
-const BRANCH_FETCH_COOLDOWN_MS = 2_000;
-const PROJECT_STATUS_COOLDOWN_MS = 2_000;
+const FETCH_COOLDOWN_MS = 2_000;
+const BRANCH_FETCH_COOLDOWN_MS = 1_000;
+const PROJECT_STATUS_COOLDOWN_MS = 1_000;
 const _lastFetchByProject = new Map<string, number>();
 const _lastFetchByBranch = new Map<string, number>();
 const _lastFetchByProjectStatus = new Map<string, number>();
@@ -56,6 +56,24 @@ export function _resetCooldowns() {
   _lastFetchByProject.clear();
   _lastFetchByBranch.clear();
   _lastFetchByProjectStatus.clear();
+}
+
+/**
+ * Invalidate cooldowns for specific branchKeys so the next fetch is not throttled.
+ * Called when a WebSocket git:status event delivers fresh data — the server already
+ * computed fresh status, so the next user-triggered fetch should go through immediately.
+ */
+export function invalidateCooldownsForKeys(branchKeys: string[]) {
+  for (const bk of branchKeys) {
+    _lastFetchByBranch.delete(bk);
+    // Also clear project cooldowns when a branch in that project was updated.
+    // branchKey format is "projectId:branch" or just "projectId" for local threads.
+    const projectId = bk.split(':')[0];
+    if (projectId) {
+      _lastFetchByProject.delete(projectId);
+      _lastFetchByProjectStatus.delete(projectId);
+    }
+  }
 }
 
 /**

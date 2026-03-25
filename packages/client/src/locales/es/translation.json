@@ -12,7 +12,7 @@
     "rename": "Renombrar",
     "openDirectory": "Abrir directorio",
     "openTerminal": "Abrir terminal",
-    "openInEditor": "Abrir en Editor",
+    "openInEditor": "Abrir en {{editor}}",
     "openInEditorError": "Error al abrir en editor",
     "noThreads": "No hay hilos aún",
     "viewAll": "Ver todos",

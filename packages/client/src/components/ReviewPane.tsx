@@ -57,12 +57,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
+import { HighlightText } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { api } from '@/lib/api';
-import { openFileInEditor, getEditorLabel } from '@/lib/editor-utils';
+import { openFileInExternalEditor, getEditorLabel } from '@/lib/editor-utils';
 import { FileExtensionIcon } from '@/lib/file-icons';
 import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
@@ -577,8 +578,11 @@ export function ReviewPane() {
 
   // selectedDiffContent removed — diffs now only shown in expanded modal
 
-  const checkedCount = checkedFiles.size;
-  const totalCount = summaries.length;
+  const filteredPaths = useMemo(() => new Set(filteredDiffs.map((d) => d.path)), [filteredDiffs]);
+  const checkedCount = fileSearch
+    ? [...checkedFiles].filter((p) => filteredPaths.has(p)).length
+    : checkedFiles.size;
+  const totalCount = filteredDiffs.length;
 
   const virtualizer = useVirtualizer({
     count: treeRows.length,
@@ -602,10 +606,19 @@ export function ReviewPane() {
   };
 
   const toggleAll = () => {
-    if (checkedFiles.size === summaries.length) {
-      setCheckedFiles(new Set());
+    const targetFiles = filteredDiffs;
+    const targetPaths = new Set(targetFiles.map((d) => d.path));
+    const allChecked = targetFiles.every((d) => checkedFiles.has(d.path));
+    if (allChecked) {
+      // Uncheck only the visible (filtered) files, keep others checked
+      setCheckedFiles((prev) => {
+        const next = new Set(prev);
+        for (const p of targetPaths) next.delete(p);
+        return next;
+      });
     } else {
-      setCheckedFiles(new Set(summaries.map((d) => d.path)));
+      // Check all visible (filtered) files, keep existing checked
+      setCheckedFiles((prev) => new Set([...prev, ...targetPaths]));
     }
   };
 
@@ -1110,6 +1123,28 @@ export function ReviewPane() {
                 {t('review.fetchOrigin', 'Fetch from origin')}
               </TooltipContent>
             </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handlePushOnly}
+                  disabled={pushInProgress || !gitStatus || gitStatus.unpushedCommitCount === 0}
+                  className="text-muted-foreground"
+                  data-testid="review-push-toolbar"
+                >
+                  <Upload className={cn('h-3.5 w-3.5', pushInProgress && 'animate-pulse')} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">
+                {gitStatus && gitStatus.unpushedCommitCount > 0
+                  ? t('review.readyToPush', {
+                      count: gitStatus.unpushedCommitCount,
+                      defaultValue: `${gitStatus.unpushedCommitCount} commit(s) ready to push`,
+                    })
+                  : t('review.pushToOrigin', 'Push to origin')}
+              </TooltipContent>
+            </Tooltip>
             <Popover
               open={logOpen}
               onOpenChange={(open) => {
@@ -1246,9 +1281,9 @@ export function ReviewPane() {
                   <button
                     role="checkbox"
                     aria-checked={
-                      checkedFiles.size === summaries.length
+                      checkedCount === totalCount && totalCount > 0
                         ? true
-                        : checkedFiles.size > 0
+                        : checkedCount > 0
                           ? 'mixed'
                           : false
                     }
@@ -1257,14 +1292,14 @@ export function ReviewPane() {
                     onClick={toggleAll}
                     className={cn(
                       'flex items-center justify-center h-3.5 w-3.5 rounded border transition-colors flex-shrink-0',
-                      checkedFiles.size === summaries.length
+                      checkedCount === totalCount && totalCount > 0
                         ? 'bg-primary border-primary text-primary-foreground'
-                        : checkedFiles.size > 0
+                        : checkedCount > 0
                           ? 'bg-primary/50 border-primary text-primary-foreground'
                           : 'border-muted-foreground/40',
                     )}
                   >
-                    {checkedFiles.size > 0 && <Check className="h-2.5 w-2.5" />}
+                    {checkedCount > 0 && <Check className="h-2.5 w-2.5" />}
                   </button>
                   <span className="text-xs text-muted-foreground">
                     {checkedCount}/{totalCount} {t('review.selected', 'selected')}
@@ -1274,55 +1309,98 @@ export function ReviewPane() {
             </div>
           )}
 
-          {/* File list (virtualized) */}
-          {loading && summaries.length === 0 ? (
-            <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t('review.loading', 'Loading changes\u2026')}
-            </div>
-          ) : loadError ? (
-            <div className="flex flex-col items-center gap-2 p-4 text-xs text-muted-foreground">
-              <AlertTriangle className="h-4 w-4 text-status-error" />
-              <p>{t('review.loadFailed', 'Failed to load changes')}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refresh}
-                className="mt-1 gap-1.5"
-                data-testid="review-retry"
-              >
-                <RotateCcw className="h-3 w-3" />
-                {t('common.retry', 'Retry')}
-              </Button>
-            </div>
-          ) : summaries.length === 0 && !loading ? (
-            <p className="p-3 text-xs text-muted-foreground">{t('review.noChanges')}</p>
-          ) : filteredDiffs.length === 0 && !loading ? (
-            <p className="p-3 text-xs text-muted-foreground">
-              {t('review.noMatchingFiles', 'No matching files')}
-            </p>
-          ) : (
-            <div
-              ref={fileListRef}
-              className={cn('flex-1 overflow-auto', loading && 'opacity-60 pointer-events-none')}
-            >
-              <div
-                style={{
-                  height: `${virtualizer.getTotalSize()}px`,
-                  width: '100%',
-                  position: 'relative',
-                }}
-              >
-                {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const row = treeRows[virtualRow.index];
-                  const paddingLeft = `${8 + row.depth * INDENT_PX}px`;
+          {/* File list (virtualized) — wrapper ensures flex-1 so commit area stays pinned to bottom */}
+          <div ref={fileListRef} className="min-h-0 flex-1 overflow-auto">
+            {loading && summaries.length === 0 ? (
+              <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t('review.loading', 'Loading changes\u2026')}
+              </div>
+            ) : loadError ? (
+              <div className="flex flex-col items-center gap-2 p-4 text-xs text-muted-foreground">
+                <AlertTriangle className="h-4 w-4 text-status-error" />
+                <p>{t('review.loadFailed', 'Failed to load changes')}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={refresh}
+                  className="mt-1 gap-1.5"
+                  data-testid="review-retry"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  {t('common.retry', 'Retry')}
+                </Button>
+              </div>
+            ) : summaries.length === 0 && !loading ? (
+              <p className="p-3 text-xs text-muted-foreground">{t('review.noChanges')}</p>
+            ) : filteredDiffs.length === 0 && !loading ? (
+              <p className="p-3 text-xs text-muted-foreground">
+                {t('review.noMatchingFiles', 'No matching files')}
+              </p>
+            ) : (
+              <div className={cn(loading && 'opacity-60 pointer-events-none')}>
+                <div
+                  style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const row = treeRows[virtualRow.index];
+                    const paddingLeft = `${8 + row.depth * INDENT_PX}px`;
 
-                  if (row.kind === 'folder') {
-                    const isCollapsed = collapsedFolders.has(row.path);
+                    if (row.kind === 'folder') {
+                      const isCollapsed = collapsedFolders.has(row.path);
+                      return (
+                        <div
+                          key={`folder-${row.path}`}
+                          className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                            paddingLeft,
+                          }}
+                          onClick={() => toggleFolder(row.path)}
+                          data-testid={`review-folder-${row.path}`}
+                        >
+                          <ChevronRight
+                            className={cn(
+                              'h-3.5 w-3.5 flex-shrink-0 transition-transform',
+                              !isCollapsed && 'rotate-90',
+                            )}
+                          />
+                          {isCollapsed ? (
+                            <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground/70" />
+                          ) : (
+                            <FolderOpen className="h-4 w-4 flex-shrink-0 text-muted-foreground/70" />
+                          )}
+                          <HighlightText
+                            text={row.label}
+                            query={fileSearch}
+                            className="flex-1 truncate font-mono-explorer text-xs"
+                          />
+                          <DiffStats
+                            linesAdded={row.additions}
+                            linesDeleted={row.deletions}
+                            size="xs"
+                          />
+                          {/* Spacers to align with file rows (status letter + 3-dot menu) */}
+                          <span className="invisible flex-shrink-0 text-xs font-medium">M</span>
+                          <span className="h-6 w-6 flex-shrink-0" />
+                        </div>
+                      );
+                    }
+
+                    const f = row.file;
+                    const isChecked = checkedFiles.has(f.path);
                     return (
                       <div
-                        key={`folder-${row.path}`}
-                        className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
+                        key={f.path}
                         style={{
                           position: 'absolute',
                           top: 0,
@@ -1332,255 +1410,215 @@ export function ReviewPane() {
                           transform: `translateY(${virtualRow.start}px)`,
                           paddingLeft,
                         }}
-                        onClick={() => toggleFolder(row.path)}
-                        data-testid={`review-folder-${row.path}`}
-                      >
-                        <ChevronRight
-                          className={cn(
-                            'h-3.5 w-3.5 flex-shrink-0 transition-transform',
-                            !isCollapsed && 'rotate-90',
-                          )}
-                        />
-                        {isCollapsed ? (
-                          <Folder className="h-4 w-4 flex-shrink-0 text-muted-foreground/70" />
-                        ) : (
-                          <FolderOpen className="h-4 w-4 flex-shrink-0 text-muted-foreground/70" />
+                        className={cn(
+                          'group flex items-center gap-1.5 text-xs cursor-pointer transition-colors',
+                          selectedFile === f.path
+                            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                            : 'hover:bg-sidebar-accent/50 text-muted-foreground',
                         )}
-                        <span className="flex-1 truncate font-mono-explorer text-xs">
-                          {row.label}
-                        </span>
+                        onClick={() => {
+                          if (Date.now() - dropdownCloseRef.current < 400) return;
+                          setSelectedFile(f.path);
+                          setExpandedFile(f.path);
+                        }}
+                      >
+                        <button
+                          role="checkbox"
+                          aria-checked={isChecked}
+                          aria-label={t('review.selectFile', {
+                            file: f.path,
+                            defaultValue: `Select ${f.path}`,
+                          })}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFile(f.path);
+                          }}
+                          className={cn(
+                            'flex items-center justify-center h-3.5 w-3.5 rounded border transition-colors flex-shrink-0',
+                            isChecked
+                              ? 'bg-primary border-primary text-primary-foreground'
+                              : 'border-muted-foreground/40',
+                          )}
+                        >
+                          {isChecked && <Check className="h-2.5 w-2.5" />}
+                        </button>
+                        <FileExtensionIcon
+                          filePath={f.path}
+                          className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
+                        />
+                        <HighlightText
+                          text={f.path.split('/').pop() || ''}
+                          query={fileSearch}
+                          className="flex-1 truncate font-mono-explorer text-xs"
+                        />
                         <DiffStats
-                          linesAdded={row.additions}
-                          linesDeleted={row.deletions}
+                          linesAdded={f.additions ?? 0}
+                          linesDeleted={f.deletions ?? 0}
                           size="xs"
                         />
-                        {/* Spacers to align with file rows (status letter + 3-dot menu) */}
-                        <span className="invisible flex-shrink-0 text-xs font-medium">M</span>
-                        <span className="h-6 w-6 flex-shrink-0" />
-                      </div>
-                    );
-                  }
-
-                  const f = row.file;
-                  const isChecked = checkedFiles.has(f.path);
-                  return (
-                    <div
-                      key={f.path}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: `${virtualRow.size}px`,
-                        transform: `translateY(${virtualRow.start}px)`,
-                        paddingLeft,
-                      }}
-                      className={cn(
-                        'group flex items-center gap-1.5 text-xs cursor-pointer transition-colors',
-                        selectedFile === f.path
-                          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                          : 'hover:bg-sidebar-accent/50 text-muted-foreground',
-                      )}
-                      onClick={() => {
-                        if (Date.now() - dropdownCloseRef.current < 400) return;
-                        setSelectedFile(f.path);
-                        setExpandedFile(f.path);
-                      }}
-                    >
-                      <button
-                        role="checkbox"
-                        aria-checked={isChecked}
-                        aria-label={t('review.selectFile', {
-                          file: f.path,
-                          defaultValue: `Select ${f.path}`,
-                        })}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFile(f.path);
-                        }}
-                        className={cn(
-                          'flex items-center justify-center h-3.5 w-3.5 rounded border transition-colors flex-shrink-0',
-                          isChecked
-                            ? 'bg-primary border-primary text-primary-foreground'
-                            : 'border-muted-foreground/40',
-                        )}
-                      >
-                        {isChecked && <Check className="h-2.5 w-2.5" />}
-                      </button>
-                      <FileExtensionIcon
-                        filePath={f.path}
-                        className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
-                      />
-                      <span className="flex-1 truncate font-mono-explorer text-xs">
-                        {f.path.split('/').pop()}
-                      </span>
-                      <DiffStats
-                        linesAdded={f.additions ?? 0}
-                        linesDeleted={f.deletions ?? 0}
-                        size="xs"
-                      />
-                      <span
-                        className="flex-shrink-0 text-xs font-medium"
-                        style={{
-                          color:
-                            f.status === 'added'
-                              ? 'hsl(142 40% 45%)'
-                              : f.status === 'modified'
-                                ? 'hsl(30 90% 55%)'
-                                : f.status === 'deleted'
-                                  ? 'hsl(0 45% 55%)'
-                                  : 'hsl(200 80% 60%)',
-                        }}
-                      >
-                        {f.status === 'added'
-                          ? 'A'
-                          : f.status === 'modified'
-                            ? 'M'
-                            : f.status === 'deleted'
-                              ? 'D'
-                              : 'R'}
-                      </span>
-                      <DropdownMenu
-                        onOpenChange={(open) => {
-                          if (!open) dropdownCloseRef.current = Date.now();
-                        }}
-                      >
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                            }}
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                            }}
-                            aria-label={t('review.moreActions', 'More actions')}
-                            className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="min-w-[220px]"
-                          onCloseAutoFocus={(e) => e.preventDefault()}
+                        <span
+                          className="flex-shrink-0 text-xs font-medium"
+                          style={{
+                            color:
+                              f.status === 'added'
+                                ? 'hsl(142 40% 45%)'
+                                : f.status === 'modified'
+                                  ? 'hsl(30 90% 55%)'
+                                  : f.status === 'deleted'
+                                    ? 'hsl(0 45% 55%)'
+                                    : 'hsl(200 80% 60%)',
+                          }}
                         >
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const fullPath = basePath ? `${basePath}/${f.path}` : f.path;
-                              openFileInEditor(fullPath);
-                            }}
+                          {f.status === 'added'
+                            ? 'A'
+                            : f.status === 'modified'
+                              ? 'M'
+                              : f.status === 'deleted'
+                                ? 'D'
+                                : 'R'}
+                        </span>
+                        <DropdownMenu
+                          onOpenChange={(open) => {
+                            if (!open) dropdownCloseRef.current = Date.now();
+                          }}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                              }}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                              }}
+                              aria-label={t('review.moreActions', 'More actions')}
+                              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            className="min-w-[220px]"
+                            onCloseAutoFocus={(e) => e.preventDefault()}
                           >
-                            <ExternalLink />
-                            {t('review.openInEditor', { editor: getEditorLabel() })}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRevertFile(f.path);
-                            }}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <Undo2 />
-                            {t('review.discardChanges')}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleIgnore(f.path);
-                            }}
-                          >
-                            <EyeOff />
-                            {t('review.ignoreFile')}
-                          </DropdownMenuItem>
-                          {(() => {
-                            const folders = getParentFolders(f.path);
-                            if (folders.length === 0) return null;
-                            if (folders.length === 1) {
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const fullPath = basePath ? `${basePath}/${f.path}` : f.path;
+                                openFileInExternalEditor(fullPath);
+                              }}
+                            >
+                              <ExternalLink />
+                              {t('review.openInEditor', { editor: getEditorLabel() })}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRevertFile(f.path);
+                              }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Undo2 />
+                              {t('review.discardChanges')}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleIgnore(f.path);
+                              }}
+                            >
+                              <EyeOff />
+                              {t('review.ignoreFile')}
+                            </DropdownMenuItem>
+                            {(() => {
+                              const folders = getParentFolders(f.path);
+                              if (folders.length === 0) return null;
+                              if (folders.length === 1) {
+                                return (
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleIgnore(folders[0]);
+                                    }}
+                                  >
+                                    <FolderX />
+                                    {t('review.ignoreFolder')}
+                                  </DropdownMenuItem>
+                                );
+                              }
+                              return (
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger
+                                    onClick={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                  >
+                                    <FolderX />
+                                    {t('review.ignoreFolder')}
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent
+                                    onClick={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                  >
+                                    {folders.map((folder) => (
+                                      <DropdownMenuItem
+                                        key={folder}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleIgnore(folder);
+                                        }}
+                                      >
+                                        {folder}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                              );
+                            })()}
+                            {(() => {
+                              const ext = getFileExtension(f.path);
+                              if (!ext) return null;
                               return (
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleIgnore(folders[0]);
+                                    handleIgnore(`*${ext}`);
                                   }}
                                 >
-                                  <FolderX />
-                                  {t('review.ignoreFolder')}
+                                  <EyeOff />
+                                  {t('review.ignoreExtension', { ext })}
                                 </DropdownMenuItem>
                               );
-                            }
-                            return (
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger
-                                  onClick={(e) => e.stopPropagation()}
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                >
-                                  <FolderX />
-                                  {t('review.ignoreFolder')}
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent
-                                  onClick={(e) => e.stopPropagation()}
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                >
-                                  {folders.map((folder) => (
-                                    <DropdownMenuItem
-                                      key={folder}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleIgnore(folder);
-                                      }}
-                                    >
-                                      {folder}
-                                    </DropdownMenuItem>
-                                  ))}
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
-                            );
-                          })()}
-                          {(() => {
-                            const ext = getFileExtension(f.path);
-                            if (!ext) return null;
-                            return (
-                              <DropdownMenuItem
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleIgnore(`*${ext}`);
-                                }}
-                              >
-                                <EyeOff />
-                                {t('review.ignoreExtension', { ext })}
-                              </DropdownMenuItem>
-                            );
-                          })()}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCopyPath(f.path, false);
-                            }}
-                          >
-                            <Copy />
-                            {t('review.copyFilePath')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleCopyPath(f.path, true);
-                            }}
-                          >
-                            <ClipboardCopy />
-                            {t('review.copyRelativePath')}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  );
-                })}
+                            })()}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyPath(f.path, false);
+                              }}
+                            >
+                              <Copy />
+                              {t('review.copyFilePath')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyPath(f.path, true);
+                              }}
+                            >
+                              <ClipboardCopy />
+                              {t('review.copyRelativePath')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Commit controls */}
           {summaries.length > 0 && commitInProgress && (

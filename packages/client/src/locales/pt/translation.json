@@ -12,7 +12,7 @@
     "rename": "Renomear",
     "openDirectory": "Abrir diretório",
     "openTerminal": "Abrir terminal",
-    "openInEditor": "Abrir no Editor",
+    "openInEditor": "Abrir no {{editor}}",
     "openInEditorError": "Falha ao abrir no editor",
     "noThreads": "Nenhuma thread ainda",
     "viewAll": "Ver todos",

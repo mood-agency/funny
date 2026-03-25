@@ -80,7 +80,7 @@ export const gitRoutes = new Hono<HonoEnv>();
 
 // In-memory cache for bulk git status to avoid spawning excessive git processes.
 const _gitStatusCache = new Map<string, { data: any; ts: number }>();
-const GIT_STATUS_CACHE_TTL_MS = 5_000; // 5 seconds
+const GIT_STATUS_CACHE_TTL_MS = 2_000; // 2 seconds
 
 /** Invalidate cached git status for a project after mutating git operations. */
 async function invalidateGitStatusCache(threadId: string) {

@@ -50,6 +50,7 @@ function getToolCallRepo() {
     _toolCallRepo = createToolCallRepository({
       db,
       schema: schema as any,
+      dbAll,
       dbGet,
       dbRun,
     });

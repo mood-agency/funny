@@ -27,10 +27,17 @@ export function hasEditorUri(editor?: Editor): boolean {
  * or when the internal editor is enabled (so clicks go through openFileInEditor instead).
  */
 export function toEditorUri(filePath: string, editor?: Editor): string | null {
-  const { defaultEditor, useInternalEditor } = useSettingsStore.getState();
+  const { useInternalEditor } = useSettingsStore.getState();
   if (useInternalEditor) return null;
+  return toExternalEditorUri(filePath, editor);
+}
 
-  const e = editor ?? defaultEditor;
+/**
+ * Generate an editor URI regardless of the internal editor setting.
+ * Returns `null` only for editors without a URI scheme (sublime, vim).
+ */
+function toExternalEditorUri(filePath: string, editor?: Editor): string | null {
+  const e = editor ?? useSettingsStore.getState().defaultEditor;
   const scheme = EDITOR_URI_SCHEMES[e];
   if (!scheme) return null;
 
@@ -80,9 +87,16 @@ export function openFileInEditor(filePath: string, editor?: Editor): void {
     return;
   }
 
-  // Otherwise use external editor
-  const e = editor ?? defaultEditor;
-  const uri = toEditorUri(filePath, e);
+  openFileInExternalEditor(filePath, editor);
+}
+
+/**
+ * Open a file in the external editor, bypassing the internal editor setting.
+ * Always launches the configured external editor (URI protocol or server API).
+ */
+export function openFileInExternalEditor(filePath: string, editor?: Editor): void {
+  const e = editor ?? useSettingsStore.getState().defaultEditor;
+  const uri = toExternalEditorUri(filePath, e);
   if (uri) {
     window.location.href = uri;
   } else {
@@ -96,9 +110,8 @@ export function openFileInEditor(filePath: string, editor?: Editor): void {
  * Always uses the external editor — the internal editor cannot open directories.
  */
 export function openDirectoryInEditor(dirPath: string, editor?: Editor): void {
-  const { defaultEditor } = useSettingsStore.getState();
-  const e = editor ?? defaultEditor;
-  const uri = toEditorUri(dirPath, e);
+  const e = editor ?? useSettingsStore.getState().defaultEditor;
+  const uri = toExternalEditorUri(dirPath, e);
   if (uri) {
     window.location.href = uri;
   } else {

@@ -1100,7 +1100,7 @@ export interface GitStatusSummary {
 }
 
 // ─── Result cache for expensive git queries ────────────────
-const STATUS_CACHE_TTL = 2_000; // 2 seconds
+const STATUS_CACHE_TTL = 1_000; // 1 second
 
 const statusCache = new Map<string, { data: GitStatusSummary; ts: number }>();
 

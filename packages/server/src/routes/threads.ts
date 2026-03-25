@@ -10,6 +10,7 @@ import {
   createMessageRepository,
   createCommentRepository,
   createStageHistoryRepository,
+  createToolCallRepository,
 } from '@funny/shared/repositories';
 import { Hono } from 'hono';
 
@@ -41,6 +42,7 @@ const threadRepo = createThreadRepository({
   stageHistoryRepo,
 });
 const messageRepo = createMessageRepository({ db, schema: schema as any, dbAll, dbGet, dbRun });
+const toolCallRepo = createToolCallRepository({ db, schema: schema as any, dbAll, dbGet, dbRun });
 
 // ── Runner communication helpers ─────────────────────────────────
 
@@ -348,6 +350,13 @@ threadRoutes.get('/:id/events', async (c) => {
   const { getThreadEvents } = await import('../services/thread-event-repository.js');
   const events = await getThreadEvents(id);
   return c.json({ events });
+});
+
+// GET /api/threads/:id/touched-files — all unique file paths modified by Write/Edit/NotebookEdit
+threadRoutes.get('/:id/touched-files', async (c) => {
+  const id = c.req.param('id');
+  const files = await toolCallRepo.getTouchedFiles(id);
+  return c.json({ files });
 });
 
 // GET /api/threads/:id/queue — message queue is in the server's DB

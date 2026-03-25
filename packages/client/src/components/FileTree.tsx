@@ -27,7 +27,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { openFileInEditor, getEditorLabel } from '@/lib/editor-utils';
+import { openFileInExternalEditor, getEditorLabel } from '@/lib/editor-utils';
 import { FileExtensionIcon } from '@/lib/file-icons';
 import { cn } from '@/lib/utils';
 
@@ -381,7 +381,7 @@ export function FileTree({
               onClick={(e) => {
                 e.stopPropagation();
                 const fullPath = basePath ? `${basePath}/${f.path}` : f.path;
-                openFileInEditor(fullPath);
+                openFileInExternalEditor(fullPath);
               }}
             >
               <ExternalLink />

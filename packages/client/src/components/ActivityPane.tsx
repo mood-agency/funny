@@ -128,44 +128,61 @@ function useRunningAgents(): RunningAgent[] {
   return agents;
 }
 
-/** File-modifying tool names whose file_path input we track. */
-const FILE_MODIFYING_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit']);
-
 /**
- * Extract the set of absolute file paths touched by this thread's tool calls.
- * Only considers Write, Edit, and NotebookEdit — tools that actually modify files.
- * Returns a stable Set reference when the paths haven't changed.
+ * Fetch ALL file paths touched by file-modifying tool calls (Write, Edit, NotebookEdit)
+ * for the active thread. Uses a dedicated API endpoint that queries the database directly,
+ * so it returns complete results regardless of message pagination limits.
  */
 function useThreadTouchedPaths(): Set<string> {
+  const threadId = useThreadStore((s) => s.activeThread?.id);
+  const isRunning = useThreadStore((s) => s.activeThread?.status === 'running');
+  const [paths, setPaths] = useState<Set<string>>(new Set());
   const prevRef = useRef<Set<string>>(new Set());
+  const prevThreadIdRef = useRef<string | undefined>(undefined);
 
-  return useThreadStore((s) => {
-    const messages = s.activeThread?.messages;
-    if (!messages) {
-      if (prevRef.current.size === 0) return prevRef.current;
+  useEffect(() => {
+    // Clear when switching threads
+    if (threadId !== prevThreadIdRef.current) {
+      prevThreadIdRef.current = threadId;
+      setPaths(new Set());
       prevRef.current = new Set();
-      return prevRef.current;
     }
 
-    const paths = new Set<string>();
-    for (const msg of messages) {
-      for (const tc of (msg.toolCalls ?? []) as any[]) {
-        if (FILE_MODIFYING_TOOLS.has(tc.name)) {
-          const parsed = formatInput(tc.input);
-          const fp = (parsed.file_path as string) ?? (parsed.notebook_path as string) ?? null;
-          if (fp) paths.add(fp);
+    if (!threadId) return;
+
+    let cancelled = false;
+
+    const fetchPaths = async () => {
+      const result = await api.getTouchedFiles(threadId);
+      if (cancelled) return;
+      if (result.isOk()) {
+        const newPaths = new Set(result.value.files);
+        const prev = prevRef.current;
+        // Stable reference check
+        if (newPaths.size !== prev.size || ![...newPaths].every((p) => prev.has(p))) {
+          prevRef.current = newPaths;
+          setPaths(newPaths);
         }
       }
+    };
+
+    fetchPaths();
+
+    // Re-fetch periodically while the thread is running to pick up new files
+    if (isRunning) {
+      const interval = setInterval(fetchPaths, 5000);
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
     }
 
-    // Stable reference check
-    const prev = prevRef.current;
-    if (prev.size === paths.size && [...paths].every((p) => prev.has(p))) {
-      return prev;
-    }
-    prevRef.current = paths;
-    return paths;
-  });
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId, isRunning]);
+
+  return paths;
 }
 
 function useActivityFiles() {

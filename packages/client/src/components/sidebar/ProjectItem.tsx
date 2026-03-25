@@ -33,7 +33,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useStableNavigate } from '@/hooks/use-stable-navigate';
 import { api } from '@/lib/api';
-import { openDirectoryInEditor } from '@/lib/editor-utils';
+import { openDirectoryInEditor, getEditorLabel } from '@/lib/editor-utils';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
 import { useGitStatusStore, branchKey as computeBranchKey } from '@/stores/git-status-store';
@@ -407,7 +407,7 @@ export const ProjectItem = memo(function ProjectItem({
                   }}
                 >
                   <SquareTerminal className="h-3.5 w-3.5" />
-                  {t('sidebar.openInEditor')}
+                  {t('sidebar.openInEditor', { editor: getEditorLabel() })}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   data-testid="project-menu-settings"

@@ -12,18 +12,24 @@
 import { eq, and, isNull, inArray, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
-import type { AppDatabase, dbGet as dbGetFn, dbRun as dbRunFn } from '../db/connection.js';
+import type {
+  AppDatabase,
+  dbAll as dbAllFn,
+  dbGet as dbGetFn,
+  dbRun as dbRunFn,
+} from '../db/connection.js';
 import type * as sqliteSchema from '../db/schema.sqlite.js';
 
 export interface ToolCallRepositoryDeps {
   db: AppDatabase;
   schema: typeof sqliteSchema;
+  dbAll: typeof dbAllFn;
   dbGet: typeof dbGetFn;
   dbRun: typeof dbRunFn;
 }
 
 export function createToolCallRepository(deps: ToolCallRepositoryDeps) {
-  const { db, schema, dbGet, dbRun } = deps;
+  const { db, schema, dbAll, dbGet, dbRun } = deps;
 
   /** Insert a new tool call, returns the generated ID */
   async function insertToolCall(data: {
@@ -96,11 +102,45 @@ export function createToolCallRepository(deps: ToolCallRepositoryDeps) {
     );
   }
 
+  /**
+   * Get unique file paths touched by file-modifying tool calls (Write, Edit, NotebookEdit)
+   * for a given thread. Queries ALL tool calls regardless of message pagination.
+   */
+  async function getTouchedFiles(threadId: string): Promise<string[]> {
+    const FILE_MODIFYING_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
+    const rows = await dbAll(
+      db
+        .select({ input: schema.toolCalls.input })
+        .from(schema.toolCalls)
+        .innerJoin(schema.messages, eq(schema.toolCalls.messageId, schema.messages.id))
+        .where(
+          and(
+            eq(schema.messages.threadId, threadId),
+            inArray(schema.toolCalls.name, FILE_MODIFYING_TOOLS),
+          ),
+        ),
+    );
+
+    const paths = new Set<string>();
+    for (const row of rows) {
+      if (!row.input) continue;
+      try {
+        const parsed = JSON.parse(row.input);
+        const fp = parsed.file_path ?? parsed.notebook_path ?? null;
+        if (fp) paths.add(fp);
+      } catch {
+        // skip invalid JSON
+      }
+    }
+    return Array.from(paths).sort();
+  }
+
   return {
     insertToolCall,
     updateToolCallOutput,
     findToolCall,
     getToolCall,
     findLastUnansweredInteractiveToolCall,
+    getTouchedFiles,
   };
 }

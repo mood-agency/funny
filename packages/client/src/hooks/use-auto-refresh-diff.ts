@@ -17,7 +17,7 @@ import { useReviewPaneStore } from '@/stores/review-pane-store';
 export function useAutoRefreshDiff(
   threadId: string | undefined,
   onRefresh: () => void,
-  debounceMs = 2000,
+  debounceMs = 1000,
   isVisible = true,
 ) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

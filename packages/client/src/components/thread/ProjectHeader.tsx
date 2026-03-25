@@ -58,6 +58,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { usePreviewWindow } from '@/hooks/use-preview-window';
 import { useStableNavigate } from '@/hooks/use-stable-navigate';
 import { api } from '@/lib/api';
+import { getEditorLabel } from '@/lib/editor-utils';
 import { stageConfig } from '@/lib/thread-utils';
 import { buildPath } from '@/lib/url';
 import { useGitStatusStore, useGitStatusForThread } from '@/stores/git-status-store';
@@ -465,7 +466,6 @@ export const ProjectHeader = memo(function ProjectHeader() {
     (effectiveGitStatus.linesAdded > 0 ||
       effectiveGitStatus.linesDeleted > 0 ||
       effectiveGitStatus.dirtyFileCount > 0);
-
   // Fetch git status when activeThread changes
   useEffect(() => {
     if (activeThreadId) {
@@ -642,7 +642,9 @@ export const ProjectHeader = memo(function ProjectHeader() {
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent>{t('sidebar.openInEditor', 'Open in Editor')}</TooltipContent>
+                <TooltipContent>
+                  {t('sidebar.openInEditor', { editor: getEditorLabel() })}
+                </TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end">
                 {(Object.keys(editorLabels) as Editor[]).map((editor) => (

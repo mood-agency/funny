@@ -5,7 +5,11 @@ import { toast } from 'sonner';
 import { closePreviewForCommand } from '@/hooks/use-preview-window';
 import { createClientLogger } from '@/lib/client-logger';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
-import { useGitStatusStore, _resetCooldowns } from '@/stores/git-status-store';
+import {
+  useGitStatusStore,
+  _resetCooldowns,
+  invalidateCooldownsForKeys,
+} from '@/stores/git-status-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { useThreadStore } from '@/stores/thread-store';
 
@@ -250,6 +254,10 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
     }
     case 'git:status': {
       useGitStatusStore.getState().updateFromWS(data.statuses);
+      // Reset cooldowns for the updated branch keys so subsequent fetches
+      // are not throttled — the server just sent fresh data.
+      const updatedKeys = (data.statuses as Array<{ branchKey: string }>).map((s) => s.branchKey);
+      if (updatedKeys.length > 0) invalidateCooldownsForKeys(updatedKeys);
       import('@/stores/review-pane-store').then(({ useReviewPaneStore }) => {
         useReviewPaneStore.getState().notifyDirty(threadId);
       });
