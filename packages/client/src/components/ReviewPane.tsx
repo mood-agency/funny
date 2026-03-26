@@ -399,7 +399,7 @@ export function ReviewPane() {
       : api.projectGitLog(projectModeId!, 50, 0);
     unpushedPromise.then((r) => {
       if (refreshEpochRef.current !== epoch) return;
-      if (r.isOk()) setUnpushedCommitCount(r.value.unpushedHashes.length);
+      if (r.isOk()) setUnpushedCommitCount(r.value.unpushedHashes?.length ?? 0);
     });
 
     const result = effectiveThreadId

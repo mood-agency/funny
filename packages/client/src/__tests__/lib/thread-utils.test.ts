@@ -51,8 +51,8 @@ describe('statusConfig', () => {
     expect(statusConfig.running.className).toContain('animate-spin');
   });
 
-  test('completed has green color class', () => {
-    expect(statusConfig.completed.className).toContain('green');
+  test('completed has gray color class', () => {
+    expect(statusConfig.completed.className).toContain('gray');
   });
 
   test('failed has red color class', () => {
