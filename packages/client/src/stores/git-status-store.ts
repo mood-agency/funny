@@ -38,8 +38,8 @@ interface GitStatusState {
   _loadingProjectStatus: Set<string>;
 
   fetchForProject: (projectId: string) => Promise<void>;
-  fetchForThread: (threadId: string) => Promise<void>;
-  fetchProjectStatus: (projectId: string) => Promise<void>;
+  fetchForThread: (threadId: string, force?: boolean) => Promise<void>;
+  fetchProjectStatus: (projectId: string, force?: boolean) => Promise<void>;
   updateFromWS: (statuses: GitStatusInfo[]) => void;
   clearForBranch: (bk: string) => void;
 }
@@ -196,26 +196,28 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
     });
   },
 
-  fetchForThread: async (threadId) => {
+  fetchForThread: async (threadId, force) => {
     // Resolve branchKey from server mapping or compute client-side from thread data.
     // This ensures threads sharing a branch share the same cooldown key.
     const bk = resolveBranchKey(threadId, get().threadToBranchKey);
     const pendingKey = `pending:${threadId}`;
     const cooldownKey = bk || pendingKey;
 
-    if (bk && get()._loadingBranchKeys.has(bk)) {
+    if (!force && bk && get()._loadingBranchKeys.has(bk)) {
       return;
     }
     // Skip if fetched recently (shared cooldown per branch).
     // Check both the resolved key and the pending key to prevent duplicates
     // when the branchKey becomes known mid-flight (race between pending and resolved).
     const now = Date.now();
-    const lastFetch = Math.max(
-      _lastFetchByBranch.get(cooldownKey) ?? 0,
-      bk ? (_lastFetchByBranch.get(pendingKey) ?? 0) : 0,
-    );
-    if (now - lastFetch < BRANCH_FETCH_COOLDOWN_MS) {
-      return;
+    if (!force) {
+      const lastFetch = Math.max(
+        _lastFetchByBranch.get(cooldownKey) ?? 0,
+        bk ? (_lastFetchByBranch.get(pendingKey) ?? 0) : 0,
+      );
+      if (now - lastFetch < BRANCH_FETCH_COOLDOWN_MS) {
+        return;
+      }
     }
     _lastFetchByBranch.set(cooldownKey, now);
     // Also stamp the pending key so a concurrent call using the other key sees the cooldown
@@ -262,11 +264,13 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
     }
   },
 
-  fetchProjectStatus: async (projectId) => {
-    if (get()._loadingProjectStatus.has(projectId)) return;
+  fetchProjectStatus: async (projectId, force) => {
+    if (!force && get()._loadingProjectStatus.has(projectId)) return;
     const now = Date.now();
-    const lastFetch = _lastFetchByProjectStatus.get(projectId) ?? 0;
-    if (now - lastFetch < PROJECT_STATUS_COOLDOWN_MS) return;
+    if (!force) {
+      const lastFetch = _lastFetchByProjectStatus.get(projectId) ?? 0;
+      if (now - lastFetch < PROJECT_STATUS_COOLDOWN_MS) return;
+    }
     _lastFetchByProjectStatus.set(projectId, now);
     set((s) => {
       if (s._loadingProjectStatus.has(projectId)) return {};

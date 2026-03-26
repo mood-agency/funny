@@ -1475,8 +1475,17 @@ export function getLog(
 ): ResultAsync<GitLogEntry[], DomainError> {
   const native = getNativeGit();
   if (native && !baseBranch && skip === 0) {
-    return ResultAsync.fromPromise(native.getLog(cwd, limit), (error) =>
-      processError(String(error), 1, ''),
+    return ResultAsync.fromPromise(
+      native.getLog(cwd, limit).then((entries) =>
+        entries.map((e) => ({
+          hash: e.hash,
+          shortHash: e.shortHash,
+          author: e.author,
+          relativeDate: e.relativeDate,
+          message: e.message,
+        })),
+      ),
+      (error) => processError(String(error), 1, ''),
     );
   }
   const SEP = '@@SEP@@';
@@ -1498,6 +1507,41 @@ export function getLog(
         return { hash, shortHash, author, relativeDate, message };
       });
   });
+}
+
+/**
+ * Get the set of commit hashes that exist locally but not on any remote.
+ * Useful for marking unpushed commits in the log UI.
+ */
+export function getUnpushedHashes(cwd: string): ResultAsync<Set<string>, DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await gitRead(['rev-list', 'HEAD', '--not', '--remotes'], {
+        cwd,
+        reject: false,
+      });
+      if (result.exitCode !== 0 || !result.stdout.trim()) return new Set<string>();
+      return new Set(result.stdout.trim().split('\n'));
+    })(),
+    (error) => processError(String(error), 1, ''),
+  );
+}
+
+/**
+ * Get the full commit message body (everything after the subject line) for a single commit.
+ */
+export function getCommitBody(cwd: string, hash: string): ResultAsync<string, DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await gitRead(['log', '-1', '--format=%b', hash], {
+        cwd,
+        reject: false,
+      });
+      if (result.exitCode !== 0) return '';
+      return result.stdout.trim();
+    })(),
+    (error) => processError(String(error), 1, ''),
+  );
 }
 
 // ─── Commit details ──────────────────────────────────────

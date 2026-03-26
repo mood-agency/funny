@@ -1,6 +1,16 @@
 import type { FileDiffSummary, FileStatus } from '@funny/shared';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { GitCommit, Loader2, RefreshCw, Search, X } from 'lucide-react';
+import {
+  ArrowUp,
+  CloudDownload,
+  Download,
+  GitCommit,
+  Loader2,
+  RefreshCw,
+  Search,
+  Upload,
+  X,
+} from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -11,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
+import { shortRelativeDate } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -38,7 +49,6 @@ interface CommitFile {
 // ── Constants ──
 
 const PAGE_SIZE = 50;
-const COMMIT_ROW_HEIGHT = 58; // ~px per commit row
 const SELECTED_COMMIT_KEY = 'history_selected_commit';
 
 // ── Helpers ──
@@ -77,7 +87,11 @@ function getFileName(filePath: string): string {
 
 // ── Component ──
 
-export function CommitHistoryTab() {
+interface CommitHistoryTabProps {
+  visible?: boolean;
+}
+
+export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
   const { t } = useTranslation();
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const effectiveThreadId = useThreadStore((s) => s.activeThread?.id);
@@ -88,8 +102,14 @@ export function CommitHistoryTab() {
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [logLoading, setLogLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [unpushedHashes, setUnpushedHashes] = useState<Set<string>>(new Set());
   const loadedRef = useRef(false);
   const loadingRef = useRef(false);
+
+  // Git operation states
+  const [pullInProgress, setPullInProgress] = useState(false);
+  const [fetchInProgress, setFetchInProgress] = useState(false);
+  const [pushInProgress, setPushInProgress] = useState(false);
 
   // Selected commit (persisted per git context)
   const [selectedHash, setSelectedHashRaw] = useState<string | null>(() => {
@@ -111,6 +131,12 @@ export function CommitHistoryTab() {
   const [commitFiles, setCommitFiles] = useState<CommitFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
 
+  // Commit body (full description)
+  const [commitBody, setCommitBody] = useState<string | null>(null);
+
+  // File search
+  const [fileSearch, setFileSearch] = useState('');
+
   // File diff
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [diffContent, setDiffContent] = useState<string | null>(null);
@@ -129,9 +155,19 @@ export function CommitHistoryTab() {
         ? await api.getGitLog(effectiveThreadId, PAGE_SIZE, true, skip)
         : await api.projectGitLog(projectModeId!, PAGE_SIZE, skip);
       if (result.isOk()) {
-        const { entries, hasMore: more } = result.value;
+        const { entries, hasMore: more, unpushedHashes: hashes } = result.value;
         setLogEntries((prev) => (append ? [...prev, ...entries] : entries));
         setHasMore(more);
+        if (hashes) {
+          setUnpushedHashes((prev) => {
+            if (!append) return new Set(hashes);
+            const next = new Set(prev);
+            for (const h of hashes) next.add(h);
+            return next;
+          });
+        } else if (!append) {
+          setUnpushedHashes(new Set());
+        }
       } else {
         toast.error(
           t('review.logFailed', {
@@ -163,6 +199,7 @@ export function CommitHistoryTab() {
     loadedRef.current = false;
     setLogEntries([]);
     setHasMore(false);
+    setUnpushedHashes(new Set());
     setCommitFiles([]);
 
     // Only clear selected commit when switching between different contexts,
@@ -179,34 +216,56 @@ export function CommitHistoryTab() {
     }
   }, [hasGitContext, loadLog]);
 
+  // Refresh when tab becomes visible (e.g. after committing in Changes tab)
+  const prevVisibleRef = useRef(visible);
+  useEffect(() => {
+    const wasHidden = prevVisibleRef.current === false;
+    prevVisibleRef.current = visible;
+    if (visible && wasHidden && hasGitContext && loadedRef.current) {
+      loadLog(0, false);
+    }
+  }, [visible, hasGitContext, loadLog]);
+
   // ── Load commit files when a commit is selected ──
 
   useEffect(() => {
     if (!selectedHash || !hasGitContext) {
       setCommitFiles([]);
+      setCommitBody(null);
+      setFileSearch('');
       return;
     }
     let cancelled = false;
     setFilesLoading(true);
-    const loadFiles = async () => {
-      const result = effectiveThreadId
-        ? await api.getCommitFiles(effectiveThreadId, selectedHash)
-        : await api.projectCommitFiles(projectModeId!, selectedHash);
+    setCommitBody(null);
+    setFileSearch('');
+    const load = async () => {
+      const [filesResult, bodyResult] = await Promise.all([
+        effectiveThreadId
+          ? api.getCommitFiles(effectiveThreadId, selectedHash)
+          : api.projectCommitFiles(projectModeId!, selectedHash),
+        effectiveThreadId
+          ? api.getCommitBody(effectiveThreadId, selectedHash)
+          : api.projectCommitBody(projectModeId!, selectedHash),
+      ]);
       if (cancelled) return;
-      if (result.isOk()) {
-        setCommitFiles(result.value.files);
+      if (filesResult.isOk()) {
+        setCommitFiles(filesResult.value.files);
       } else {
         toast.error(
           t('review.logFailed', {
-            message: result.error.message,
-            defaultValue: `Failed to load commit files: ${result.error.message}`,
+            message: filesResult.error.message,
+            defaultValue: `Failed to load commit files: ${filesResult.error.message}`,
           }),
         );
         setCommitFiles([]);
       }
+      if (bodyResult.isOk() && bodyResult.value.body) {
+        setCommitBody(bodyResult.value.body);
+      }
       setFilesLoading(false);
     };
-    loadFiles();
+    load();
     return () => {
       cancelled = true;
     };
@@ -234,17 +293,18 @@ export function CommitHistoryTab() {
   );
 
   // ── Convert commit files to FileDiffSummary for FileTree ──
-  const treeFiles = useMemo<FileDiffSummary[]>(
-    () =>
-      commitFiles.map((f) => ({
-        path: f.path,
-        status: (f.status === 'copied' ? 'renamed' : f.status) as FileStatus,
-        staged: false,
-        additions: f.additions,
-        deletions: f.deletions,
-      })),
-    [commitFiles],
-  );
+  const treeFiles = useMemo<FileDiffSummary[]>(() => {
+    const all = commitFiles.map((f) => ({
+      path: f.path,
+      status: (f.status === 'copied' ? 'renamed' : f.status) as FileStatus,
+      staged: false,
+      additions: f.additions,
+      deletions: f.deletions,
+    }));
+    if (!fileSearch.trim()) return all;
+    const q = fileSearch.toLowerCase();
+    return all.filter((f) => f.path.toLowerCase().includes(q));
+  }, [commitFiles, fileSearch]);
 
   // ── Search (filters against all loaded entries) ──
   const [commitSearch, setCommitSearch] = useState('');
@@ -271,12 +331,13 @@ export function CommitHistoryTab() {
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => commitScrollRef.current,
-    estimateSize: () => COMMIT_ROW_HEIGHT,
+    estimateSize: () => 40,
     getItemKey: (index) => {
       if (index >= filteredEntries.length) return '__sentinel__';
       return filteredEntries[index].hash;
     },
     overscan: 10,
+    measureElement: (el) => el.getBoundingClientRect().height,
   });
 
   // Trigger load-more when the sentinel row becomes visible
@@ -293,15 +354,82 @@ export function CommitHistoryTab() {
   // ── Compute selected commit info ──
   const selectedCommit = logEntries.find((e) => e.hash === selectedHash);
 
-  // ── Commit count label ──
-  const commitCountLabel = useMemo(() => {
-    if (logEntries.length === 0) return null;
-    const total = hasMore ? `${logEntries.length}+` : `${logEntries.length}`;
-    if (commitSearch && filteredEntries.length !== logEntries.length) {
-      return `${filteredEntries.length}/${total} commits`;
+  // ── Git operations ──
+
+  const hasUnpushed = unpushedHashes.size > 0;
+
+  const handlePull = useCallback(async () => {
+    if (!hasGitContext || pullInProgress) return;
+    setPullInProgress(true);
+    const result = effectiveThreadId
+      ? await api.pull(effectiveThreadId)
+      : await api.projectPull(projectModeId!);
+    if (result.isErr()) {
+      toast.error(
+        t('review.pullFailed', {
+          message: result.error.message,
+          defaultValue: `Pull failed: ${result.error.message}`,
+        }),
+      );
+    } else {
+      toast.success(t('review.pullSuccess', 'Pulled successfully'));
     }
-    return `${total} commits`;
-  }, [logEntries.length, filteredEntries.length, hasMore, commitSearch]);
+    setPullInProgress(false);
+    loadedRef.current = false;
+    loadLog(0, false);
+  }, [hasGitContext, pullInProgress, effectiveThreadId, projectModeId, t, loadLog]);
+
+  const handleFetchOrigin = useCallback(async () => {
+    if (!hasGitContext || fetchInProgress) return;
+    setFetchInProgress(true);
+    const result = effectiveThreadId
+      ? await api.fetchOrigin(effectiveThreadId)
+      : await api.projectFetchOrigin(projectModeId!);
+    if (result.isErr()) {
+      const msg = result.error.message;
+      const isAuthError =
+        /auth|token|credential|permission|denied|403|fatal:/i.test(msg) ||
+        result.error.type === 'INTERNAL';
+      toast.error(
+        isAuthError
+          ? t('review.fetchAuthFailed', {
+              defaultValue:
+                'Fetch failed: authentication error. Check your GitHub token in Settings > Profile.',
+            })
+          : t('review.fetchFailed', {
+              message: msg,
+              defaultValue: `Fetch failed: ${msg}`,
+            }),
+      );
+    } else {
+      toast.success(t('review.fetchSuccess', 'Fetched from origin'));
+    }
+    setFetchInProgress(false);
+    loadedRef.current = false;
+    loadLog(0, false);
+  }, [hasGitContext, fetchInProgress, effectiveThreadId, projectModeId, t, loadLog]);
+
+  const handlePush = useCallback(async () => {
+    if (!hasGitContext || pushInProgress) return;
+    setPushInProgress(true);
+    const result = effectiveThreadId
+      ? await api.startWorkflow(effectiveThreadId, { action: 'push' })
+      : await api.projectStartWorkflow(projectModeId!, { action: 'push' });
+    if (result.isErr()) {
+      toast.error(
+        t('review.pushFailed', {
+          message: result.error.message,
+          defaultValue: `Push failed: ${result.error.message}`,
+        }),
+      );
+      setPushInProgress(false);
+    } else {
+      toast.success(t('review.pushSuccess', 'Pushed successfully'));
+      setPushInProgress(false);
+      loadedRef.current = false;
+      loadLog(0, false);
+    }
+  }, [hasGitContext, pushInProgress, effectiveThreadId, projectModeId, t, loadLog]);
 
   // ── Render ──
 
@@ -319,12 +447,12 @@ export function CommitHistoryTab() {
       data-testid="commit-history-tab"
     >
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 border-b border-sidebar-border px-2 py-1">
+      <div className="flex items-center gap-1 border-b border-sidebar-border px-2 py-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               onClick={() => {
                 loadedRef.current = false;
                 loadLog(0, false);
@@ -332,12 +460,68 @@ export function CommitHistoryTab() {
               className="text-muted-foreground"
               data-testid="history-refresh"
             >
-              <RefreshCw className={cn('icon-sm', logLoading && 'animate-spin')} />
+              <RefreshCw className={cn('icon-base', logLoading && 'animate-spin')} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">{t('review.refresh', 'Refresh')}</TooltipContent>
         </Tooltip>
-        <span className="ml-1 text-xs text-muted-foreground">{commitCountLabel}</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handlePull}
+              disabled={pullInProgress}
+              className="text-muted-foreground"
+              data-testid="history-pull"
+            >
+              <Download className={cn('icon-base', pullInProgress && 'animate-pulse')} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{t('review.pull', 'Pull')}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleFetchOrigin}
+              disabled={fetchInProgress}
+              className="text-muted-foreground"
+              data-testid="history-fetch-origin"
+            >
+              <CloudDownload className={cn('icon-base', fetchInProgress && 'animate-pulse')} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{t('review.fetchOrigin', 'Fetch from origin')}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handlePush}
+              disabled={pushInProgress || !hasUnpushed}
+              className="text-muted-foreground"
+              data-testid="history-push"
+            >
+              <Upload className={cn('icon-base', pushInProgress && 'animate-pulse')} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {hasUnpushed
+              ? t('review.readyToPush', {
+                  count: unpushedHashes.size,
+                  defaultValue: `${unpushedHashes.size} commit(s) ready to push`,
+                })
+              : t('review.pushToOrigin', 'Push to origin')}
+          </TooltipContent>
+        </Tooltip>
+        {hasUnpushed && (
+          <span className="ml-1 text-xs text-muted-foreground" data-testid="history-unpushed-count">
+            {unpushedHashes.size}↑
+          </span>
+        )}
       </div>
 
       {/* Search */}
@@ -407,15 +591,16 @@ export function CommitHistoryTab() {
                   return (
                     <div
                       key="__sentinel__"
+                      ref={virtualizer.measureElement}
+                      data-index={virtualRow.index}
                       style={{
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         width: '100%',
-                        height: `${virtualRow.size}px`,
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
-                      className="flex items-center justify-center"
+                      className="flex items-center justify-center py-2"
                     >
                       {logLoading ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -440,6 +625,8 @@ export function CommitHistoryTab() {
                 return (
                   <div
                     key={entry.hash}
+                    ref={virtualizer.measureElement}
+                    data-index={virtualRow.index}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -461,25 +648,38 @@ export function CommitHistoryTab() {
                       )}
                       data-testid={`history-commit-${entry.shortHash}`}
                     >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <GitCommit className="icon-xs flex-shrink-0 text-muted-foreground" />
-                        <HighlightText
-                          text={entry.shortHash}
-                          query={commitSearch}
-                          className="flex-shrink-0 font-mono text-xs text-primary"
-                        />
-                        <span className="truncate text-muted-foreground">{entry.relativeDate}</span>
-                      </div>
                       <HighlightText
                         text={entry.message}
                         query={commitSearch}
-                        className="mt-0.5 block truncate text-foreground"
+                        className="block truncate font-medium text-foreground"
                       />
-                      <HighlightText
-                        text={entry.author}
-                        query={commitSearch}
-                        className="block truncate text-[10px] text-muted-foreground"
-                      />
+                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <GitCommit className="icon-xs flex-shrink-0" />
+                        <HighlightText
+                          text={entry.shortHash}
+                          query={commitSearch}
+                          className="flex-shrink-0 font-mono text-primary"
+                        />
+                        {unpushedHashes.has(entry.hash) && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <ArrowUp
+                                className="icon-xs flex-shrink-0 text-amber-500"
+                                data-testid={`history-unpushed-${entry.shortHash}`}
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              {t('history.unpushed', 'Not pushed')}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        <span className="min-w-0 truncate">
+                          <HighlightText text={entry.author} query={commitSearch} />
+                        </span>
+                        <span className="flex-shrink-0 text-muted-foreground">
+                          {shortRelativeDate(entry.relativeDate)}
+                        </span>
+                      </div>
                     </button>
                   </div>
                 );
@@ -493,16 +693,22 @@ export function CommitHistoryTab() {
           <div className="flex min-h-0 flex-1 flex-col">
             {/* Commit header */}
             {selectedCommit && (
-              <div className="overflow-hidden border-b border-sidebar-border bg-sidebar-accent/30 px-3 py-2">
-                <p className="truncate text-xs font-medium text-foreground">
-                  {selectedCommit.message}
-                </p>
-                <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] text-muted-foreground">
+              <div className="max-h-[140px] overflow-y-auto border-b border-sidebar-border bg-sidebar-accent/30 px-3 py-2">
+                <p className="text-xs font-medium text-foreground">{selectedCommit.message}</p>
+                {commitBody && (
+                  <p className="mt-1 whitespace-pre-wrap text-[11px] text-muted-foreground">
+                    {commitBody}
+                  </p>
+                )}
+                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <GitCommit className="icon-xs flex-shrink-0" />
                   <code className="flex-shrink-0 font-mono text-primary">
                     {selectedCommit.shortHash}
                   </code>
-                  <span className="truncate">{selectedCommit.author}</span>
-                  <span className="flex-shrink-0">{selectedCommit.relativeDate}</span>
+                  <span className="min-w-0 truncate">{selectedCommit.author}</span>
+                  <span className="flex-shrink-0 text-muted-foreground">
+                    {shortRelativeDate(selectedCommit.relativeDate)}
+                  </span>
                 </div>
               </div>
             )}
@@ -520,22 +726,59 @@ export function CommitHistoryTab() {
                 </p>
               ) : (
                 <>
+                  {/* File search */}
+                  <div className="border-b border-sidebar-border px-2 py-2">
+                    <div className="relative">
+                      <Search className="icon-sm pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder={t('review.searchFiles', 'Filter files\u2026')}
+                        aria-label={t('review.searchFiles', 'Filter files')}
+                        data-testid="history-file-search"
+                        value={fileSearch}
+                        onChange={(e) => setFileSearch(e.target.value)}
+                        className="h-7 pl-7 pr-7 text-xs md:text-xs"
+                      />
+                      {fileSearch && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => setFileSearch('')}
+                          aria-label={t('review.clearSearch', 'Clear search')}
+                          data-testid="history-file-search-clear"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        >
+                          <X className="icon-xs" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* File count */}
                   <div className="flex items-center gap-1.5 border-b border-sidebar-border px-3 py-1.5">
                     <span className="text-xs text-muted-foreground">
-                      {t('history.filesChanged', {
-                        count: commitFiles.length,
-                        defaultValue: `${commitFiles.length} file(s) changed`,
-                      })}
+                      {fileSearch.trim() && treeFiles.length !== commitFiles.length
+                        ? `${treeFiles.length}/${commitFiles.length}`
+                        : `${commitFiles.length}`}{' '}
+                      {t('history.files', 'file(s)')}
                     </span>
                   </div>
-                  <ScrollArea className="flex-1">
-                    <FileTree
-                      files={treeFiles}
-                      selectedFile={expandedFile}
-                      onFileClick={handleFileClick}
-                      testIdPrefix="history-file"
-                    />
-                  </ScrollArea>
+
+                  {treeFiles.length === 0 ? (
+                    <p className="p-3 text-xs text-muted-foreground">
+                      {t('history.noMatchingFiles', 'No matching files')}
+                    </p>
+                  ) : (
+                    <ScrollArea className="flex-1">
+                      <FileTree
+                        files={treeFiles}
+                        selectedFile={expandedFile}
+                        onFileClick={handleFileClick}
+                        testIdPrefix="history-file"
+                        searchQuery={fileSearch || undefined}
+                      />
+                    </ScrollArea>
+                  )}
                 </>
               )}
             </div>

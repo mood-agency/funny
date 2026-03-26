@@ -501,6 +501,7 @@ export const api = {
         message: string;
       }>;
       hasMore: boolean;
+      unpushedHashes: string[];
     }>(
       `/git/${threadId}/log?limit=${limit}${all ? '&all=true' : ''}${skip > 0 ? `&skip=${skip}` : ''}`,
     ),
@@ -517,6 +518,8 @@ export const api = {
     request<{ diff: string }>(
       `/git/${threadId}/commit/${hash}/diff?path=${encodeURIComponent(filePath)}`,
     ),
+  getCommitBody: (threadId: string, hash: string) =>
+    request<{ body: string }>(`/git/${threadId}/commit/${hash}/body`),
   pull: (threadId: string) =>
     request<{ ok: boolean; output?: string }>(`/git/${threadId}/pull`, { method: 'POST' }),
   fetchOrigin: (threadId: string) =>
@@ -607,6 +610,7 @@ export const api = {
         message: string;
       }>;
       hasMore: boolean;
+      unpushedHashes: string[];
     }>(`/git/project/${projectId}/log?limit=${limit}${skip > 0 ? `&skip=${skip}` : ''}`),
   projectCommitFiles: (projectId: string, hash: string) =>
     request<{
@@ -621,6 +625,8 @@ export const api = {
     request<{ diff: string }>(
       `/git/project/${projectId}/commit/${hash}/diff?path=${encodeURIComponent(filePath)}`,
     ),
+  projectCommitBody: (projectId: string, hash: string) =>
+    request<{ body: string }>(`/git/project/${projectId}/commit/${hash}/body`),
   projectGenerateCommitMessage: (projectId: string, includeUnstaged?: boolean) =>
     request<{ title: string; body: string }>(`/git/project/${projectId}/generate-commit-message`, {
       method: 'POST',

@@ -232,6 +232,9 @@ export function ReviewPane() {
   const _hasWorktreePath = useThreadStore((s) => !!s.activeThread?.worktreePath);
   const isAgentRunning = useThreadStore((s) => s.activeThread?.status === 'running');
   const gitStatus = useGitStatusForThread(effectiveThreadId);
+  // Unpushed count fetched directly during refresh via the log endpoint —
+  // does not depend on the gitStatus store resolving its branchKey chain
+  const [unpushedCommitCount, setUnpushedCommitCount] = useState(0);
   const [mergeInProgress, setMergeInProgress] = useState(false);
   const [pushInProgress, setPushInProgress] = useState(false);
   const [prInProgress, setPrInProgress] = useState(false);
@@ -338,7 +341,7 @@ export function ReviewPane() {
       !loading &&
       summaries.length === 0 &&
       stashEntries.length === 0 &&
-      (!gitStatus || gitStatus.unpushedCommitCount === 0) &&
+      unpushedCommitCount === 0 &&
       !hasRebaseConflict
     ) {
       justCompletedWorkflowRef.current = false;
@@ -348,7 +351,7 @@ export function ReviewPane() {
     loading,
     summaries.length,
     stashEntries.length,
-    gitStatus,
+    unpushedCommitCount,
     hasRebaseConflict,
     setReviewPaneOpen,
   ]);
@@ -367,11 +370,7 @@ export function ReviewPane() {
 
   // Show standalone push button when no dirty files but there are unpushed commits
   const showPushOnly =
-    summaries.length === 0 &&
-    !loading &&
-    gitStatus &&
-    gitStatus.unpushedCommitCount > 0 &&
-    !hasRebaseConflict;
+    summaries.length === 0 && !loading && unpushedCommitCount > 0 && !hasRebaseConflict;
 
   const fileListRef = useRef<HTMLDivElement>(null);
 
@@ -388,8 +387,19 @@ export function ReviewPane() {
     setLoadError(false);
 
     // Fire git status refresh in parallel (don't await — it updates its own store)
-    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId);
-    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId);
+    // Use force=true to bypass cooldown so unpushedCommitCount is always fresh
+    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId, true);
+    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId, true);
+
+    // Also fetch unpushed count directly via the log endpoint — reliable
+    // fallback when gitStatus store hasn't resolved the branchKey yet
+    const unpushedPromise = effectiveThreadId
+      ? api.getGitLog(effectiveThreadId, 50, true, 0)
+      : api.projectGitLog(projectModeId!, 50, 0);
+    unpushedPromise.then((r) => {
+      if (refreshEpochRef.current !== epoch) return;
+      if (r.isOk()) setUnpushedCommitCount(r.value.unpushedHashes.length);
+    });
 
     const result = effectiveThreadId
       ? await api.getDiffSummary(effectiveThreadId)
@@ -1049,12 +1059,12 @@ export function ReviewPane() {
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               onClick={() => setReviewPaneOpen(false)}
               className="text-muted-foreground"
               data-testid="review-close"
             >
-              <PanelRightClose className="icon-sm" />
+              <PanelRightClose className="icon-base" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">{t('review.close', 'Close')}</TooltipContent>
@@ -1081,17 +1091,17 @@ export function ReviewPane() {
             )}
 
             {/* Toolbar icons */}
-            <div className="flex items-center gap-0.5 border-b border-sidebar-border px-2 py-1">
+            <div className="flex items-center gap-1 border-b border-sidebar-border px-2 py-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={refresh}
                     className="text-muted-foreground"
                     data-testid="review-refresh"
                   >
-                    <RefreshCw className={cn('icon-sm', loading && 'animate-spin')} />
+                    <RefreshCw className={cn('icon-base', loading && 'animate-spin')} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">{t('review.refresh')}</TooltipContent>
@@ -1100,13 +1110,13 @@ export function ReviewPane() {
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={handlePull}
                     disabled={pullInProgress}
                     className="text-muted-foreground"
                     data-testid="review-pull"
                   >
-                    <Download className={cn('icon-sm', pullInProgress && 'animate-pulse')} />
+                    <Download className={cn('icon-base', pullInProgress && 'animate-pulse')} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">{t('review.pull', 'Pull')}</TooltipContent>
@@ -1115,13 +1125,15 @@ export function ReviewPane() {
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={handleFetchOrigin}
                     disabled={fetchInProgress}
                     className="text-muted-foreground"
                     data-testid="review-fetch-origin"
                   >
-                    <CloudDownload className={cn('icon-sm', fetchInProgress && 'animate-pulse')} />
+                    <CloudDownload
+                      className={cn('icon-base', fetchInProgress && 'animate-pulse')}
+                    />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
@@ -1132,20 +1144,20 @@ export function ReviewPane() {
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon-sm"
                     onClick={handlePushOnly}
-                    disabled={pushInProgress || !gitStatus || gitStatus.unpushedCommitCount === 0}
+                    disabled={pushInProgress || unpushedCommitCount === 0}
                     className="text-muted-foreground"
                     data-testid="review-push-toolbar"
                   >
-                    <Upload className={cn('icon-sm', pushInProgress && 'animate-pulse')} />
+                    <Upload className={cn('icon-base', pushInProgress && 'animate-pulse')} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">
-                  {gitStatus && gitStatus.unpushedCommitCount > 0
+                  {unpushedCommitCount > 0
                     ? t('review.readyToPush', {
-                        count: gitStatus.unpushedCommitCount,
-                        defaultValue: `${gitStatus.unpushedCommitCount} commit(s) ready to push`,
+                        count: unpushedCommitCount,
+                        defaultValue: `${unpushedCommitCount} commit(s) ready to push`,
                       })
                     : t('review.pushToOrigin', 'Push to origin')}
                 </TooltipContent>
@@ -1155,13 +1167,13 @@ export function ReviewPane() {
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon-xs"
+                      size="icon-sm"
                       onClick={handleStash}
                       disabled={stashInProgress || !!isAgentRunning}
                       className="text-muted-foreground"
                       data-testid="review-stash"
                     >
-                      <Archive className={cn('icon-sm', stashInProgress && 'animate-pulse')} />
+                      <Archive className={cn('icon-base', stashInProgress && 'animate-pulse')} />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top">
@@ -1176,13 +1188,13 @@ export function ReviewPane() {
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
-                      size="icon-xs"
+                      size="icon-sm"
                       onClick={handleDiscardAll}
                       disabled={!!actionInProgress || !!isAgentRunning}
                       className="text-muted-foreground"
                       data-testid="review-discard-all"
                     >
-                      <Undo2 className="icon-sm" />
+                      <Undo2 className="icon-base" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="top">
@@ -1758,8 +1770,8 @@ export function ReviewPane() {
                   <Upload className="icon-sm" />
                   <span>
                     {t('review.readyToPush', {
-                      count: gitStatus!.unpushedCommitCount,
-                      defaultValue: `${gitStatus!.unpushedCommitCount} commit(s) ready to push`,
+                      count: unpushedCommitCount,
+                      defaultValue: `${unpushedCommitCount} commit(s) ready to push`,
                     })}
                   </span>
                 </div>
@@ -1985,7 +1997,7 @@ export function ReviewPane() {
         className="flex min-h-0 flex-1 data-[state=inactive]:hidden"
         forceMount
       >
-        <CommitHistoryTab />
+        <CommitHistoryTab visible={reviewSubTab === 'history'} />
       </TabsContent>
 
       {/* Confirmation dialog for destructive actions */}

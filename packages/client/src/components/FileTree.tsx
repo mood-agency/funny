@@ -27,6 +27,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { HighlightText } from '@/components/ui/highlight-text';
 import { openFileInExternalEditor, getEditorLabel } from '@/lib/editor-utils';
 import { FileExtensionIcon } from '@/lib/file-icons';
 import { cn } from '@/lib/utils';
@@ -197,6 +198,8 @@ export interface FileTreeProps {
   rowStyle?: (row: TreeRow, index: number) => CSSProperties | undefined;
   /** Enable virtual scrolling for large file lists. The FileTree must be placed inside a fixed-height scroll container. */
   virtualize?: boolean;
+  /** Search query to highlight matching text in file/folder names */
+  searchQuery?: string;
 }
 
 /* ── Component ── */
@@ -217,6 +220,7 @@ export function FileTree({
   testIdPrefix = 'filetree',
   rowStyle,
   virtualize = false,
+  searchQuery,
 }: FileTreeProps) {
   const { t } = useTranslation();
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
@@ -285,9 +289,17 @@ export function FileTree({
           ) : (
             <FolderOpen className="icon-base flex-shrink-0 text-muted-foreground/70" />
           )}
-          <span className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}>
-            {row.label}
-          </span>
+          {searchQuery ? (
+            <HighlightText
+              text={row.label}
+              query={searchQuery}
+              className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}
+            />
+          ) : (
+            <span className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}>
+              {row.label}
+            </span>
+          )}
           <DiffStats linesAdded={row.additions} linesDeleted={row.deletions} size={diffStatsSize} />
           {/* Spacers to align with file rows (status letter + 3-dot menu) */}
           <span className={cn('invisible flex-shrink-0 font-medium', fontSize)}>M</span>
@@ -346,9 +358,17 @@ export function FileTree({
           filePath={f.path}
           className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
         />
-        <span className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}>
-          {fileName}
-        </span>
+        {searchQuery ? (
+          <HighlightText
+            text={fileName}
+            query={searchQuery}
+            className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}
+          />
+        ) : (
+          <span className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}>
+            {fileName}
+          </span>
+        )}
         <DiffStats
           linesAdded={f.additions ?? 0}
           linesDeleted={f.deletions ?? 0}

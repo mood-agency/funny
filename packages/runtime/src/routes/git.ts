@@ -25,6 +25,8 @@ import {
   getStatusSummary,
   deriveGitSyncState,
   getLog,
+  getUnpushedHashes,
+  getCommitBody,
   getCommitFiles,
   getCommitFileDiff,
   stash,
@@ -329,11 +331,18 @@ gitRoutes.get('/project/:projectId/log', async (c) => {
   const limit = limitRaw ? Math.min(parseInt(limitRaw, 10) || 20, 200) : 50;
   const skipRaw = c.req.query('skip');
   const skip = skipRaw ? Math.max(parseInt(skipRaw, 10) || 0, 0) : 0;
-  const result = await getLog(cwdResult.value, limit + 1, undefined, skip);
+  const cwd = cwdResult.value;
+  const [result, unpushedResult] = await Promise.all([
+    getLog(cwd, limit + 1, undefined, skip),
+    getUnpushedHashes(cwd),
+  ]);
   if (result.isErr()) return resultToResponse(c, result);
   const entries = result.value;
   const hasMore = entries.length > limit;
-  return c.json({ entries: hasMore ? entries.slice(0, limit) : entries, hasMore });
+  const unpushedSet = unpushedResult.isOk() ? unpushedResult.value : new Set<string>();
+  const trimmed = hasMore ? entries.slice(0, limit) : entries;
+  const unpushedHashes = trimmed.filter((e) => unpushedSet.has(e.hash)).map((e) => e.hash);
+  return c.json({ entries: trimmed, hasMore, unpushedHashes });
 });
 
 // GET /api/git/project/:projectId/commit/:hash/files
@@ -360,6 +369,17 @@ gitRoutes.get('/project/:projectId/commit/:hash/diff', async (c) => {
   const result = await getCommitFileDiff(cwdResult.value, c.req.param('hash'), filePath);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ diff: result.value });
+});
+
+// GET /api/git/project/:projectId/commit/:hash/body
+gitRoutes.get('/project/:projectId/commit/:hash/body', async (c) => {
+  const userId = c.get('userId') as string;
+  const orgId = c.get('organizationId');
+  const cwdResult = await requireProjectCwd(c.req.param('projectId'), userId, orgId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+  const result = await getCommitBody(cwdResult.value, c.req.param('hash'));
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ body: result.value });
 });
 
 // GET /api/git/project/:projectId/stash/list
@@ -1245,11 +1265,18 @@ gitRoutes.get('/:threadId/log', async (c) => {
 
   const all = c.req.query('all') === 'true';
   const baseBranch = all ? undefined : thread.baseBranch;
-  const result = await getLog(cwdResult.value, limit + 1, baseBranch, skip);
+  const cwd = cwdResult.value;
+  const [result, unpushedResult] = await Promise.all([
+    getLog(cwd, limit + 1, baseBranch, skip),
+    getUnpushedHashes(cwd),
+  ]);
   if (result.isErr()) return resultToResponse(c, result);
   const entries = result.value;
   const hasMore = entries.length > limit;
-  return c.json({ entries: hasMore ? entries.slice(0, limit) : entries, hasMore });
+  const unpushedSet = unpushedResult.isOk() ? unpushedResult.value : new Set<string>();
+  const trimmed = hasMore ? entries.slice(0, limit) : entries;
+  const unpushedHashes = trimmed.filter((e) => unpushedSet.has(e.hash)).map((e) => e.hash);
+  return c.json({ entries: trimmed, hasMore, unpushedHashes });
 });
 
 // GET /api/git/:threadId/commit/:hash/files
@@ -1276,6 +1303,17 @@ gitRoutes.get('/:threadId/commit/:hash/diff', async (c) => {
   const result = await getCommitFileDiff(cwdResult.value, c.req.param('hash'), filePath);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ diff: result.value });
+});
+
+// GET /api/git/:threadId/commit/:hash/body
+gitRoutes.get('/:threadId/commit/:hash/body', async (c) => {
+  const userId = c.get('userId') as string;
+  const orgId = c.get('organizationId');
+  const cwdResult = await requireThreadCwd(c.req.param('threadId'), userId, orgId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+  const result = await getCommitBody(cwdResult.value, c.req.param('hash'));
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ body: result.value });
 });
 
 // POST /api/git/:threadId/pull
