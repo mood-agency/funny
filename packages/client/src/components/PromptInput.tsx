@@ -40,6 +40,13 @@ interface PromptInputProps {
       cwd?: string;
       sendToBacklog?: boolean;
       fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+      symbolReferences?: {
+        path: string;
+        name: string;
+        kind: string;
+        line: number;
+        endLine?: number;
+      }[];
       purpose?: ThreadPurpose;
     },
     images?: ImageAttachment[],

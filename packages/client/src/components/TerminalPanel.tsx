@@ -145,7 +145,7 @@ function TauriTerminalTabContent({
       const terminal = new Terminal({
         cursorBlink: true,
         fontSize: 13,
-        fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace',
+        fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
         theme: getTerminalTheme(),
         scrollback: 5000,
       });
@@ -274,7 +274,7 @@ function WebTerminalTabContent({
       const terminal = new Terminal({
         cursorBlink: true,
         fontSize: 13,
-        fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace',
+        fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
         theme: getTerminalTheme(),
         scrollback: 5000,
       });

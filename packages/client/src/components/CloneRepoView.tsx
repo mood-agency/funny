@@ -52,6 +52,7 @@ export function CloneRepoView() {
     avatar_url: string;
     name: string | null;
   } | null>(null);
+  const [tokenSource, setTokenSource] = useState<'profile' | 'cli' | null>(null);
 
   // Device flow state
   const [_deviceCode, setDeviceCode] = useState('');
@@ -107,9 +108,11 @@ export function CloneRepoView() {
     const result = await api.githubStatus();
     if (result.isOk()) {
       if (result.value.connected) {
+        setTokenSource(result.value.source ?? 'profile');
         await loadGhUser();
         setView('repos');
       } else {
+        setTokenSource(null);
         setView('connect');
       }
     } else {
@@ -465,15 +468,22 @@ export function CloneRepoView() {
           <div className="mb-3 flex items-center gap-2">
             <img src={ghUser.avatar_url} alt={ghUser.login} className="h-6 w-6 rounded-full" />
             <span className="text-sm font-medium">{ghUser.login}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto h-7 text-xs text-muted-foreground"
-              onClick={disconnect}
-            >
-              <LogOut className="icon-xs mr-1" />
-              {t('github.disconnect')}
-            </Button>
+            {tokenSource === 'cli' ? (
+              <span className="ml-auto text-xs text-muted-foreground">
+                {t('github.viaGhCli', { defaultValue: 'via gh CLI' })}
+              </span>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-7 text-xs text-muted-foreground"
+                onClick={disconnect}
+                data-testid="clone-repo-disconnect"
+              >
+                <LogOut className="icon-xs mr-1" />
+                {t('github.disconnect')}
+              </Button>
+            )}
           </div>
         )}
 

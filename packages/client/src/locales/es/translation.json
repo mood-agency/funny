@@ -482,7 +482,10 @@
     "searchPlaceholder": "Filtrar carpetas...",
     "noResults": "Sin resultados",
     "cancel": "Cancelar",
-    "selectFolder": "Seleccionar esta carpeta"
+    "selectFolder": "Seleccionar esta carpeta",
+    "newFolder": "Nueva Carpeta",
+    "newFolderPlaceholder": "Nombre de carpeta...",
+    "create": "Crear"
   },
   "startup": {
     "title": "Comandos de Inicio",
@@ -939,6 +942,9 @@
     },
     "cloneRepo": {
       "INTERNAL": "Error al clonar el repositorio. Revisa la URL e intenta de nuevo.",
+      "PROCESS_ERROR": "{{message}}",
+      "BAD_REQUEST": "{{message}}",
+      "CONFLICT": "{{message}}",
       "FORBIDDEN": "No se puede acceder a este repositorio. Revisa tus credenciales de GitHub."
     },
     "createThread": {

@@ -172,6 +172,13 @@ const ThreadColumn = memo(function ThreadColumn({
         model: string;
         mode: string;
         fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+        symbolReferences?: {
+          path: string;
+          name: string;
+          kind: string;
+          line: number;
+          endLine?: number;
+        }[];
       },
       images?: any[],
     ) => {
@@ -204,6 +211,7 @@ const ThreadColumn = memo(function ThreadColumn({
           allowedTools,
           disallowedTools,
           fileReferences: opts.fileReferences,
+          symbolReferences: opts.symbolReferences,
         },
         images,
       );

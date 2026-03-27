@@ -107,152 +107,163 @@ export function executeWorkflow(params: WorkflowParams): { workflowId: string } 
   const abortController = new AbortController();
   activeWorkflows.set(params.contextId, abortController);
 
-  // Discover hooks for commit actions
-  let hooks: { label: string; command: string }[] = [];
-  if (isCommitAction(params.action) && !params.noVerify) {
-    const projectHooks = listHooks(params.cwd, 'pre-commit').filter((h) => h.enabled);
-    hooks = projectHooks.map((h) => ({ label: h.label, command: h.command }));
-  }
+  // Launch the workflow asynchronously so we can await the pipeline config
+  void (async () => {
+    // Discover hooks for commit actions
+    let hooks: { label: string; command: string }[] = [];
+    if (isCommitAction(params.action) && !params.noVerify) {
+      const projectHooks = listHooks(params.cwd, 'pre-commit').filter((h) => h.enabled);
+      hooks = projectHooks.map((h) => ({ label: h.label, command: h.command }));
+    }
 
-  // Check if pipeline is enabled for this project
-  const pipelineConfig = params.projectId ? getPipelineForProject(params.projectId) : null;
-  const pipelineEnabled = !!pipelineConfig;
+    // Check if pipeline is enabled for this project
+    const pipelineConfig = params.projectId ? await getPipelineForProject(params.projectId) : null;
+    const pipelineEnabled = !!pipelineConfig?.enabled;
 
-  // Create bound helpers for progress emission (close over `steps`)
-  let steps: GitWorkflowProgressStep[] = [];
+    // Create bound helpers for progress emission (close over `steps`)
+    let steps: GitWorkflowProgressStep[] = [];
 
-  const emit = (status: WSGitWorkflowProgressData['status']) =>
-    emitProgress(params.userId, params.contextId, workflowId, status, params.action, steps);
+    const emit = (status: WSGitWorkflowProgressData['status']) =>
+      emitProgress(params.userId, params.contextId, workflowId, status, params.action, steps);
 
-  const setStep = (stepId: string, update: Partial<GitWorkflowProgressStep>) => {
-    steps = markStep(steps, stepId, update);
-    emit('step_update');
-  };
+    const setStep = (stepId: string, update: Partial<GitWorkflowProgressStep>) => {
+      steps = markStep(steps, stepId, update);
+      emit('step_update');
+    };
 
-  // Build the unified context
-  const initialCtx: GitPipelineContext = {
-    contextId: params.contextId,
-    threadId: params.threadId,
-    projectId: params.projectId,
-    userId: params.userId,
-    cwd: params.cwd,
-    action: params.action,
-    message: params.message,
-    filesToStage: params.filesToStage,
-    filesToUnstage: params.filesToUnstage,
-    amend: params.amend,
-    noVerify: params.noVerify,
-    prTitle: params.prTitle,
-    prBody: params.prBody,
-    targetBranch: params.targetBranch,
-    cleanup: params.cleanup,
-    hooks,
-    workflowId,
-    steps,
-    emit,
-    setStep,
-    // Pipeline config
-    pipelineEnabled,
-    precommitFixEnabled: pipelineConfig?.precommitFixEnabled ?? false,
-    precommitFixModel: pipelineConfig?.precommitFixModel ?? 'sonnet',
-    precommitFixMaxIterations: pipelineConfig?.precommitFixMaxIterations ?? 3,
-    reviewModel: pipelineConfig?.reviewModel ?? 'sonnet',
-    fixModel: pipelineConfig?.fixModel ?? 'sonnet',
-    maxReviewIterations: pipelineConfig?.maxIterations ?? 10,
-    // Custom prompt overrides
-    reviewerPrompt: pipelineConfig?.reviewerPrompt,
-    correctorPrompt: pipelineConfig?.correctorPrompt,
-    precommitFixerPrompt: pipelineConfig?.precommitFixerPrompt,
-    commitMessagePrompt: pipelineConfig?.commitMessagePrompt,
-    testFixerPrompt: pipelineConfig?.testFixerPrompt,
-    // Test auto-fix config
-    testEnabled: pipelineConfig?.testEnabled ?? false,
-    testCommand: pipelineConfig?.testCommand ?? null,
-    testFixEnabled: pipelineConfig?.testFixEnabled ?? false,
-    testFixModel: pipelineConfig?.testFixModel ?? 'sonnet',
-    testFixMaxIterations: pipelineConfig?.testFixMaxIterations ?? 3,
-    // Test auto-fix tracking (initialized empty)
-    testOutput: null,
-    testPassed: false,
-    testIteration: 1,
-    testFixerThreadId: null,
-    // Review-fix tracking (initialized empty)
-    commitSha: null,
-    iteration: 1,
-    reviewerThreadId: null,
-    verdict: null,
-    findings: null,
-    correctorThreadId: null,
-    patchDiff: null,
-    noChanges: false,
-    prUrl: undefined,
-  };
-
-  // Select the right pipeline for this action
-  const pipeline = getActionPipeline(params.action);
-
-  // Derive steps from the pipeline definition by walking nodes and evaluating guards
-  steps = deriveSteps(pipeline, initialCtx);
-  initialCtx.steps = steps;
-
-  emit('started');
-
-  // Emit workflow:started thread event (only for thread-scoped operations)
-  if (params.threadId) {
-    void emitWorkflowEvent(params.userId, params.threadId, 'workflow:started', {
-      workflowId,
+    // Build the unified context
+    const initialCtx: GitPipelineContext = {
+      contextId: params.contextId,
+      threadId: params.threadId,
+      projectId: params.projectId,
+      userId: params.userId,
+      cwd: params.cwd,
       action: params.action,
-      title: TITLES[params.action],
-    });
-  }
+      message: params.message,
+      filesToStage: params.filesToStage,
+      filesToUnstage: params.filesToUnstage,
+      amend: params.amend,
+      noVerify: params.noVerify,
+      prTitle: params.prTitle,
+      prBody: params.prBody,
+      targetBranch: params.targetBranch,
+      cleanup: params.cleanup,
+      hooks,
+      workflowId,
+      steps,
+      emit,
+      setStep,
+      // Pipeline config
+      pipelineEnabled,
+      precommitFixEnabled: pipelineConfig?.precommitFixEnabled ?? false,
+      precommitFixModel: pipelineConfig?.precommitFixModel ?? 'sonnet',
+      precommitFixMaxIterations: pipelineConfig?.precommitFixMaxIterations ?? 3,
+      reviewModel: pipelineConfig?.reviewModel ?? 'sonnet',
+      fixModel: pipelineConfig?.fixModel ?? 'sonnet',
+      maxReviewIterations: pipelineConfig?.maxIterations ?? 10,
+      // Custom prompt overrides
+      reviewerPrompt: pipelineConfig?.reviewerPrompt,
+      correctorPrompt: pipelineConfig?.correctorPrompt,
+      precommitFixerPrompt: pipelineConfig?.precommitFixerPrompt,
+      commitMessagePrompt: pipelineConfig?.commitMessagePrompt,
+      testFixerPrompt: pipelineConfig?.testFixerPrompt,
+      // Test auto-fix config
+      testEnabled: pipelineConfig?.testEnabled ?? false,
+      testCommand: pipelineConfig?.testCommand ?? null,
+      testFixEnabled: pipelineConfig?.testFixEnabled ?? false,
+      testFixModel: pipelineConfig?.testFixModel ?? 'sonnet',
+      testFixMaxIterations: pipelineConfig?.testFixMaxIterations ?? 3,
+      // Test auto-fix tracking (initialized empty)
+      testOutput: null,
+      testPassed: false,
+      testIteration: 1,
+      testFixerThreadId: null,
+      // Review-fix tracking (initialized empty)
+      commitSha: null,
+      iteration: 1,
+      reviewerThreadId: null,
+      verdict: null,
+      findings: null,
+      correctorThreadId: null,
+      patchDiff: null,
+      noChanges: false,
+      prUrl: undefined,
+    };
 
-  const pipelineOpts: PipelineRunOptions<GitPipelineContext> = {
-    signal: abortController.signal,
-    maxIterations: pipelineConfig?.maxIterations,
-  };
+    // Select the right pipeline for this action
+    const pipeline = getActionPipeline(params.action);
 
-  void runPipeline(pipeline, initialCtx, pipelineOpts)
-    .then((result) => {
-      if (result.outcome === 'completed') {
-        emit('completed');
-        if (params.threadId) {
-          void emitWorkflowEvent(params.userId, params.threadId, 'workflow:completed', {
-            workflowId,
-            action: params.action,
-            status: 'completed',
-          });
+    // Derive steps from the pipeline definition by walking nodes and evaluating guards
+    steps = deriveSteps(pipeline, initialCtx);
+    initialCtx.steps = steps;
+
+    emit('started');
+
+    // Emit workflow:started thread event (only for thread-scoped operations)
+    if (params.threadId) {
+      void emitWorkflowEvent(params.userId, params.threadId, 'workflow:started', {
+        workflowId,
+        action: params.action,
+        title: TITLES[params.action],
+      });
+    }
+
+    const pipelineOpts: PipelineRunOptions<GitPipelineContext> = {
+      signal: abortController.signal,
+      maxIterations: pipelineConfig?.maxIterations,
+    };
+
+    await runPipeline(pipeline, initialCtx, pipelineOpts)
+      .then((result) => {
+        if (result.outcome === 'completed') {
+          emit('completed');
+          if (params.threadId) {
+            void emitWorkflowEvent(params.userId, params.threadId, 'workflow:completed', {
+              workflowId,
+              action: params.action,
+              status: 'completed',
+            });
+          }
+        } else {
+          emit('failed');
+          if (params.threadId) {
+            void emitWorkflowEvent(params.userId, params.threadId, 'workflow:completed', {
+              workflowId,
+              action: params.action,
+              status: 'failed',
+              error: result.error || undefined,
+            });
+          }
         }
-      } else {
+      })
+      .catch((err) => {
+        log.error('Workflow unexpected error', {
+          namespace: 'git-workflow',
+          workflowId,
+          error: String(err),
+        });
         emit('failed');
         if (params.threadId) {
           void emitWorkflowEvent(params.userId, params.threadId, 'workflow:completed', {
             workflowId,
             action: params.action,
             status: 'failed',
-            error: result.error || undefined,
+            error: String(err),
           });
         }
-      }
-    })
-    .catch((err) => {
-      log.error('Workflow unexpected error', {
-        namespace: 'git-workflow',
-        workflowId,
-        error: String(err),
+      })
+      .finally(() => {
+        activeWorkflows.delete(params.contextId);
       });
-      emit('failed');
-      if (params.threadId) {
-        void emitWorkflowEvent(params.userId, params.threadId, 'workflow:completed', {
-          workflowId,
-          action: params.action,
-          status: 'failed',
-          error: String(err),
-        });
-      }
-    })
-    .finally(() => {
-      activeWorkflows.delete(params.contextId);
+  })().catch((err) => {
+    // Catch errors from the async setup (e.g. getPipelineForProject failure)
+    log.error('Workflow setup error', {
+      namespace: 'git-workflow',
+      workflowId,
+      error: String(err),
     });
+    activeWorkflows.delete(params.contextId);
+  });
 
   return { workflowId };
 }

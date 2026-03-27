@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate, matchPath } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -9,6 +9,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore, getSelectingThreadId } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
+
+const LAST_ROUTE_KEY = 'funny_last_route';
 
 function parseRoute(pathname: string) {
   // Strip org prefix: /:orgSlug/... → extract slug and clean path
@@ -233,6 +235,7 @@ export function useRouteSync() {
   const navigate = useNavigate();
   // Subscribe only to `initialized` from project-store (not the entire app state)
   const initialized = useProjectStore((s) => s.initialized);
+  const restoredRef = useRef(false);
 
   // Sync URL → store whenever location changes (wait for auth + projects first)
   useEffect(() => {
@@ -250,6 +253,37 @@ export function useRouteSync() {
       liveColumns,
       addProject,
     } = parseRoute(location.pathname);
+
+    // Restore last route on cold load at root path
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      if (
+        !projectId &&
+        !threadId &&
+        !settingsPage &&
+        !preferencesPage &&
+        !globalSearch &&
+        !inbox &&
+        !analytics &&
+        !liveColumns &&
+        !addProject
+      ) {
+        try {
+          const lastRoute = localStorage.getItem(LAST_ROUTE_KEY);
+          if (lastRoute && lastRoute.startsWith('/')) {
+            navigate(lastRoute, { replace: true });
+            return;
+          }
+        } catch {}
+      }
+    }
+
+    // Persist current route when viewing a project or thread
+    if (threadId || projectId) {
+      try {
+        localStorage.setItem(LAST_ROUTE_KEY, location.pathname);
+      } catch {}
+    }
 
     // --- Org auto-switch ---
     const authState = useAuthStore.getState();

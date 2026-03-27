@@ -31,7 +31,12 @@ import {
 import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
-import { augmentPromptWithFiles, type FileRef } from '../utils/file-mentions.js';
+import {
+  augmentPromptWithFiles,
+  augmentPromptWithSymbols,
+  type FileRef,
+  type SymbolRef,
+} from '../utils/file-mentions.js';
 import { startAgent, stopAgent, isAgentRunning, cleanupThreadState } from './agent-runner.js';
 import { stopCommandsByCwd } from './command-runner.js';
 import { cleanupExternalThread } from './ingest-mapper.js';
@@ -214,6 +219,7 @@ export interface CreateAndStartThreadParams {
   allowedTools?: string[];
   disallowedTools?: string[];
   fileReferences?: FileRef[];
+  symbolReferences?: SymbolRef[];
   worktreePath?: string;
   parentThreadId?: string;
   arcId?: string;
@@ -288,10 +294,15 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     await tm.createThread(thread);
 
     if (params.prompt) {
-      // Augment prompt with file contents so the stored message includes <referenced-files> XML
-      const storedContent = await augmentPromptWithFiles(
+      // Augment prompt with file/symbol contents so the stored message includes context XML
+      let storedContent = await augmentPromptWithFiles(
         params.prompt,
         params.fileReferences,
+        projectPath,
+      );
+      storedContent = await augmentPromptWithSymbols(
+        storedContent,
+        params.symbolReferences,
         projectPath,
       );
       await tm.insertMessage({
@@ -353,9 +364,14 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
         // Start agent — use projectPath (not wtPath) because file references
         // were selected from the main repo; untracked/gitignored files won't
         // exist in the freshly created worktree.
-        const augmentedPrompt = await augmentPromptWithFiles(
+        let augmentedPrompt = await augmentPromptWithFiles(
           params.prompt,
           params.fileReferences,
+          projectPath,
+        );
+        augmentedPrompt = await augmentPromptWithSymbols(
+          augmentedPrompt,
+          params.symbolReferences,
           projectPath,
         );
         try {
@@ -468,8 +484,9 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     status: 'pending',
   });
 
-  // Augment prompt with file contents if file references were provided
-  const augmentedPrompt = await augmentPromptWithFiles(params.prompt, params.fileReferences, cwd);
+  // Augment prompt with file/symbol contents if references were provided
+  let augmentedPrompt = await augmentPromptWithFiles(params.prompt, params.fileReferences, cwd);
+  augmentedPrompt = await augmentPromptWithSymbols(augmentedPrompt, params.symbolReferences, cwd);
 
   // ── Remote runtime: launch container instead of local agent ──
   if (params.runtime === 'remote') {
@@ -571,6 +588,7 @@ export interface SendMessageParams {
   allowedTools?: string[];
   disallowedTools?: string[];
   fileReferences?: FileRef[];
+  symbolReferences?: SymbolRef[];
   baseBranch?: string;
   forceQueue?: boolean;
 }
@@ -703,8 +721,9 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     }
   }
 
-  // Augment prompt with file contents
-  const augmentedContent = await augmentPromptWithFiles(params.content, params.fileReferences, cwd);
+  // Augment prompt with file/symbol contents
+  let augmentedContent = await augmentPromptWithFiles(params.content, params.fileReferences, cwd);
+  augmentedContent = await augmentPromptWithSymbols(augmentedContent, params.symbolReferences, cwd);
 
   // Check if the agent is running and the project uses queue mode
   const agentRunning = isAgentRunning(params.threadId);

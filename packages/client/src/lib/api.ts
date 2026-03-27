@@ -303,6 +303,13 @@ export const api = {
     allowedTools?: string[];
     disallowedTools?: string[];
     fileReferences?: { path: string }[];
+    symbolReferences?: {
+      path: string;
+      name: string;
+      kind: string;
+      line: number;
+      endLine?: number;
+    }[];
     worktreePath?: string;
     parentThreadId?: string;
     arcId?: string;
@@ -329,6 +336,13 @@ export const api = {
       allowedTools?: string[];
       disallowedTools?: string[];
       fileReferences?: { path: string }[];
+      symbolReferences?: {
+        path: string;
+        name: string;
+        kind: string;
+        line: number;
+        endLine?: number;
+      }[];
       baseBranch?: string;
       forceQueue?: boolean;
     },
@@ -345,6 +359,7 @@ export const api = {
         allowedTools: opts?.allowedTools,
         disallowedTools: opts?.disallowedTools,
         fileReferences: opts?.fileReferences,
+        symbolReferences: opts?.symbolReferences,
         baseBranch: opts?.baseBranch,
         forceQueue: opts?.forceQueue,
       }),
@@ -902,6 +917,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
+  createDirectory: (parent: string, name: string) =>
+    request<{ ok: boolean; path: string }>('/browse/create-directory', {
+      method: 'POST',
+      body: JSON.stringify({ parent, name }),
+    }),
   browseFiles: (path: string, query?: string) => {
     const params = new URLSearchParams({ path });
     if (query) params.set('query', query);
@@ -910,9 +930,32 @@ export const api = {
       truncated: boolean;
     }>(`/browse/files?${params.toString()}`);
   },
+  searchSymbols: (path: string, query?: string, file?: string) => {
+    const params = new URLSearchParams({ path });
+    if (query) params.set('query', query);
+    if (file) params.set('file', file);
+    return request<{
+      symbols: Array<{
+        name: string;
+        kind: string;
+        filePath: string;
+        line: number;
+        endLine?: number;
+        containerName?: string;
+      }>;
+      truncated: boolean;
+      indexed: boolean;
+    }>(`/browse/symbols?${params.toString()}`);
+  },
+  triggerSymbolIndex: (path: string) =>
+    request<{ ok: boolean }>('/browse/symbols/index', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
 
   // GitHub
-  githubStatus: () => request<{ connected: boolean; login?: string }>('/github/status'),
+  githubStatus: () =>
+    request<{ connected: boolean; login?: string; source?: 'profile' | 'cli' }>('/github/status'),
   githubStartDevice: () =>
     request<{
       device_code: string;

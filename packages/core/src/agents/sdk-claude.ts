@@ -287,6 +287,38 @@ export class SDKClaudeProcess extends BaseAgentProcess {
       });
     }
 
+    // File-editing tools in confirmEdit mode: pause until user approves.
+    // Same pattern as AskUserQuestion — hold the hook, the message handler
+    // detects the permission denial, transitions the thread to "waiting",
+    // and the client shows the PermissionApprovalCard. When the user
+    // approves, AgentRunner kills this process and resumes with approval.
+    const CONFIRM_EDIT_TOOLS = new Set(['Edit', 'Write', 'Bash', 'NotebookEdit']);
+    if (this.options.originalPermissionMode === 'confirmEdit' && CONFIRM_EDIT_TOOLS.has(toolName)) {
+      dlog.info(`preToolUseHook PAUSING for ${toolName} (confirmEdit mode)`, {
+        toolName,
+        alreadyAborted: signal.aborted,
+      });
+      return new Promise<any>((resolve) => {
+        const onAbort = () => {
+          dlog.info(`preToolUseHook RESUMED (abort signal) for ${toolName} (confirmEdit)`, {
+            toolName,
+          });
+          resolve({
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'deny',
+              permissionDecisionReason: 'Waiting for user approval in confirmEdit mode',
+            },
+          });
+        };
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+      });
+    }
+
     dlog.debug(`preToolUseHook ALLOW ${toolName}`);
 
     // Auto-allow all other tools

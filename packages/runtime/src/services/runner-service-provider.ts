@@ -83,8 +83,9 @@ export function createRunnerServiceProvider(): RuntimeServiceProvider {
         const { remoteGetToolCall } = await import('./team-client.js');
         return remoteGetToolCall(id);
       },
-      async findLastUnansweredInteractiveToolCall() {
-        return undefined;
+      async findLastUnansweredInteractiveToolCall(threadId: string) {
+        const { remoteFindLastUnansweredInteractiveToolCall } = await import('./team-client.js');
+        return remoteFindLastUnansweredInteractiveToolCall(threadId);
       },
       async insertComment() {
         return {};
@@ -120,8 +121,16 @@ export function createRunnerServiceProvider(): RuntimeServiceProvider {
       async projectNameExists() {
         return false;
       },
-      async createProject() {
-        notAvailable('createProject');
+      async createProject(name, path, userId) {
+        const { remoteCreateProject } = await import('./team-client.js');
+        const response = await remoteCreateProject(name, path, userId);
+        if (response?.error) {
+          return err({
+            type: (response.errorType as 'BAD_REQUEST' | 'CONFLICT' | 'INTERNAL') || 'INTERNAL',
+            message: response.error,
+          });
+        }
+        return ok(response.project);
       },
       async updateProject() {
         notAvailable('updateProject');

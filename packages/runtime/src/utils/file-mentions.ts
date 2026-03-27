@@ -11,9 +11,18 @@ import { join, resolve } from 'path';
 const MAX_FILE_SIZE = 100 * 1024; // 100KB per file
 const MAX_TOTAL_CONTENT = 500 * 1024; // 500KB total
 const MAX_FOLDER_FILES = 50; // max files to inline from a folder
+const MAX_SYMBOL_LINES = 50; // max lines to extract for a single symbol
 
 export interface FileRef {
   path: string;
+}
+
+export interface SymbolRef {
+  path: string;
+  name: string;
+  kind: string;
+  line: number;
+  endLine?: number;
 }
 
 async function inlineFile(
@@ -88,4 +97,54 @@ export async function augmentPromptWithFiles(
 
   const fileContext = `<referenced-files>\n${sections.join('\n')}\n</referenced-files>\n\n`;
   return fileContext + prompt;
+}
+
+/**
+ * Augment a prompt with symbol source code extracted from referenced files.
+ * Each symbol reference reads the relevant lines from the source file and
+ * wraps them in <symbol> tags prepended to the prompt.
+ */
+export async function augmentPromptWithSymbols(
+  prompt: string,
+  symbolReferences: SymbolRef[] | undefined,
+  basePath: string,
+): Promise<string> {
+  if (!symbolReferences || symbolReferences.length === 0) return prompt;
+
+  const sections: string[] = [];
+  const resolvedBase = resolve(basePath);
+
+  for (const ref of symbolReferences) {
+    const fullPath = join(basePath, ref.path);
+    const resolved = resolve(fullPath);
+    if (!resolved.startsWith(resolvedBase)) continue;
+
+    try {
+      const content = await readFile(fullPath, 'utf-8');
+      const lines = content.split('\n');
+      const startLine = Math.max(0, ref.line - 1); // 1-based → 0-based
+
+      let endLine: number;
+      if (ref.endLine && ref.endLine > ref.line) {
+        endLine = Math.min(lines.length, ref.endLine);
+      } else {
+        // Heuristic: read up to MAX_SYMBOL_LINES or until a blank line
+        endLine = Math.min(lines.length, startLine + MAX_SYMBOL_LINES);
+      }
+
+      const symbolSource = lines.slice(startLine, endLine).join('\n');
+      sections.push(
+        `<symbol path="${ref.path}" name="${ref.name}" kind="${ref.kind}" line="${ref.line}">\n${symbolSource}\n</symbol>`,
+      );
+    } catch {
+      sections.push(
+        `<symbol path="${ref.path}" name="${ref.name}" kind="${ref.kind}" line="${ref.line}" note="File not found or unreadable"></symbol>`,
+      );
+    }
+  }
+
+  if (sections.length === 0) return prompt;
+
+  const symbolContext = `<referenced-symbols>\n${sections.join('\n')}\n</referenced-symbols>\n\n`;
+  return symbolContext + prompt;
 }

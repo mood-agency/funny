@@ -114,6 +114,13 @@ export function NewThreadInput() {
       baseBranch?: string;
       sendToBacklog?: boolean;
       fileReferences?: { path: string }[];
+      symbolReferences?: {
+        path: string;
+        name: string;
+        kind: string;
+        line: number;
+        endLine?: number;
+      }[];
       purpose?: ThreadPurpose;
     },
     images?: any[],
@@ -185,6 +192,7 @@ export function NewThreadInput() {
       allowedTools,
       disallowedTools,
       fileReferences: opts.fileReferences,
+      symbolReferences: opts.symbolReferences,
       arcId,
       purpose,
     });

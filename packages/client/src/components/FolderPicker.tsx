@@ -1,4 +1,15 @@
-import { Folder, ChevronRight, Home, HardDrive, ArrowLeft, ArrowRight, Search } from 'lucide-react';
+import {
+  Folder,
+  ChevronRight,
+  Home,
+  HardDrive,
+  ArrowLeft,
+  ArrowRight,
+  Search,
+  FolderPlus,
+  Check,
+  X,
+} from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -69,6 +80,10 @@ export function FolderPicker({ onSelect, onClose }: FolderPickerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderError, setNewFolderError] = useState('');
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
 
   // Navigation history for back/forward
   const historyRef = useRef<string[]>([]);
@@ -182,6 +197,34 @@ export function FolderPicker({ onSelect, onClose }: FolderPickerProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDir is a stable local function; adding it would cause infinite re-renders
   }, []);
 
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setNewFolderError('');
+    const result = await api.createDirectory(currentPath, name);
+    if (result.isErr()) {
+      setNewFolderError(result.error.message);
+      return;
+    }
+    setCreatingFolder(false);
+    setNewFolderName('');
+    // Navigate into the newly created folder
+    loadDir(result.value.path);
+  };
+
+  const cancelCreateFolder = () => {
+    setCreatingFolder(false);
+    setNewFolderName('');
+    setNewFolderError('');
+  };
+
+  // Auto-focus the new folder input when it appears
+  useEffect(() => {
+    if (creatingFolder && newFolderInputRef.current) {
+      newFolderInputRef.current.focus();
+    }
+  }, [creatingFolder]);
+
   const breadcrumbs = useMemo(() => buildBreadcrumbs(currentPath), [currentPath]);
 
   return (
@@ -265,6 +308,23 @@ export function FolderPicker({ onSelect, onClose }: FolderPickerProps) {
               {root.replace(':\\', '')}
             </Button>
           ))}
+          <div className="ml-auto">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setCreatingFolder(true);
+                setNewFolderName('');
+                setNewFolderError('');
+              }}
+              disabled={!currentPath || loading}
+              className="h-6 px-2 text-xs text-muted-foreground"
+              data-testid="folder-picker-new-folder"
+            >
+              <FolderPlus className="icon-xs mr-1" />
+              {t('folderPicker.newFolder')}
+            </Button>
+          </div>
         </div>
 
         {/* Search filter */}
@@ -286,6 +346,50 @@ export function FolderPicker({ onSelect, onClose }: FolderPickerProps) {
 
         {/* Directory listing */}
         <ScrollArea className="flex-1 p-2">
+          {/* Inline new folder creation */}
+          {creatingFolder && (
+            <div className="mb-1 flex items-center gap-2 rounded-md bg-accent/50 px-2 py-1.5">
+              <FolderPlus className="icon-sm flex-shrink-0 text-status-info" />
+              <Input
+                ref={newFolderInputRef}
+                type="text"
+                value={newFolderName}
+                onChange={(e) => {
+                  setNewFolderName(e.target.value);
+                  setNewFolderError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFolder();
+                  if (e.key === 'Escape') cancelCreateFolder();
+                }}
+                placeholder={t('folderPicker.newFolderPlaceholder')}
+                className="h-6 flex-1 font-mono-explorer text-xs"
+                data-testid="folder-picker-new-folder-input"
+              />
+              <TooltipIconButton
+                size="icon"
+                onClick={handleCreateFolder}
+                disabled={!newFolderName.trim()}
+                className="h-6 w-6 flex-shrink-0"
+                tooltip={t('folderPicker.create')}
+                data-testid="folder-picker-new-folder-confirm"
+              >
+                <Check className="icon-xs" />
+              </TooltipIconButton>
+              <TooltipIconButton
+                size="icon"
+                onClick={cancelCreateFolder}
+                className="h-6 w-6 flex-shrink-0"
+                tooltip={t('folderPicker.cancel')}
+                data-testid="folder-picker-new-folder-cancel"
+              >
+                <X className="icon-xs" />
+              </TooltipIconButton>
+            </div>
+          )}
+          {newFolderError && (
+            <p className="mb-1 px-2 text-xs text-status-error">{newFolderError}</p>
+          )}
           {error && <p className="px-2 py-1 text-xs text-status-error">{error}</p>}
           {loading && !error && (
             <p className="px-2 py-4 text-center text-xs text-muted-foreground">

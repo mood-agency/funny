@@ -476,7 +476,10 @@
     "searchPlaceholder": "Filtrar pastas...",
     "noResults": "Nenhuma pasta encontrada",
     "cancel": "Cancelar",
-    "selectFolder": "Selecionar esta pasta"
+    "selectFolder": "Selecionar esta pasta",
+    "newFolder": "Nova Pasta",
+    "newFolderPlaceholder": "Nome da pasta...",
+    "create": "Criar"
   },
   "startup": {
     "title": "Comandos de Inicialização",
@@ -929,6 +932,9 @@
     },
     "cloneRepo": {
       "INTERNAL": "Falha ao clonar o repositório. Verifique a URL e tente novamente.",
+      "PROCESS_ERROR": "{{message}}",
+      "BAD_REQUEST": "{{message}}",
+      "CONFLICT": "{{message}}",
       "FORBIDDEN": "Não é possível acessar este repositório. Verifique suas credenciais do GitHub."
     },
     "createThread": {

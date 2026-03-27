@@ -77,6 +77,8 @@ export interface ClaudeProcessOptions {
   maxTurns?: number;
   sessionId?: string;
   permissionMode?: string;
+  /** Original permission mode before provider-specific resolution (e.g., 'confirmEdit', 'ask') */
+  originalPermissionMode?: string;
   images?: any[];
   /** Provider identifier — used by AgentProcessOptions, passed through here for convenience. */
   provider?: string;

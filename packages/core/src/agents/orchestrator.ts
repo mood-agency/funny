@@ -16,6 +16,7 @@ const dlog = createDebugLogger('orch');
 import {
   resolveModelId,
   resolvePermissionMode,
+  resolveResumePermissionMode,
   getDefaultAllowedTools,
   getAskModeTools,
 } from '@funny/shared/models';
@@ -144,6 +145,7 @@ export class AgentOrchestrator extends EventEmitter {
       cwd,
       model: resolvedModel,
       permissionMode: effectivePermissionMode,
+      originalPermissionMode: permissionMode,
       allowedTools: effectiveAllowedTools,
       disallowedTools: effectiveDisallowedTools,
       maxTurns,
@@ -163,6 +165,18 @@ export class AgentOrchestrator extends EventEmitter {
     });
 
     if (isResume) {
+      // Downgrade plan → acceptEdits on resume so the agent can actually
+      // execute after the user approved the plan.  Without this, the resumed
+      // session stays in plan mode and immediately calls ExitPlanMode again.
+      const resumePermission = resolveResumePermissionMode(provider, processOpts.permissionMode);
+      if (resumePermission !== processOpts.permissionMode) {
+        dlog.info('Downgrading permissionMode for resume', {
+          threadId,
+          from: processOpts.permissionMode,
+          to: resumePermission,
+        });
+        processOpts.permissionMode = resumePermission;
+      }
       dlog.info('Starting agent with session resume', { threadId, sessionId });
       this.startWithResume(threadId, processOpts, sessionId!);
     } else {

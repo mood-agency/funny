@@ -1047,6 +1047,43 @@
   mask-position: center;
 }
 
+/* Inline chip — symbol mention (#) */
+.tiptap-prompt-editor .symbol-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.25rem;
+  padding: 0 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.25;
+  vertical-align: middle;
+  background: hsl(var(--foreground) / 0.12);
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--foreground) / 0.2);
+  white-space: nowrap;
+  cursor: default;
+  user-select: all;
+}
+
+.tiptap-prompt-editor .symbol-mention::before {
+  content: '';
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  flex-shrink: 0;
+  background-color: currentColor;
+  /* Lucide Code2 as mask so it inherits the text color */
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 16 4-4-4-4'%3E%3C/path%3E%3Cpath d='m6 8-4 4 4 4'%3E%3C/path%3E%3Cpath d='m14.5 4-5 16'%3E%3C/path%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m18 16 4-4-4-4'%3E%3C/path%3E%3Cpath d='m6 8-4 4 4 4'%3E%3C/path%3E%3Cpath d='m14.5 4-5 16'%3E%3C/path%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
 @layer utilities {
   /* ── Icon size tokens ─────────────────────────────────────────
    * Named to mirror the Tailwind text-* scale so devs can pair

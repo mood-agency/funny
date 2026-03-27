@@ -68,6 +68,14 @@ const fileReferenceSchema = z.object({
   path: z.string().min(1),
 });
 
+const symbolReferenceSchema = z.object({
+  path: z.string().min(1),
+  name: z.string().min(1),
+  kind: z.string().min(1),
+  line: z.number().int().min(1),
+  endLine: z.number().int().min(1).optional(),
+});
+
 // ── Request body schemas ─────────────────────────────────────────
 
 export const createProjectSchema = z.object({
@@ -120,6 +128,7 @@ export const createThreadSchema = z.object({
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
   fileReferences: z.array(fileReferenceSchema).max(20).optional(),
+  symbolReferences: z.array(symbolReferenceSchema).max(20).optional(),
   worktreePath: z.string().optional(),
   parentThreadId: z.string().optional(),
   arcId: z.string().optional(),
@@ -148,6 +157,7 @@ export const sendMessageSchema = z.object({
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
   fileReferences: z.array(fileReferenceSchema).max(20).optional(),
+  symbolReferences: z.array(symbolReferenceSchema).max(20).optional(),
   baseBranch: z.string().optional(),
   forceQueue: z.boolean().optional(),
 });

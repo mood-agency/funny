@@ -79,6 +79,7 @@ function ShellEditor({
         options={{
           minimap: { enabled: false },
           fontSize: 13,
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           lineNumbers: 'off',
           glyphMargin: false,
           folding: false,

@@ -265,6 +265,7 @@ export function MonacoEditorDialog({
               options={{
                 minimap: { enabled: showMinimap },
                 fontSize: 13,
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                 lineNumbers: 'on',
                 automaticLayout: true,
                 scrollBeyondLastLine: false,

@@ -483,7 +483,10 @@
     "searchPlaceholder": "Filter folders...",
     "noResults": "No matching folders",
     "cancel": "Cancel",
-    "selectFolder": "Select this folder"
+    "selectFolder": "Select this folder",
+    "newFolder": "New Folder",
+    "newFolderPlaceholder": "Folder name...",
+    "create": "Create"
   },
   "startup": {
     "title": "Startup Commands",
@@ -946,6 +949,9 @@
     },
     "cloneRepo": {
       "INTERNAL": "Failed to clone the repository. Please check the URL and try again.",
+      "PROCESS_ERROR": "{{message}}",
+      "BAD_REQUEST": "{{message}}",
+      "CONFLICT": "{{message}}",
       "FORBIDDEN": "Cannot access this repository. Check your GitHub credentials."
     },
     "createThread": {

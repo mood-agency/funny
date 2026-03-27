@@ -77,7 +77,7 @@ import { useUIStore } from '@/stores/ui-store';
 
 import { CommitHistoryTab } from './CommitHistoryTab';
 import { DiffStats } from './DiffStats';
-import { buildTreeRows, type TreeRow } from './FileTree';
+import { buildTreeRows } from './FileTree';
 import { InlineProgressSteps } from './InlineProgressSteps';
 import { ExpandedDiffDialog } from './tool-cards/ExpandedDiffDialog';
 
@@ -374,21 +374,9 @@ export function ReviewPane() {
     setReviewPaneOpen,
   ]);
 
-  // Show standalone merge button when no dirty files but branch has unmerged commits.
-  // Works in both worktree and local mode — as long as the thread is on a different branch from base.
+  // Whether the thread is on a different branch from base (worktree or local mode)
   const isOnDifferentBranch =
     !!effectiveThreadId && !!baseBranch && !!threadBranch && threadBranch !== baseBranch;
-  const showMergeOnly =
-    isOnDifferentBranch &&
-    summaries.length === 0 &&
-    !loading &&
-    gitStatus &&
-    !gitStatus.isMergedIntoBase &&
-    !hasRebaseConflict;
-
-  // Show standalone push button when no dirty files but there are unpushed commits
-  const showPushOnly =
-    summaries.length === 0 && !loading && unpushedCommitCount > 0 && !hasRebaseConflict;
 
   const fileListRef = useRef<HTMLDivElement>(null);
 
@@ -993,10 +981,6 @@ export function ReviewPane() {
     }
   };
 
-  const handleResetSoft = () => {
-    setConfirmDialog({ type: 'reset' });
-  };
-
   const executeResetSoft = async () => {
     if (!hasGitContext || resetInProgress) return;
     setResetInProgress(true);
@@ -1217,6 +1201,54 @@ export function ReviewPane() {
                     : t('review.pushToOrigin', 'Push to origin')}
                 </TooltipContent>
               </Tooltip>
+              {isOnDifferentBranch && !gitStatus?.isMergedIntoBase && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={handleMergeOnly}
+                      disabled={mergeInProgress || summaries.length > 0}
+                      className="text-muted-foreground"
+                      data-testid="review-merge-toolbar"
+                    >
+                      <GitMerge className={cn('icon-base', mergeInProgress && 'animate-pulse')} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {summaries.length > 0
+                      ? t('review.commitFirst', 'Commit changes before merging')
+                      : t('review.mergeIntoBranch', {
+                          target: baseBranch || 'base',
+                          defaultValue: `Merge into ${baseBranch || 'base'}`,
+                        })}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {isOnDifferentBranch && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => setPrDialog({ title: threadBranch || '', body: '' })}
+                      disabled={!!isAgentRunning}
+                      className="text-muted-foreground"
+                      data-testid="review-create-pr-toolbar"
+                    >
+                      <GitPullRequest className="icon-base" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {isAgentRunning
+                      ? t('review.agentRunningTooltip')
+                      : t('review.createPRTooltip', {
+                          branch: threadBranch,
+                          target: baseBranch || 'base',
+                        })}
+                  </TooltipContent>
+                </Tooltip>
+              )}
               {summaries.length > 0 && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1832,167 +1864,6 @@ export function ReviewPane() {
                     )}
                   </Tooltip>
                 </div>
-              </div>
-            )}
-
-            {/* Standalone push button — shown when no dirty files but there are unpushed commits */}
-            {showPushOnly && (
-              <div className="flex-shrink-0 space-y-2 border-t border-sidebar-border p-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Upload className="icon-sm" />
-                  <span>
-                    {t('review.readyToPush', {
-                      count: unpushedCommitCount,
-                      defaultValue: `${unpushedCommitCount} commit(s) ready to push`,
-                    })}
-                  </span>
-                </div>
-                <div className="flex gap-1.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="flex-1">
-                        <Button
-                          className="w-full"
-                          size="sm"
-                          onClick={handlePushOnly}
-                          disabled={pushInProgress || !!isAgentRunning}
-                          data-testid="review-push"
-                        >
-                          {pushInProgress ? (
-                            <Loader2 className="icon-sm mr-1.5 animate-spin" />
-                          ) : (
-                            <Upload className="icon-sm mr-1.5" />
-                          )}
-                          {t('review.pushToOrigin', 'Push to origin')}
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    {isAgentRunning && (
-                      <TooltipContent side="top">{t('review.agentRunningTooltip')}</TooltipContent>
-                    )}
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleResetSoft}
-                        disabled={resetInProgress || !!isAgentRunning}
-                        data-testid="review-undo-commit"
-                      >
-                        {resetInProgress ? (
-                          <Loader2 className="icon-sm animate-spin" />
-                        ) : (
-                          <RotateCcw className="icon-sm" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      {isAgentRunning
-                        ? t('review.agentRunningTooltip')
-                        : t('review.undoLastCommit', 'Undo last commit')}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-            )}
-
-            {/* Standalone merge / create PR buttons — shown when no dirty files but worktree has unmerged commits */}
-            {showMergeOnly && (
-              <div className="flex-shrink-0 space-y-3 border-t border-sidebar-border p-3">
-                {commitInProgress && commitEntry?.action === 'merge' ? (
-                  <>
-                    <p className="text-xs font-medium text-foreground">{commitEntry.title}</p>
-                    <InlineProgressSteps steps={commitEntry.steps} />
-                    {(() => {
-                      const hasFailed = commitEntry.steps.some((s) => s.status === 'failed');
-                      const isRunning = commitEntry.steps.some((s) => s.status === 'running');
-                      const isFinished =
-                        !isRunning &&
-                        (commitEntry.steps.every(
-                          (s) => s.status === 'completed' || s.status === 'failed',
-                        ) ||
-                          hasFailed);
-                      if (isFinished && hasFailed) {
-                        return (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => {
-                              useCommitProgressStore.getState().finishCommit(commitProgressId);
-                            }}
-                            data-testid="review-merge-dismiss"
-                          >
-                            {t('review.progress.dismiss', 'Dismiss')}
-                          </Button>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <GitMerge className="icon-sm" />
-                      <span>
-                        {t('review.readyToMerge', {
-                          target: baseBranch || 'base',
-                          defaultValue: `Ready to merge into ${baseBranch || 'base'}`,
-                        })}
-                      </span>
-                    </div>
-                    <div className="flex gap-1.5">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            className="flex-1"
-                            size="sm"
-                            onClick={handleMergeOnly}
-                            disabled={mergeInProgress || (!!isAgentRunning && !effectiveThreadId)}
-                            data-testid="review-merge"
-                          >
-                            {mergeInProgress ? (
-                              <Loader2 className="icon-sm mr-1.5 animate-spin" />
-                            ) : (
-                              <GitMerge className="icon-sm mr-1.5" />
-                            )}
-                            {t('review.mergeIntoBranch', {
-                              target: baseBranch || 'base',
-                              defaultValue: `Merge into ${baseBranch || 'base'}`,
-                            })}
-                          </Button>
-                        </TooltipTrigger>
-                        {isAgentRunning && (
-                          <TooltipContent side="top">
-                            {t('review.agentRunningTooltip')}
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setPrDialog({ title: threadBranch || '', body: '' })}
-                            disabled={!!isAgentRunning}
-                            data-testid="review-create-pr"
-                          >
-                            <GitPullRequest className="icon-sm" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          {isAgentRunning
-                            ? t('review.agentRunningTooltip')
-                            : t('review.createPRTooltip', {
-                                branch: threadBranch,
-                                target: baseBranch || 'base',
-                              })}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </>
-                )}
               </div>
             )}
 

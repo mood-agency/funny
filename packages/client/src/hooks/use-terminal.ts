@@ -63,7 +63,7 @@ export function useTerminal({ id, cwd, containerRef }: UseTerminalOptions) {
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace',
+      fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
       theme: getTerminalTheme(),
       convertEol: true,
       scrollback: 5000,

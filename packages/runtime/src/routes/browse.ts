@@ -5,15 +5,16 @@
  * @domain layer: infrastructure
  */
 
-import { readdirSync, existsSync, statSync } from 'fs';
+import { readdirSync, existsSync, statSync, mkdirSync } from 'fs';
 import { homedir, platform } from 'os';
 import { join, parse as parsePath, resolve, normalize } from 'path';
 
-import { getRemoteUrl, extractRepoName, initRepo, execute } from '@funny/core/git';
+import { getRemoteUrl, extractRepoName, initRepo } from '@funny/core/git';
 import { Hono } from 'hono';
 
 import { getServices } from '../services/service-registry.js';
 import type { HonoEnv } from '../types/hono-env.js';
+import { resolveGitFiles } from '../utils/git-files.js';
 import { resultToResponse } from '../utils/result-response.js';
 
 const app = new Hono<HonoEnv>();
@@ -176,6 +177,36 @@ app.post('/git-init', async (c) => {
   return c.json({ ok: true });
 });
 
+// Create a new directory inside a given parent path
+app.post('/create-directory', async (c) => {
+  const { parent, name } = await c.req.json<{ parent: string; name: string }>();
+  if (!parent) return c.json({ error: 'parent is required' }, 400);
+  if (!name) return c.json({ error: 'name is required' }, 400);
+
+  // Validate directory name (no path separators or special chars)
+  // eslint-disable-next-line no-control-regex
+  if (/[/\\<>:"|?*\x00-\x1f]/.test(name)) {
+    return c.json({ error: 'Invalid directory name' }, 400);
+  }
+
+  const userId = c.get('userId') as string;
+  const denied = await checkAllowedPath(parent, userId);
+  if (denied) return denied;
+
+  const newPath = join(parent, name);
+
+  if (existsSync(newPath)) {
+    return c.json({ error: 'A folder with that name already exists' }, 409);
+  }
+
+  try {
+    mkdirSync(newPath, { recursive: true });
+    return c.json({ ok: true, path: newPath });
+  } catch (error: any) {
+    return c.json({ error: `Failed to create directory: ${error.message}` }, 500);
+  }
+});
+
 // Open directory in file explorer
 app.post('/open-directory', async (c) => {
   const { path: dirPath } = await c.req.json<{ path: string }>();
@@ -308,55 +339,6 @@ app.post('/open-terminal', async (c) => {
   return c.json({ ok: true });
 });
 
-/**
- * Run `git ls-files` in a directory and return the raw file list.
- * Entries ending with '/' indicate nested git repos / submodules whose
- * contents aren't listed by the parent repo.
- */
-async function gitLsFiles(cwd: string): Promise<string[]> {
-  const result = await execute('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-    cwd,
-    reject: false,
-    timeout: 10_000,
-  });
-  if (result.exitCode !== 0) return [];
-  return result.stdout
-    .split('\n')
-    .map((f) => f.trim())
-    .filter(Boolean);
-}
-
-/**
- * Recursively resolve files from `git ls-files`.
- * When an entry ends with '/' (nested git repo), run `git ls-files` inside it
- * and prefix the results with the directory name.
- */
-async function resolveGitFiles(cwd: string, prefix = ''): Promise<string[]> {
-  const entries = await gitLsFiles(cwd);
-  const resolved: string[] = [];
-  const nestedDirs: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.endsWith('/')) {
-      nestedDirs.push(entry.replace(/\/$/, ''));
-    } else {
-      resolved.push(prefix + entry);
-    }
-  }
-
-  // Resolve nested git repos in parallel
-  if (nestedDirs.length > 0) {
-    const nested = await Promise.all(
-      nestedDirs.map((dir) => resolveGitFiles(join(cwd, dir), prefix + dir + '/')),
-    );
-    for (const files of nested) {
-      resolved.push(...files);
-    }
-  }
-
-  return resolved;
-}
-
 /** Simple fuzzy match: all characters of the query appear in order within the text */
 function fuzzyMatch(text: string, query: string): boolean {
   let qi = 0;
@@ -438,6 +420,50 @@ app.get('/files', async (c) => {
   } catch (error: any) {
     return c.json({ files: [], truncated: false, error: error.message });
   }
+});
+
+// ── Symbol search routes ─────────────────────────────────────
+
+import { indexProject, searchSymbols, isIndexing } from '../services/symbol-index-service.js';
+
+// Search symbols in a project
+app.get('/symbols', async (c) => {
+  const dirPathOrRes = checkRequired(c.req.query('path'), 'path query parameter');
+  if (dirPathOrRes instanceof Response) return dirPathOrRes;
+  const dirPath = dirPathOrRes;
+  const userId = c.get('userId') as string;
+
+  const denied = await checkAllowedPath(dirPath, userId);
+  if (denied) return denied;
+
+  const query = c.req.query('query') || '';
+  const file = c.req.query('file') || undefined;
+
+  // If not indexed yet, trigger background indexing
+  const indexing = isIndexing(dirPath);
+  const result = searchSymbols(dirPath, query, file);
+
+  if (!result.indexed && !indexing) {
+    // Fire-and-forget indexing
+    indexProject(dirPath).catch(() => {});
+  }
+
+  return c.json(result);
+});
+
+// Trigger symbol indexing for a project
+app.post('/symbols/index', async (c) => {
+  const { path: dirPath } = await c.req.json<{ path: string }>();
+  if (!dirPath) return c.json({ error: 'path is required' }, 400);
+  const userId = c.get('userId') as string;
+
+  const denied = await checkAllowedPath(dirPath, userId);
+  if (denied) return denied;
+
+  // Fire-and-forget indexing
+  indexProject(dirPath).catch(() => {});
+
+  return c.json({ ok: true });
 });
 
 export default app;

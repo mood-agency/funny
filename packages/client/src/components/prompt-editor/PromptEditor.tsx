@@ -9,7 +9,17 @@ import Text from '@tiptap/extension-text';
 import { TextSelection } from '@tiptap/pm/state';
 import type { JSONContent } from '@tiptap/react';
 import { EditorContent, useEditor } from '@tiptap/react';
-import { FileText, FolderOpen, Zap, Loader2 } from 'lucide-react';
+import {
+  FileText,
+  FolderOpen,
+  Zap,
+  Loader2,
+  Code2,
+  Box,
+  FileType,
+  List,
+  Variable,
+} from 'lucide-react';
 import {
   forwardRef,
   useCallback,
@@ -79,7 +89,13 @@ interface SuggestionItem {
   path?: string;
   fileType?: 'file' | 'folder';
   description?: string;
-  type: 'file' | 'slash';
+  type: 'file' | 'slash' | 'symbol';
+  /** Symbol kind (function, class, etc.) — only for type='symbol' */
+  symbolKind?: string;
+  /** Line number in the file — only for type='symbol' */
+  symbolLine?: number;
+  /** End line number — only for type='symbol' */
+  symbolEndLine?: number;
 }
 
 interface SuggestionPopupProps {
@@ -90,7 +106,7 @@ interface SuggestionPopupProps {
   onSelect: (item: SuggestionItem) => void;
   onHover: (index: number) => void;
   rect: (() => DOMRect | null) | null;
-  type: 'file' | 'slash';
+  type: 'file' | 'slash' | 'symbol';
   /** Current search query for highlighting matches */
   query?: string;
   /** Ref to a container element — the popup will match its width and left edge */
@@ -122,6 +138,24 @@ function middleTruncate(path: string, maxLen = 60): string {
   }
 
   return (prefix ? prefix + sep : '') + '\u2026' + sep + fileName;
+}
+
+/** Icon for a symbol kind */
+function SymbolKindIcon({ kind, className }: { kind?: string; className?: string }) {
+  switch (kind) {
+    case 'class':
+      return <Box className={className} />;
+    case 'interface':
+    case 'type':
+      return <FileType className={className} />;
+    case 'enum':
+      return <List className={className} />;
+    case 'variable':
+    case 'property':
+      return <Variable className={className} />;
+    default: // function, method, module
+      return <Code2 className={className} />;
+  }
 }
 
 function SuggestionPopup({
@@ -188,7 +222,9 @@ function SuggestionPopup({
           <Loader2 className="icon-xs animate-spin" />
           {type === 'file'
             ? t('prompt.loadingFiles', 'Loading files\u2026')
-            : t('prompt.loadingSkills', 'Loading skills\u2026')}
+            : type === 'symbol'
+              ? t('prompt.loadingSymbols', 'Loading symbols\u2026')
+              : t('prompt.loadingSkills', 'Loading skills\u2026')}
         </div>
       </div>,
       document.body,
@@ -208,7 +244,9 @@ function SuggestionPopup({
         <div className="px-3 py-2 text-xs text-muted-foreground">
           {type === 'file'
             ? t('prompt.noFilesMatch', 'No files match')
-            : t('skills.noSkillsFound', 'No skills found')}
+            : type === 'symbol'
+              ? t('prompt.noSymbolsMatch', 'No symbols match')
+              : t('skills.noSkillsFound', 'No skills found')}
         </div>
       </div>,
       document.body,
@@ -228,7 +266,13 @@ function SuggestionPopup({
       {items.map((item, i) => (
         <button
           key={`${item.type}:${item.id}`}
-          data-testid={type === 'file' ? `mention-item-${item.id}` : `slash-item-${item.id}`}
+          data-testid={
+            type === 'symbol'
+              ? `symbol-item-${item.id}`
+              : type === 'file'
+                ? `mention-item-${item.id}`
+                : `slash-item-${item.id}`
+          }
           className={cn(
             'flex w-full items-start gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent',
             i === selectedIndex && 'bg-accent',
@@ -239,7 +283,12 @@ function SuggestionPopup({
           }}
           onMouseEnter={() => onHover(i)}
         >
-          {type === 'file' ? (
+          {type === 'symbol' ? (
+            <SymbolKindIcon
+              kind={item.symbolKind}
+              className="icon-sm mt-0.5 shrink-0 text-muted-foreground"
+            />
+          ) : type === 'file' ? (
             item.fileType === 'folder' ? (
               <FolderOpen className="icon-sm mt-0.5 shrink-0 text-muted-foreground" />
             ) : (
@@ -250,10 +299,22 @@ function SuggestionPopup({
           )}
           <div className="min-w-0">
             <HighlightText
-              text={type === 'slash' ? `/${item.label}` : middleTruncate(item.label)}
+              text={
+                type === 'slash'
+                  ? `/${item.label}`
+                  : type === 'symbol'
+                    ? item.label
+                    : middleTruncate(item.label)
+              }
               query={query}
               className="block truncate font-mono text-xs font-medium"
             />
+            {type === 'symbol' && item.path && (
+              <span className="block truncate text-xs text-muted-foreground">
+                {middleTruncate(item.path, 50)}
+                {item.symbolLine ? `:${item.symbolLine}` : ''}
+              </span>
+            )}
             {item.description && (
               <HighlightText
                 text={item.description}
@@ -292,7 +353,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
   ref,
 ) {
   // ── Suggestion state (shared for both @ and /) ──
-  const [suggestionType, setSuggestionType] = useState<'file' | 'slash' | null>(null);
+  const [suggestionType, setSuggestionType] = useState<'file' | 'slash' | 'symbol' | null>(null);
   const [suggestionItems, setSuggestionItems] = useState<SuggestionItem[]>([]);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
@@ -357,7 +418,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
     () => ({
       char: '@',
       allowSpaces: false,
-      allowedPrefixes: null,
+      allowedPrefixes: [' ', '\n'],
       items: ({ query }: { query: string }) => {
         // Use the full text after @ (up to next space) instead of TipTap's
         // caret-dependent query, so moving the caret doesn't change results
@@ -599,6 +660,147 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
     [],
   );
 
+  // ── Symbol suggestion config (# trigger) ──
+  const symbolTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const symbolSuggestion = useCallback(
+    () => ({
+      char: '#',
+      allowSpaces: false,
+      allowedPrefixes: [' ', '\n'],
+      items: ({ query }: { query: string }) => {
+        const fullQuery = getFullQuery(query);
+        setSuggestionQuery(fullQuery);
+        return new Promise<SuggestionItem[]>((resolve) => {
+          if (symbolTimerRef.current) clearTimeout(symbolTimerRef.current);
+          setSuggestionLoading(true);
+          symbolTimerRef.current = setTimeout(async () => {
+            const path = cwdRef.current;
+            if (!path) {
+              setSuggestionLoading(false);
+              resolve([]);
+              return;
+            }
+            // Support #file:symbol syntax
+            const [fileScope, symbolQuery] = fullQuery.includes(':')
+              ? [fullQuery.split(':')[0], fullQuery.split(':').slice(1).join(':')]
+              : [undefined, fullQuery];
+
+            const result = await api.searchSymbols(path, symbolQuery || undefined, fileScope);
+            let items: SuggestionItem[] = [];
+            if (result.isOk()) {
+              items = result.value.symbols.map((s) => ({
+                id: `${s.filePath}:${s.name}:${s.line}`,
+                label: s.containerName ? `${s.containerName}.${s.name}` : s.name,
+                path: s.filePath,
+                symbolKind: s.kind,
+                symbolLine: s.line,
+                symbolEndLine: s.endLine,
+                type: 'symbol' as const,
+              }));
+              setSuggestionTruncated(result.value.truncated);
+
+              // If not indexed yet, trigger indexing
+              if (!result.value.indexed) {
+                api.triggerSymbolIndex(path);
+              }
+            }
+            setSuggestionLoading(false);
+            resolve(items);
+          }, 150);
+        });
+      },
+      command: ({ editor, range, props }: any) => {
+        const docSize = editor.state.doc.content.size;
+        const safeRange = {
+          from: Math.min(range.from, docSize),
+          to: Math.min(range.to, docSize),
+        };
+        editor
+          .chain()
+          .focus()
+          .insertContentAt(safeRange, [
+            {
+              type: 'symbolMention',
+              attrs: {
+                id: props.id,
+                label: props.label,
+                path: props.path ?? '',
+                kind: props.symbolKind ?? 'function',
+                line: props.symbolLine ?? 0,
+                endLine: props.symbolEndLine,
+              },
+            },
+            { type: 'text', text: ' ' },
+          ])
+          .run();
+      },
+      render: () => ({
+        onStart: (props: any) => {
+          triggerPosRef.current = props.range?.from ?? null;
+          setSuggestionType('symbol');
+          setSuggestionItems(props.items);
+          setSuggestionIndex(0);
+          setSuggestionQuery(props.query ?? '');
+          setSuggestionRect(() => props.clientRect);
+          suggestionCommandRef.current = props.command;
+        },
+        onUpdate: (props: any) => {
+          setSuggestionItems((prev) => {
+            const next = props.items as SuggestionItem[];
+            const changed =
+              prev.length !== next.length || prev.some((item, i) => item.id !== next[i]?.id);
+            if (changed) setSuggestionIndex(0);
+            return next;
+          });
+          setSuggestionQuery(getFullQuery(props.query ?? ''));
+          setSuggestionRect(() => props.clientRect);
+          suggestionCommandRef.current = props.command;
+        },
+        onKeyDown: (props: any) => {
+          const { event } = props;
+          const len = suggestionItemsRef.current.length;
+          if (event.key === 'ArrowDown') {
+            setSuggestionIndex((i) => (i + 1) % Math.max(1, len));
+            return true;
+          }
+          if (event.key === 'ArrowUp') {
+            setSuggestionIndex((i) => (i - 1 + Math.max(1, len)) % Math.max(1, len));
+            return true;
+          }
+          if (event.key === 'Enter' || event.key === 'Tab') {
+            const items = suggestionItemsRef.current;
+            if (items.length > 0) {
+              setSuggestionIndex((currentIndex) => {
+                const item = items[currentIndex];
+                if (item) {
+                  suggestionCommandRef.current?.(item as unknown as Record<string, unknown>);
+                }
+                return currentIndex;
+              });
+            }
+            return true;
+          }
+          if (event.key === 'Escape') {
+            setSuggestionType(null);
+            return true;
+          }
+          return false;
+        },
+        onExit: () => {
+          triggerPosRef.current = null;
+          setSuggestionType(null);
+          setSuggestionItems([]);
+          setSuggestionQuery('');
+          setSuggestionLoading(false);
+          setSuggestionTruncated(false);
+        },
+      }),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   // ── TipTap editor ──
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
@@ -659,6 +861,34 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
       }).configure({
         HTMLAttributes: { class: 'slash-command' },
         suggestion: slashSuggestion(),
+        deleteTriggerWithBackspace: true,
+      }),
+      // Symbol mentions (# trigger)
+      Mention.extend({
+        name: 'symbolMention',
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            path: { default: null },
+            kind: { default: 'function' },
+            line: { default: 0 },
+            endLine: { default: null },
+          };
+        },
+        renderHTML({ node, HTMLAttributes }) {
+          return [
+            'span',
+            {
+              ...HTMLAttributes,
+              class: 'symbol-mention',
+              'data-symbol-kind': node.attrs.kind || 'function',
+            },
+            node.attrs.label || node.attrs.id,
+          ];
+        },
+      }).configure({
+        HTMLAttributes: { class: 'symbol-mention' },
+        suggestion: symbolSuggestion(),
         deleteTriggerWithBackspace: true,
       }),
     ],
@@ -863,7 +1093,9 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
           items={suggestionItems}
           selectedIndex={suggestionIndex}
           loading={suggestionLoading}
-          truncated={suggestionType === 'file' ? suggestionTruncated : false}
+          truncated={
+            suggestionType === 'file' || suggestionType === 'symbol' ? suggestionTruncated : false
+          }
           onSelect={handleSuggestionSelect}
           onHover={setSuggestionIndex}
           rect={suggestionRect}

@@ -738,6 +738,16 @@ export async function remoteFindToolCall(
   return response?.toolCall ?? null;
 }
 
+/** Find the last unanswered interactive tool call (ExitPlanMode / AskUserQuestion) for a thread */
+export async function remoteFindLastUnansweredInteractiveToolCall(
+  threadId: string,
+): Promise<{ id: string; name: string } | undefined> {
+  const response = await sendDataMessage('data:find_last_unanswered_interactive_tool_call', {
+    threadId,
+  });
+  return response?.toolCall ?? undefined;
+}
+
 // ── Project operations ──────────────────────────────────
 
 /** Get a project from the server by ID */
@@ -809,6 +819,22 @@ export async function remoteCreateThread(data: Record<string, any>): Promise<voi
 /** Delete a thread on the server */
 export async function remoteDeleteThread(threadId: string): Promise<void> {
   await sendDataMessage('data:delete_thread', { threadId });
+}
+
+// ── Project creation ────────────────────────────────────
+
+/** Create a project record on the server (used after cloning on the runner) */
+export async function remoteCreateProject(
+  name: string,
+  path: string,
+  userId: string,
+): Promise<any> {
+  const response = await sendDataMessage('data:create_project', {
+    name,
+    path,
+    userId,
+  });
+  return response;
 }
 
 // ── Message queue ───────────────────────────────────────

@@ -400,6 +400,13 @@ function ChatView({
       model: string;
       mode: string;
       fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+      symbolReferences?: {
+        path: string;
+        name: string;
+        kind: string;
+        line: number;
+        endLine?: number;
+      }[];
     },
     images?: any[],
   ) => {

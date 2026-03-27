@@ -148,6 +148,14 @@ export async function handleDataMessageWithAck(runnerId: string, data: any): Pro
         );
         return { type: 'data:find_tool_call_response', toolCall: tc ?? null };
       }
+      case 'data:find_last_unanswered_interactive_tool_call': {
+        const toolCallRepo = getToolCallRepo();
+        const tc = await toolCallRepo.findLastUnansweredInteractiveToolCall(data.threadId);
+        return {
+          type: 'data:find_last_unanswered_interactive_tool_call_response',
+          toolCall: tc ?? null,
+        };
+      }
       case 'data:get_project': {
         const project = await projectRepo.getProject(data.projectId);
         return { type: 'data:get_project_response', project: project ?? null };
@@ -165,6 +173,25 @@ export async function handleDataMessageWithAck(runnerId: string, data: any): Pro
             type: 'data:resolve_project_path_response',
             ok: false,
             error: result.error.message,
+          };
+        }
+      }
+      case 'data:create_project': {
+        // Skip filesystem checks — the runner already validated the path (clone succeeded)
+        const cpResult = await projectRepo.createProject(
+          data.name,
+          data.path,
+          data.userId,
+          undefined,
+          true,
+        );
+        if (cpResult.isOk()) {
+          return { type: 'data:create_project_response', project: cpResult.value };
+        } else {
+          return {
+            type: 'data:create_project_response',
+            error: cpResult.error.message,
+            errorType: cpResult.error.type,
           };
         }
       }
@@ -353,6 +380,17 @@ export async function handleDataMessage(runnerId: string, data: any): Promise<vo
         break;
       }
 
+      case 'data:find_last_unanswered_interactive_tool_call': {
+        const toolCallRepo = getToolCallRepo();
+        const tc = await toolCallRepo.findLastUnansweredInteractiveToolCall(data.threadId);
+        sendToRunner(runnerId, {
+          type: 'data:find_last_unanswered_interactive_tool_call_response',
+          requestId: data.requestId,
+          toolCall: tc ?? null,
+        });
+        break;
+      }
+
       // ── Project operations ──────────────────────────────────
 
       case 'data:get_project': {
@@ -390,6 +428,34 @@ export async function handleDataMessage(runnerId: string, data: any): Promise<vo
             requestId: data.requestId,
             ok: false,
             error: result.error.message,
+          });
+        }
+        break;
+      }
+
+      // ── Project creation (from runner after clone) ────────
+
+      case 'data:create_project': {
+        // Skip filesystem checks — the runner already validated the path (clone succeeded)
+        const createResult = await projectRepo.createProject(
+          data.name,
+          data.path,
+          data.userId,
+          undefined,
+          true,
+        );
+        if (createResult.isOk()) {
+          sendToRunner(runnerId, {
+            type: 'data:create_project_response',
+            requestId: data.requestId,
+            project: createResult.value,
+          });
+        } else {
+          sendToRunner(runnerId, {
+            type: 'data:create_project_response',
+            requestId: data.requestId,
+            error: createResult.error.message,
+            errorType: createResult.error.type,
           });
         }
         break;

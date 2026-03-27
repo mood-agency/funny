@@ -191,6 +191,13 @@ export interface PromptInputUIProps {
       cwd?: string;
       sendToBacklog?: boolean;
       fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+      symbolReferences?: {
+        path: string;
+        name: string;
+        kind: string;
+        line: number;
+        endLine?: number;
+      }[];
       purpose?: ThreadPurpose;
     },
     images?: ImageAttachment[],
@@ -390,7 +397,7 @@ export const PromptInputUI = memo(function PromptInputUI({
 
     const serialized = editorJSON
       ? serializeEditorContent(editorJSON)
-      : { text: '', fileReferences: [] };
+      : { text: '', fileReferences: [], symbolReferences: [] };
 
     // Checkout preflight for local mode
     if (isNewThread && !createWorktree && onCheckoutPreflight && selectedBranch) {
@@ -402,6 +409,8 @@ export const PromptInputUI = memo(function PromptInputUI({
     const submittedImages = images.length > 0 ? images : undefined;
     const submittedFiles =
       serialized.fileReferences.length > 0 ? serialized.fileReferences : undefined;
+    const submittedSymbols =
+      serialized.symbolReferences.length > 0 ? serialized.symbolReferences : undefined;
     editorRef.current?.clear();
     setImages([]);
     setEditorEmpty(true);
@@ -424,6 +433,7 @@ export const PromptInputUI = memo(function PromptInputUI({
             }
           : { baseBranch: followUpSelectedBranch || undefined }),
         fileReferences: submittedFiles,
+        symbolReferences: submittedSymbols,
       },
       submittedImages,
     );

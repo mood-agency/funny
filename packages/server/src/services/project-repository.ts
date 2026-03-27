@@ -147,13 +147,15 @@ export async function createProject(
   rawPath: string,
   userId: string,
   orgId?: string | null,
+  /** Skip filesystem checks (git repo validation). Use when the caller already verified the path (e.g. runner after clone). */
+  skipFsCheck?: boolean,
 ): Promise<Result<Project, DomainError>> {
   if (!isAbsolute(rawPath)) {
     return err(badRequest('Project path must be absolute'));
   }
   const path = resolve(rawPath);
 
-  if (!isGitRepoSync(path)) {
+  if (!skipFsCheck && !isGitRepoSync(path)) {
     return err(badRequest(`Not a git repository: ${path}`));
   }
 

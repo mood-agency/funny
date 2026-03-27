@@ -7,6 +7,22 @@ import { useAuthStore } from './auth-store';
 import { useGitStatusStore } from './git-status-store';
 import { useThreadStore } from './thread-store';
 
+const EXPANDED_PROJECTS_KEY = 'funny_expanded_projects';
+
+function loadExpandedProjects(): Set<string> {
+  try {
+    const stored = localStorage.getItem(EXPANDED_PROJECTS_KEY);
+    if (stored) return new Set(JSON.parse(stored));
+  } catch {}
+  return new Set();
+}
+
+function persistExpandedProjects(ids: Set<string>) {
+  try {
+    localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify([...ids]));
+  } catch {}
+}
+
 interface ProjectState {
   projects: Project[];
   expandedProjects: Set<string>;
@@ -44,7 +60,7 @@ let _loadProjectsPromise: Promise<void> | null = null;
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
-  expandedProjects: new Set(),
+  expandedProjects: loadExpandedProjects(),
   selectedProjectId: null,
   initialized: false,
   branchByProject: {},
@@ -69,6 +85,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           : result.value;
         // Set initialized immediately so the sidebar renders project names right away.
         // Threads load in background and fill in progressively.
+        // Prune expanded IDs that no longer exist (deleted projects).
+        const validIds = new Set(projects.map((p) => p.id));
+        const expanded = get().expandedProjects;
+        let pruned = false;
+        for (const id of expanded) {
+          if (!validIds.has(id)) {
+            expanded.delete(id);
+            pruned = true;
+          }
+        }
+        if (pruned) persistExpandedProjects(expanded);
         set({ projects, initialized: true });
 
         // Fire git status + branch fetches immediately in parallel with thread
@@ -140,6 +167,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
     }
     set({ expandedProjects: next });
+    persistExpandedProjects(next);
   },
 
   selectProject: (projectId) => {
@@ -206,6 +234,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       expandedProjects: nextExpanded,
       ...(selectedProjectId === projectId ? { selectedProjectId: null } : {}),
     });
+    persistExpandedProjects(nextExpanded);
   },
 
   setProjectLocalPath: async (projectId, localPath) => {

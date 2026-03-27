@@ -142,7 +142,11 @@ threadRoutes.post('/:id/message', async (c) => {
     span.end('ok');
     return c.json(result);
   } catch (error) {
-    log.error('Failed to send message', { namespace: 'agent', threadId: id, error });
+    log.error('Failed to send message', {
+      namespace: 'agent',
+      threadId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
     span.end('error', error instanceof Error ? error.message : String(error));
     return handleServiceError(c, error);
   }

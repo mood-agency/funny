@@ -13,9 +13,9 @@
 import { existsSync } from 'fs';
 import { resolve, isAbsolute, join } from 'path';
 
-import { getRemoteUrl } from '@funny/core/git';
+import { execute, getRemoteUrl } from '@funny/core/git';
 import type { GitHubRepo, GitHubIssue, WSCloneProgressData } from '@funny/shared';
-import { badRequest, conflict, internal } from '@funny/shared/errors';
+import { badRequest, conflict, processError } from '@funny/shared/errors';
 import { Hono } from 'hono';
 import { err } from 'neverthrow';
 
@@ -57,6 +57,42 @@ async function githubApiFetch(path: string, token: string, init?: RequestInit): 
   });
 }
 
+interface ResolvedToken {
+  token: string;
+  source: 'profile' | 'cli';
+}
+
+/**
+ * Resolve a GitHub token for the given user.
+ *
+ * 1. Check the user's profile in the database (encrypted provider key).
+ * 2. Fall back to the local `gh auth token` CLI command.
+ *
+ * The CLI token is NOT persisted — it is resolved fresh each time.
+ */
+async function resolveGithubToken(userId: string): Promise<ResolvedToken | null> {
+  const profileToken = await getServices().profile.getGithubToken(userId);
+  if (profileToken) {
+    return { token: profileToken, source: 'profile' };
+  }
+
+  try {
+    const result = await execute('gh', ['auth', 'token'], {
+      timeout: 5_000,
+      reject: false,
+      skipPool: true,
+    });
+    const cliToken = result.stdout.trim();
+    if (result.exitCode === 0 && cliToken) {
+      return { token: cliToken, source: 'cli' };
+    }
+  } catch {
+    // gh not installed or other error — ignore
+  }
+
+  return null;
+}
+
 export const githubRoutes = new Hono<HonoEnv>();
 
 // ── GET /status — check GitHub connection ──────────────────
@@ -64,28 +100,23 @@ export const githubRoutes = new Hono<HonoEnv>();
 githubRoutes.get('/status', async (c) => {
   const userId = c.get('userId') as string;
 
-  // First check if a token row exists (without decrypting — decrypt can fail
-  // if the encryption key rotated, but the token is still "configured").
-  const profile = await getServices().profile.getProfile(userId);
-  if (!profile?.hasGithubToken) {
+  const resolved = await resolveGithubToken(userId);
+  if (!resolved) {
     return c.json({ connected: false });
   }
 
-  // Token is configured — try to fetch login for display, but always report connected.
-  const token = await getServices().profile.getGithubToken(userId);
-  if (token) {
-    try {
-      const res = await githubApiFetch('/user', token);
-      if (res.ok) {
-        const user = (await res.json()) as { login: string };
-        return c.json({ connected: true, login: user.login });
-      }
-    } catch {
-      // Ignore — we still know the token exists
+  // Token found — try to fetch login for display, but always report connected.
+  try {
+    const res = await githubApiFetch('/user', resolved.token);
+    if (res.ok) {
+      const user = (await res.json()) as { login: string };
+      return c.json({ connected: true, login: user.login, source: resolved.source });
     }
+  } catch {
+    // Ignore — we still know a token exists
   }
 
-  return c.json({ connected: true });
+  return c.json({ connected: true, source: resolved.source });
 });
 
 // ── POST /oauth/device — start Device Flow ─────────────────
@@ -212,12 +243,12 @@ githubRoutes.delete('/oauth/disconnect', async (c) => {
 
 githubRoutes.get('/user', async (c) => {
   const userId = c.get('userId') as string;
-  const token = await getServices().profile.getGithubToken(userId);
-  if (!token) {
+  const resolved = await resolveGithubToken(userId);
+  if (!resolved) {
     return c.json({ error: 'Not connected to GitHub' }, 401);
   }
 
-  const res = await githubApiFetch('/user', token);
+  const res = await githubApiFetch('/user', resolved.token);
   if (!res.ok) {
     return c.json({ error: 'Failed to fetch GitHub user' }, 502);
   }
@@ -230,10 +261,11 @@ githubRoutes.get('/user', async (c) => {
 
 githubRoutes.get('/repos', async (c) => {
   const userId = c.get('userId') as string;
-  const token = await getServices().profile.getGithubToken(userId);
-  if (!token) {
+  const resolved = await resolveGithubToken(userId);
+  if (!resolved) {
     return c.json({ error: 'Not connected to GitHub' }, 401);
   }
+  const token = resolved.token;
 
   const page = Number(c.req.query('page')) || 1;
   const perPage = Math.min(Number(c.req.query('per_page')) || 30, 100);
@@ -329,7 +361,8 @@ githubRoutes.post('/clone', async (c) => {
   }
 
   // Inject token into clone URL for private repo access
-  const token = await getServices().profile.getGithubToken(userId);
+  const resolved = await resolveGithubToken(userId);
+  const token = resolved?.token ?? null;
   let authenticatedUrl = cloneUrl;
   if (token && cloneUrl.startsWith('https://github.com/')) {
     authenticatedUrl = cloneUrl.replace(
@@ -393,7 +426,10 @@ githubRoutes.post('/clone', async (c) => {
         'x-access-token:***@',
       );
       emitProgress({ phase: 'Clone failed', percent: 0, error: errorMsg });
-      return resultToResponse(c, err(internal(`Clone failed: ${errorMsg}`)));
+      return resultToResponse(
+        c,
+        err(processError(`Clone failed: ${errorMsg}`, proc.exitCode ?? 1, errorMsg)),
+      );
     }
 
     emitProgress({ phase: 'Clone complete', percent: 100 });
@@ -404,7 +440,7 @@ githubRoutes.post('/clone', async (c) => {
       'x-access-token:***@',
     );
     emitProgress({ phase: 'Clone failed', percent: 0, error: safeMsg });
-    return resultToResponse(c, err(internal(`Clone failed: ${safeMsg}`)));
+    return resultToResponse(c, err(processError(`Clone failed: ${safeMsg}`, 1, safeMsg)));
   }
 
   // Create the project
@@ -447,7 +483,8 @@ githubRoutes.get('/issues', async (c) => {
 
   try {
     const apiPath = `/repos/${parsed.owner}/${parsed.repo}/issues?state=${state}&page=${page}&per_page=${perPage}&sort=created&direction=desc`;
-    const token = await getServices().profile.getGithubToken(userId);
+    const resolved = await resolveGithubToken(userId);
+    const token = resolved?.token ?? null;
 
     let res: Response;
     if (token) {

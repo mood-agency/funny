@@ -51,15 +51,16 @@ function resolveFriendlyMessage(error: DomainError, context?: string): string {
   }
 
   // 2. Context-specific i18n key  (e.g. errors.transcribeToken.INTERNAL)
+  //    Pass the raw error.message as {{message}} so templates can include it.
   if (context) {
     const contextKey = `errors.${context}.${error.type}`;
-    const contextMsg = t(contextKey, { defaultValue: '' });
+    const contextMsg = t(contextKey, { defaultValue: '', message: error.message });
     if (contextMsg) return contextMsg;
   }
 
   // 3. Generic per-type i18n key  (e.g. errors.generic.INTERNAL)
   const genericKey = `errors.generic.${error.type}`;
-  const genericMsg = t(genericKey, { defaultValue: '' });
+  const genericMsg = t(genericKey, { defaultValue: '', message: error.message });
   if (genericMsg) return genericMsg;
 
   // 4. Hardcoded fallback

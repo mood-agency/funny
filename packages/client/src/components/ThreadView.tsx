@@ -77,6 +77,13 @@ export function ThreadView() {
       allowedTools?: string[];
       disallowedTools?: string[];
       fileReferences?: { path: string }[];
+      symbolReferences?: {
+        path: string;
+        name: string;
+        kind: string;
+        line: number;
+        endLine?: number;
+      }[];
       baseBranch?: string;
     };
     images?: any[];
@@ -260,6 +267,13 @@ export function ThreadView() {
         model: string;
         mode: string;
         fileReferences?: { path: string; type?: 'file' | 'folder' }[];
+        symbolReferences?: {
+          path: string;
+          name: string;
+          kind: string;
+          line: number;
+          endLine?: number;
+        }[];
         baseBranch?: string;
       },
       images?: any[],
@@ -303,6 +317,7 @@ export function ThreadView() {
             allowedTools,
             disallowedTools,
             fileReferences: opts.fileReferences,
+            symbolReferences: opts.symbolReferences,
             baseBranch: opts.baseBranch,
           },
           images,
@@ -355,6 +370,7 @@ export function ThreadView() {
           allowedTools,
           disallowedTools,
           fileReferences: opts.fileReferences,
+          symbolReferences: opts.symbolReferences,
           baseBranch: opts.baseBranch,
         },
         images,
