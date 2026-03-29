@@ -814,6 +814,12 @@ export interface GitStatusInfo {
   isMergedIntoBase: boolean;
   linesAdded: number;
   linesDeleted: number;
+  /** PR number if the branch has an open/merged PR on GitHub */
+  prNumber?: number;
+  /** PR URL on GitHub */
+  prUrl?: string;
+  /** PR state: OPEN, MERGED, or CLOSED */
+  prState?: 'OPEN' | 'MERGED' | 'CLOSED';
 }
 
 export interface WSGitStatusData {

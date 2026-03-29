@@ -54,8 +54,8 @@ export interface MessageStreamProps {
   isExternal?: boolean;
   /** Send handler — called by status cards and tool card onRespond */
   onSend: (prompt: string, opts: { model: string; mode: string }) => void;
-  /** Permission approval handler */
-  onPermissionApproval?: (toolName: string, approved: boolean) => void;
+  /** Permission approval handler (alwaysAllow=true persists the decision) */
+  onPermissionApproval?: (toolName: string, approved: boolean, alwaysAllow?: boolean) => void;
   /** Tool respond handler (AskUserQuestion / ExitPlanMode) — if omitted, respond buttons won't show */
   onToolRespond?: (toolCallId: string, answer: string, toolName: string) => void;
   /** Model and permission mode for passing to onSend from status cards */
@@ -453,6 +453,12 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
       }
     }, [pendingPermission, onPermissionApproval]);
 
+    const handlePermissionAlwaysAllow = useCallback(() => {
+      if (pendingPermission && onPermissionApproval) {
+        onPermissionApproval(pendingPermission.toolName, true, true);
+      }
+    }, [pendingPermission, onPermissionApproval]);
+
     const handlePermissionDeny = useCallback(() => {
       if (pendingPermission && onPermissionApproval) {
         onPermissionApproval(pendingPermission.toolName, false);
@@ -570,6 +576,7 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
               <PermissionApprovalCard
                 toolName={pendingPermission.toolName}
                 onApprove={handlePermissionApprove}
+                onAlwaysAllow={handlePermissionAlwaysAllow}
                 onDeny={handlePermissionDeny}
               />
             </motion.div>

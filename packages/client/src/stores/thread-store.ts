@@ -365,7 +365,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
               waitingReason = 'plan';
             } else if (
               lastTC.output &&
-              /permission|hasn't been granted|not in the allowed tools/i.test(lastTC.output)
+              /permission|hasn't been granted|not in the allowed tools|hook error:.*approval|denied this tool|Blocked by hook/i.test(
+                lastTC.output,
+              )
             ) {
               waitingReason = 'permission';
               pendingPermission = { toolName: lastTC.name };

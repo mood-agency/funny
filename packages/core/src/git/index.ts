@@ -84,10 +84,12 @@ export {
   getPRInfo,
   getPRDiff,
   postPRReview,
+  getPRForBranch,
   type PRReview,
   type PRReviewComment,
   type ReviewDecision,
   type PRReviewData,
   type PRInfo,
   type ReviewEvent,
+  type BranchPRInfo,
 } from './github.js';

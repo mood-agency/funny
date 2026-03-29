@@ -104,6 +104,7 @@
     "permissionRequired": "Permissão de ferramenta necessária",
     "permissionMessage": "Claude quer usar {{tool}}. Deseja permitir?",
     "approvePermission": "Permitir",
+    "alwaysAllow": "Permitir sempre",
     "denyPermission": "Negar",
     "startTask": "Iniciar Tarefa",
     "orTypeNewPrompt": "Ou digite um novo prompt abaixo...",

@@ -580,29 +580,43 @@ export function ThreadView() {
     [navigate],
   );
 
-  const handlePermissionApproval = useCallback(async (toolName: string, approved: boolean) => {
-    const thread = activeThreadRef.current;
-    if (!thread) return;
-    useThreadStore
-      .getState()
-      .appendOptimisticMessage(
-        thread.id,
-        approved ? `Approved: ${toolName}` : `Denied: ${toolName}`,
+  const handlePermissionApproval = useCallback(
+    async (toolName: string, approved: boolean, alwaysAllow?: boolean) => {
+      const thread = activeThreadRef.current;
+      if (!thread) return;
+
+      // When "Always Allow" is selected, persist the decision in user settings
+      // so this tool won't require approval in future threads.
+      if (approved && alwaysAllow) {
+        useSettingsStore.getState().setToolPermission(toolName, 'allow');
+      }
+
+      useThreadStore
+        .getState()
+        .appendOptimisticMessage(
+          thread.id,
+          approved
+            ? alwaysAllow
+              ? `Always allowed: ${toolName}`
+              : `Approved: ${toolName}`
+            : `Denied: ${toolName}`,
+        );
+      const { allowedTools, disallowedTools } = deriveToolLists(
+        useSettingsStore.getState().toolPermissions,
       );
-    const { allowedTools, disallowedTools } = deriveToolLists(
-      useSettingsStore.getState().toolPermissions,
-    );
-    const result = await api.approveTool(
-      thread.id,
-      toolName,
-      approved,
-      allowedTools,
-      disallowedTools,
-    );
-    if (result.isErr()) {
-      console.error('Permission approval failed:', result.error);
-    }
-  }, []);
+      const result = await api.approveTool(
+        thread.id,
+        toolName,
+        approved,
+        allowedTools,
+        disallowedTools,
+      );
+      if (result.isErr()) {
+        console.error('Permission approval failed:', result.error);
+      }
+    },
+    [],
+  );
 
   // Show new thread input when a project's "+" was clicked
   if (newThreadProjectId && !selectedThreadId) {

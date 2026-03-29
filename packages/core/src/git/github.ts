@@ -50,6 +50,12 @@ export interface PRInfo {
 
 export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
+export interface BranchPRInfo {
+  prNumber: number;
+  prUrl: string;
+  prState: 'OPEN' | 'MERGED' | 'CLOSED';
+}
+
 // ── Functions ────────────────────────────────────────────────
 
 /**
@@ -254,4 +260,34 @@ export function postPRReview(
       return internal(String(error));
     },
   );
+}
+
+/**
+ * Look up an open PR for a given branch name via `gh pr list --head <branch>`.
+ * Returns null when no PR exists or when `gh` is unavailable/unauthenticated.
+ * Designed to fail silently — never breaks callers.
+ */
+export async function getPRForBranch(
+  cwd: string,
+  branch: string,
+  env?: Record<string, string>,
+): Promise<BranchPRInfo | null> {
+  try {
+    const result = await execute(
+      'gh',
+      ['pr', 'list', '--head', branch, '--json', 'number,url,state', '--limit', '1'],
+      { cwd, timeout: 10_000, reject: false, env },
+    );
+    if (result.exitCode !== 0 || !result.stdout.trim()) return null;
+    const data = JSON.parse(result.stdout);
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const pr = data[0];
+    return {
+      prNumber: pr.number,
+      prUrl: pr.url,
+      prState: pr.state ?? 'OPEN',
+    };
+  } catch {
+    return null;
+  }
 }

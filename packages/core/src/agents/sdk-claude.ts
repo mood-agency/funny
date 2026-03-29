@@ -292,8 +292,14 @@ export class SDKClaudeProcess extends BaseAgentProcess {
     // detects the permission denial, transitions the thread to "waiting",
     // and the client shows the PermissionApprovalCard. When the user
     // approves, AgentRunner kills this process and resumes with approval.
+    // Skip if the tool is already in allowedTools (user chose "Always Allow").
     const CONFIRM_EDIT_TOOLS = new Set(['Edit', 'Write', 'Bash', 'NotebookEdit']);
-    if (this.options.originalPermissionMode === 'confirmEdit' && CONFIRM_EDIT_TOOLS.has(toolName)) {
+    const isExplicitlyAllowed = this.options.allowedTools?.includes(toolName);
+    if (
+      this.options.originalPermissionMode === 'confirmEdit' &&
+      CONFIRM_EDIT_TOOLS.has(toolName) &&
+      !isExplicitlyAllowed
+    ) {
       dlog.info(`preToolUseHook PAUSING for ${toolName} (confirmEdit mode)`, {
         toolName,
         alreadyAborted: signal.aborted,

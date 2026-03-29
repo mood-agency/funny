@@ -2,7 +2,7 @@
  * Shared git-status helpers used by route handlers and event handlers.
  */
 
-import { invalidateStatusCache, getStatusSummary } from '@funny/core/git';
+import { invalidateStatusCache, getStatusSummary, getPRForBranch } from '@funny/core/git';
 
 import { deriveGitSyncState } from '../services/git-service.js';
 import type { HandlerServiceContext } from '../services/handlers/types.js';
@@ -43,6 +43,8 @@ export async function emitGitStatusForThread(
     userId: string;
     worktreePath?: string | null;
     cwd?: string | null;
+    /** Optional GH_TOKEN env for PR detection on private repos */
+    ghEnv?: Record<string, string>;
   },
   ctx: HandlerServiceContext,
 ): Promise<void> {
@@ -58,11 +60,13 @@ export async function emitGitStatusForThread(
   // Invalidate core-level cache so we get fresh data
   invalidateStatusCache(effectiveCwd);
 
-  const summaryResult = await ctx.getGitStatusSummary(
-    effectiveCwd,
-    thread.baseBranch ?? undefined,
-    project.path,
-  );
+  const branchForPR = thread.branch || thread.baseBranch;
+
+  // Run git status + PR lookup in parallel
+  const [summaryResult, prInfo] = await Promise.all([
+    ctx.getGitStatusSummary(effectiveCwd, thread.baseBranch ?? undefined, project.path),
+    branchForPR ? getPRForBranch(project.path, branchForPR, opts.ghEnv) : Promise.resolve(null),
+  ]);
 
   if (summaryResult.isErr()) {
     ctx.log(
@@ -88,6 +92,9 @@ export async function emitGitStatusForThread(
           branchKey,
           state: ctx.deriveGitSyncState(summary),
           ...summary,
+          ...(prInfo
+            ? { prNumber: prInfo.prNumber, prUrl: prInfo.prUrl, prState: prInfo.prState }
+            : {}),
         },
       ],
     },

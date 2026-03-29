@@ -36,6 +36,7 @@ import {
   resetSoft,
   fetchRemote,
   git,
+  getPRForBranch,
 } from '@funny/core/git';
 import { badRequest, internal } from '@funny/shared/errors';
 import { Hono } from 'hono';
@@ -154,6 +155,16 @@ gitRoutes.get('/status', async (c) => {
     (t) => !t.worktreePath && !(!t.branch && t.baseBranch && t.mergedAt),
   );
 
+  // Resolve GH_TOKEN for PR detection (runs once per request)
+  const identity = await resolveIdentity(userId);
+  const ghEnv = identity?.githubToken ? { GH_TOKEN: identity.githubToken } : undefined;
+
+  // Collect unique branches for batch PR lookup (deduplicate across all thread types)
+  const uniqueBranches = new Set<string>();
+  for (const t of worktreeThreads) if (t.branch) uniqueBranches.add(t.branch);
+  for (const t of localThreads) if (t.branch) uniqueBranches.add(t.branch);
+  for (const t of mergedThreads) if (t.baseBranch) uniqueBranches.add(t.baseBranch);
+
   const statusSpan = requestSpan(c, 'git.status.aggregate', {
     projectId,
     worktreeCount: worktreeThreads.length,
@@ -161,7 +172,25 @@ gitRoutes.get('/status', async (c) => {
     mergedCount: mergedThreads.length,
   });
 
-  const [worktreeResults, localResults] = await Promise.all([
+  // Run git status + PR lookups in parallel
+  const prLookupPromise = (async () => {
+    const prByBranch = new Map<
+      string,
+      { prNumber: number; prUrl: string; prState: 'OPEN' | 'MERGED' | 'CLOSED' }
+    >();
+    const entries = await Promise.all(
+      Array.from(uniqueBranches).map(async (branch) => {
+        const pr = await getPRForBranch(project.path, branch, ghEnv);
+        return [branch, pr] as const;
+      }),
+    );
+    for (const [branch, pr] of entries) {
+      if (pr) prByBranch.set(branch, pr);
+    }
+    return prByBranch;
+  })();
+
+  const [worktreeResults, localResults, prByBranch] = await Promise.all([
     Promise.allSettled(
       worktreeThreads.map(async (thread) => {
         const summaryResult = await getStatusSummary(
@@ -219,35 +248,58 @@ gitRoutes.get('/status', async (c) => {
       );
       return results;
     })(),
+    prLookupPromise,
   ]);
 
   statusSpan.end('ok');
+
+  /** Merge PR info into a status object based on the thread's branch. */
+  function attachPR(status: any, branch?: string | null) {
+    if (!branch) return status;
+    const pr = prByBranch.get(branch);
+    if (pr) {
+      status.prNumber = pr.prNumber;
+      status.prUrl = pr.prUrl;
+      status.prState = pr.prState;
+    }
+    return status;
+  }
+
+  // Map threadId → branch for worktree threads (branch is on the thread object)
+  const threadBranchMap = new Map<string, string>();
+  for (const t of worktreeThreads) if (t.branch) threadBranchMap.set(t.id, t.branch);
+  for (const t of localThreads) if (t.branch) threadBranchMap.set(t.id, t.branch);
 
   const statuses = [
     ...worktreeResults
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
       .map((r) => r.value)
-      .filter(Boolean),
+      .filter(Boolean)
+      .map((s: any) => attachPR(s, threadBranchMap.get(s.threadId))),
     ...(await Promise.all(
       mergedThreads.map(async (t) => {
         const unpushed = t.baseBranch ? await countUnpushedCommits(project.path, t.baseBranch) : 0;
-        return {
-          threadId: t.id,
-          branchKey: computeBranchKey(t),
-          state: 'merged' as const,
-          dirtyFileCount: 0,
-          unpushedCommitCount: unpushed,
-          hasRemoteBranch: unpushed > 0,
-          isMergedIntoBase: true,
-          linesAdded: 0,
-          linesDeleted: 0,
-        };
+        return attachPR(
+          {
+            threadId: t.id,
+            branchKey: computeBranchKey(t),
+            state: 'merged' as const,
+            dirtyFileCount: 0,
+            unpushedCommitCount: unpushed,
+            hasRemoteBranch: unpushed > 0,
+            isMergedIntoBase: true,
+            linesAdded: 0,
+            linesDeleted: 0,
+          },
+          t.baseBranch,
+        );
       }),
     )),
     ...localResults
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
       .map((r) => r.value)
-      .filter(Boolean),
+      .filter(Boolean)
+      .map((s: any) => attachPR(s, threadBranchMap.get(s.threadId))),
   ];
 
   const response = { statuses };
@@ -738,13 +790,23 @@ gitRoutes.get('/:threadId/status', async (c) => {
   if (threadResult.isErr()) return resultToResponse(c, threadResult);
   const thread = threadResult.value;
 
+  // Resolve GH_TOKEN for PR detection
+  const identity = await resolveIdentity(userId);
+  const ghEnv = identity?.githubToken ? { GH_TOKEN: identity.githubToken } : undefined;
+  const branchForPR = thread.branch || thread.baseBranch;
+
   // Only treat as merged if mergedAt is set (worktree was actually cleaned up
   // after merge). Without this, local-mode threads with branch=null get
   // hardcoded zero stats instead of real git status.
   if (!thread.worktreePath && !thread.branch && thread.baseBranch && thread.mergedAt) {
     const projectResult = await requireProject(thread.projectId);
     const projectPath = projectResult.isOk() ? projectResult.value.path : null;
-    const unpushed = projectPath ? await countUnpushedCommits(projectPath, thread.baseBranch) : 0;
+    const [unpushed, prInfo] = await Promise.all([
+      projectPath ? countUnpushedCommits(projectPath, thread.baseBranch) : Promise.resolve(0),
+      projectPath && branchForPR
+        ? getPRForBranch(projectPath, branchForPR, ghEnv)
+        : Promise.resolve(null),
+    ]);
     return c.json({
       threadId,
       branchKey: computeBranchKey(thread),
@@ -755,6 +817,9 @@ gitRoutes.get('/:threadId/status', async (c) => {
       isMergedIntoBase: true,
       linesAdded: 0,
       linesDeleted: 0,
+      ...(prInfo
+        ? { prNumber: prInfo.prNumber, prUrl: prInfo.prUrl, prState: prInfo.prState }
+        : {}),
     });
   }
 
@@ -763,7 +828,10 @@ gitRoutes.get('/:threadId/status', async (c) => {
   const project = projectResult.value;
 
   const cwd = thread.worktreePath || project.path;
-  const summaryResult = await getStatusSummary(cwd, thread.baseBranch ?? undefined, project.path);
+  const [summaryResult, prInfo] = await Promise.all([
+    getStatusSummary(cwd, thread.baseBranch ?? undefined, project.path),
+    branchForPR ? getPRForBranch(project.path, branchForPR, ghEnv) : Promise.resolve(null),
+  ]);
   if (summaryResult.isErr()) return resultToResponse(c, summaryResult);
   const summary = summaryResult.value;
 
@@ -772,6 +840,7 @@ gitRoutes.get('/:threadId/status', async (c) => {
     branchKey: computeBranchKey(thread),
     state: deriveGitSyncState(summary),
     ...summary,
+    ...(prInfo ? { prNumber: prInfo.prNumber, prUrl: prInfo.prUrl, prState: prInfo.prState } : {}),
   });
 });
 

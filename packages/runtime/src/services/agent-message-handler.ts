@@ -81,6 +81,16 @@ export class AgentMessageHandler {
     }
   }
 
+  /** Tools that require user approval in confirmEdit mode */
+  private static readonly CONFIRM_EDIT_TOOLS = new Set(['Edit', 'Write', 'Bash', 'NotebookEdit']);
+
+  /** Check if the tool_use requires user approval (confirmEdit mode + file-editing tool) */
+  private async isConfirmEditTool(threadId: string, toolName: string): Promise<boolean> {
+    if (!AgentMessageHandler.CONFIRM_EDIT_TOOLS.has(toolName)) return false;
+    const thread = await this.threadManager.getThread(threadId);
+    return thread?.permissionMode === 'confirmEdit';
+  }
+
   private async emitWS(threadId: string, type: WSEvent['type'], data: unknown): Promise<void> {
     const event = { type, threadId, data } as WSEvent;
 
@@ -430,6 +440,33 @@ export class AgentMessageHandler {
           });
           await this.threadManager.updateThread(threadId, { status });
           await this.emitWS(threadId, 'agent:status', { status, waitingReason: 'plan' });
+        } else if (await this.isConfirmEditTool(threadId, block.name)) {
+          // In confirmEdit mode, the preToolUseHook pauses the SDK for
+          // Edit/Write/Bash/NotebookEdit until the user approves. Transition
+          // the thread to "waiting" immediately when we see the tool_use block
+          // so the client can show the PermissionApprovalCard.
+          const dbToolCallId = seen.get(block.id);
+          log.info(`confirmEdit: ${block.name} detected — transitioning to waiting`, {
+            ...(await this.threadCtx(threadId)),
+            tool: block.name,
+            toolCallId: dbToolCallId ?? 'unknown',
+          });
+          this.state.pendingPermissionRequest.set(threadId, {
+            toolName: block.name,
+            toolUseId: block.id,
+          });
+          const currentStatus = (await this.threadManager.getThread(threadId))?.status ?? 'running';
+          const { status } = transitionStatus(
+            threadId,
+            { type: 'WAIT' },
+            currentStatus as ThreadStatus,
+          );
+          await this.threadManager.updateThread(threadId, { status });
+          await this.emitWS(threadId, 'agent:status', {
+            status,
+            waitingReason: 'permission',
+            permissionRequest: { toolName: block.name },
+          });
         } else {
           if (this.state.pendingUserInput.has(threadId)) {
             log.warn(
@@ -536,9 +573,9 @@ export class AgentMessageHandler {
             this.state.pendingUserInput.delete(threadId);
           }
 
-          // Detect permission denial pattern
+          // Detect permission denial pattern (includes SDK native messages and hook denial messages)
           const permissionDeniedMatch = decodedOutput.match(
-            /(?:requested permissions? to use|hasn't been granted|hasn't granted|permission.*denied|not in the allowed tools list)/i,
+            /(?:requested permissions? to use|hasn't been granted|hasn't granted|permission.*denied|not in the allowed tools list|hook error:.*(?:approval|permission)|denied this tool|Blocked by hook)/i,
           );
 
           if (permissionDeniedMatch && tc?.name) {

@@ -1228,24 +1228,41 @@ export function ReviewPane() {
               {isOnDifferentBranch && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => setPrDialog({ title: threadBranch || '', body: '' })}
-                      disabled={!!isAgentRunning}
-                      className="text-muted-foreground"
-                      data-testid="review-create-pr-toolbar"
-                    >
-                      <GitPullRequest className="icon-base" />
-                    </Button>
+                    {gitStatus?.prNumber ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => window.open(gitStatus.prUrl, '_blank')}
+                        className="text-muted-foreground"
+                        data-testid="review-view-pr-toolbar"
+                      >
+                        <GitPullRequest className="icon-base text-green-500" />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setPrDialog({ title: threadBranch || '', body: '' })}
+                        disabled={!!isAgentRunning}
+                        className="text-muted-foreground"
+                        data-testid="review-create-pr-toolbar"
+                      >
+                        <GitPullRequest className="icon-base" />
+                      </Button>
+                    )}
                   </TooltipTrigger>
                   <TooltipContent side="top">
-                    {isAgentRunning
-                      ? t('review.agentRunningTooltip')
-                      : t('review.createPRTooltip', {
-                          branch: threadBranch,
-                          target: baseBranch || 'base',
-                        })}
+                    {gitStatus?.prNumber
+                      ? t('review.viewPR', {
+                          number: gitStatus.prNumber,
+                          defaultValue: `View PR #${gitStatus.prNumber}`,
+                        })
+                      : isAgentRunning
+                        ? t('review.agentRunningTooltip')
+                        : t('review.createPRTooltip', {
+                            branch: threadBranch,
+                            target: baseBranch || 'base',
+                          })}
                   </TooltipContent>
                 </Tooltip>
               )}

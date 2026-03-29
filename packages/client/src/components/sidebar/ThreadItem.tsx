@@ -12,6 +12,7 @@ import {
   Bot,
   Pencil,
   GitBranch,
+  GitPullRequest,
 } from 'lucide-react';
 import { useState, memo, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -134,10 +135,11 @@ export const ThreadItem = memo(function ThreadItem({
     (effectiveGitStatus.linesAdded > 0 ||
       effectiveGitStatus.linesDeleted > 0 ||
       effectiveGitStatus.dirtyFileCount > 0);
+  const hasPR = !!effectiveGitStatus?.prNumber;
   const hasSnippet = !!thread.lastAssistantMessage;
   const showLaunching = isBusy && !hasSnippet;
   const isBacklog = !hasSnippet && !isBusy && (!thread.stage || thread.stage === 'backlog');
-  const hasMetadataRow = hasDiffStats;
+  const hasMetadataRow = hasDiffStats || hasPR;
   const hasSnippetRow = hasSnippet || showLaunching || isBacklog;
 
   // Powerline segments: project → baseBranch → worktree branch (for worktrees)
@@ -313,6 +315,29 @@ export const ThreadItem = memo(function ThreadItem({
                 dirtyFileCount={effectiveGitStatus.dirtyFileCount}
                 size="xs"
               />
+            )}
+            {hasPR && effectiveGitStatus && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a
+                    href={effectiveGitStatus.prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex flex-shrink-0 items-center gap-0.5 text-xs text-green-500 hover:text-green-400"
+                    data-testid={`thread-pr-badge-${thread.id}`}
+                  >
+                    <GitPullRequest className="icon-xs" />
+                    <span>#{effectiveGitStatus.prNumber}</span>
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {t('thread.prOpen', {
+                    number: effectiveGitStatus.prNumber,
+                    defaultValue: `PR #${effectiveGitStatus.prNumber}`,
+                  })}
+                </TooltipContent>
+              </Tooltip>
             )}
             {hasSnippet ? (
               <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/50">

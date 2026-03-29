@@ -1,4 +1,12 @@
-import { Loader2, Clock, CheckCircle2, XCircle, Send, ShieldQuestion } from 'lucide-react';
+import {
+  Loader2,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Send,
+  ShieldCheck,
+  ShieldQuestion,
+} from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -85,18 +93,25 @@ export function WaitingActions({ onSend }: { onSend: (text: string) => void }) {
 export function PermissionApprovalCard({
   toolName,
   onApprove,
+  onAlwaysAllow,
   onDeny,
 }: {
   toolName: string;
   onApprove: () => void;
+  onAlwaysAllow?: () => void;
   onDeny: () => void;
 }) {
   const { t } = useTranslation();
-  const [loading, setLoading] = useState<'approve' | 'deny' | null>(null);
+  const [loading, setLoading] = useState<'approve' | 'always' | 'deny' | null>(null);
 
   const handleApprove = () => {
     setLoading('approve');
     onApprove();
+  };
+
+  const handleAlwaysAllow = () => {
+    setLoading('always');
+    onAlwaysAllow?.();
   };
 
   const handleDeny = () => {
@@ -128,6 +143,24 @@ export function PermissionApprovalCard({
           )}
           {t('thread.approvePermission')}
         </button>
+        {onAlwaysAllow && (
+          <button
+            data-testid="permission-always-allow"
+            onClick={handleAlwaysAllow}
+            disabled={!!loading}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary/80 text-primary-foreground hover:bg-primary/70 transition-colors',
+              loading && 'opacity-50 pointer-events-none',
+            )}
+          >
+            {loading === 'always' ? (
+              <Loader2 className="icon-sm animate-spin" />
+            ) : (
+              <ShieldCheck className="icon-sm" />
+            )}
+            {t('thread.alwaysAllow')}
+          </button>
+        )}
         <button
           data-testid="permission-deny"
           onClick={handleDeny}

@@ -109,7 +109,9 @@ function statusEqual(a: GitStatusInfo, b: GitStatusInfo): boolean {
     a.hasRemoteBranch === b.hasRemoteBranch &&
     a.isMergedIntoBase === b.isMergedIntoBase &&
     a.linesAdded === b.linesAdded &&
-    a.linesDeleted === b.linesDeleted
+    a.linesDeleted === b.linesDeleted &&
+    a.prNumber === b.prNumber &&
+    a.prState === b.prState
   );
 }
 

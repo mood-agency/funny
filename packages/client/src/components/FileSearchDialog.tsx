@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { FileExtensionIcon } from '@/lib/file-icons';
 import { useInternalEditorStore } from '@/stores/internal-editor-store';
 import { useProjectStore } from '@/stores/project-store';
+import { useThreadStore } from '@/stores/thread-store';
 
 interface FileSearchDialogProps {
   open: boolean;
@@ -35,6 +36,10 @@ export function FileSearchDialog({ open, onOpenChange }: FileSearchDialogProps) 
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const projects = useProjectStore((s) => s.projects);
   const project = projects.find((p) => p.id === selectedProjectId);
+  const activeThread = useThreadStore((s) => s.activeThread);
+
+  // Use worktree path when thread is in worktree mode, otherwise fall back to project path
+  const basePath = activeThread?.worktreePath || project?.path;
 
   const [query, setQuery] = useState('');
   const [files, setFiles] = useState<BrowseFile[]>([]);
@@ -46,12 +51,12 @@ export function FileSearchDialog({ open, onOpenChange }: FileSearchDialogProps) 
   // Search files from server (debounced)
   const searchFiles = useCallback(
     async (searchQuery: string) => {
-      if (!project) return;
+      if (!basePath) return;
 
       const requestId = ++requestIdRef.current;
       setLoading(true);
 
-      const result = await api.browseFiles(project.path, searchQuery || undefined);
+      const result = await api.browseFiles(basePath, searchQuery || undefined);
 
       // Ignore stale responses
       if (requestId !== requestIdRef.current) return;
@@ -65,21 +70,21 @@ export function FileSearchDialog({ open, onOpenChange }: FileSearchDialogProps) 
       }
       setLoading(false);
     },
-    [project],
+    [basePath],
   );
 
   // Fetch initial files when dialog opens
   useEffect(() => {
-    if (!open || !project) return;
+    if (!open || !basePath) return;
     searchFiles('');
     return () => {
       requestIdRef.current++;
     };
-  }, [open, project, searchFiles]);
+  }, [open, basePath, searchFiles]);
 
   // Debounced search on query change
   useEffect(() => {
-    if (!open || !project) return;
+    if (!open || !basePath) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -89,7 +94,7 @@ export function FileSearchDialog({ open, onOpenChange }: FileSearchDialogProps) 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, open, project, searchFiles]);
+  }, [query, open, basePath, searchFiles]);
 
   // Reset state when dialog closes
   useEffect(() => {
@@ -102,12 +107,12 @@ export function FileSearchDialog({ open, onOpenChange }: FileSearchDialogProps) 
 
   const handleSelect = useCallback(
     (relativePath: string) => {
-      if (!project) return;
+      if (!basePath) return;
       onOpenChange(false);
-      const absolutePath = `${project.path}/${relativePath}`;
+      const absolutePath = `${basePath}/${relativePath}`;
       useInternalEditorStore.getState().openFile(absolutePath);
     },
-    [onOpenChange, project],
+    [onOpenChange, basePath],
   );
 
   return (
@@ -131,7 +136,7 @@ export function FileSearchDialog({ open, onOpenChange }: FileSearchDialogProps) 
             />
             <CommandList>
               <CommandEmpty>
-                {!project ? (
+                {!basePath ? (
                   <span>{t('fileSearch.noProject', 'Select a project first')}</span>
                 ) : loading ? (
                   <div className="flex items-center justify-center gap-2">
