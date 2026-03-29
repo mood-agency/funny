@@ -77,16 +77,26 @@ export async function authMiddleware(c: Context<ServerEnv>, next: Next) {
       if (c.req.method === 'POST' && path === '/api/runners/register') {
         try {
           // The "user" table is managed by Better Auth, not in our Drizzle schema.
-          // Use the raw connection to query it (works with both SQLite and PostgreSQL).
-          const { getConnection } = await import('../db/index.js');
-          const conn = getConnection();
+          // Query via Drizzle's raw execute (works with both SQLite and PostgreSQL).
+          const { db, dbDialect } = await import('../db/index.js');
           let adminId: string | undefined;
 
-          if (conn?.sqlite) {
-            const row = conn.sqlite
-              .query('SELECT id FROM "user" WHERE role = ? LIMIT 1')
-              .get('admin') as { id: string } | null;
-            adminId = row?.id;
+          if (dbDialect === 'pg') {
+            const { sql } = await import('drizzle-orm');
+            const result = await (db as any).execute(
+              sql`SELECT id FROM "user" WHERE role = 'admin' LIMIT 1`,
+            );
+            const rows = result?.rows ?? result;
+            adminId = rows?.[0]?.id;
+          } else {
+            const { getConnection } = await import('../db/index.js');
+            const conn = getConnection();
+            if (conn?.sqlite) {
+              const row = conn.sqlite
+                .query('SELECT id FROM "user" WHERE role = ? LIMIT 1')
+                .get('admin') as { id: string } | null;
+              adminId = row?.id;
+            }
           }
 
           if (adminId) {
