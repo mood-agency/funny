@@ -136,6 +136,7 @@ export function NewThreadInput() {
       provider?: string;
       model: string;
       mode: string;
+      effort?: string;
       threadMode?: string;
       runtime?: string;
       baseBranch?: string;
@@ -213,6 +214,7 @@ export function NewThreadInput() {
       provider: opts.provider,
       model: opts.model,
       permissionMode: isLocalOnlyPurpose ? 'plan' : opts.mode,
+      effort: opts.effort,
       baseBranch: opts.baseBranch,
       prompt,
       images,
@@ -283,6 +285,7 @@ export function NewThreadInput() {
                   defaultBranch={branchPickerDefaultBranch}
                   selected={branchPickerSelected}
                   onChange={branchPickerSetSelected}
+                  showCreateNew
                   testId="new-thread-branch-picker"
                 />
               )}

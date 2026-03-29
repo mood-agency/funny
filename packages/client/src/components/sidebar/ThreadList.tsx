@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useBranchSwitch } from '@/hooks/use-branch-switch';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { useStableNavigate } from '@/hooks/use-stable-navigate';
 import { threadsVisuallyEqual } from '@/lib/shallow-compare';
@@ -159,10 +160,26 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
     }
   }, [threads]);
 
+  const { ensureBranch, branchSwitchDialog } = useBranchSwitch();
+
+  // Keep a ref to threads so the async handleSelect always reads the latest list.
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
+
   // Stable callbacks that avoid creating new closures per thread inside .map().
   // ThreadItem is memo'd, so stable references prevent unnecessary re-renders.
   const handleSelect = useCallback(
-    (threadId: string, projectId: string) => {
+    async (threadId: string, projectId: string) => {
+      // Check if the thread requires a branch switch (local mode only)
+      const thread = threadsRef.current.find((th) => th.id === threadId);
+      if (thread?.mode === 'local') {
+        const branch = resolveThreadBranch(thread);
+        if (branch) {
+          const canProceed = await ensureBranch(projectId, branch);
+          if (!canProceed) return;
+        }
+      }
+
       startTransition(() => {
         const store = useThreadStore.getState();
         if (
@@ -174,7 +191,7 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
         navigate(buildPath(`/projects/${projectId}/threads/${threadId}`));
       });
     },
-    [navigate],
+    [navigate, ensureBranch],
   );
 
   const handleRename = useCallback(
@@ -221,24 +238,27 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
   }
 
   return (
-    <div className="min-w-0 space-y-0.5">
-      {threads.map((thread) => (
-        <ThreadListItem
-          key={thread.id}
-          thread={thread}
-          isSelected={selectedThreadId === thread.id}
-          isRunning={RUNNING_STATUSES.has(thread.status)}
-          gitStatus={gitStatusByThread[thread.id]}
-          onSelect={handleSelect}
-          onRename={handleRename}
-          onArchive={handleArchive}
-          onDelete={handleDelete}
-        />
-      ))}
-      {totalCount > 5 && (
-        <ViewAllButton onClick={() => navigate(buildPath('/list?sort=updated'))} />
-      )}
-    </div>
+    <>
+      <div className="min-w-0 space-y-0.5">
+        {threads.map((thread) => (
+          <ThreadListItem
+            key={thread.id}
+            thread={thread}
+            isSelected={selectedThreadId === thread.id}
+            isRunning={RUNNING_STATUSES.has(thread.status)}
+            gitStatus={gitStatusByThread[thread.id]}
+            onSelect={handleSelect}
+            onRename={handleRename}
+            onArchive={handleArchive}
+            onDelete={handleDelete}
+          />
+        ))}
+        {totalCount > 5 && (
+          <ViewAllButton onClick={() => navigate(buildPath('/list?sort=updated'))} />
+        )}
+      </div>
+      {branchSwitchDialog}
+    </>
   );
 }
 

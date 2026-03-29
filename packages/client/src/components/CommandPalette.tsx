@@ -1,4 +1,5 @@
 import { FolderOpen } from 'lucide-react';
+import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -28,22 +29,53 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const projects = useProjectStore((s) => s.projects);
   const startNewThread = useUIStore((s) => s.startNewThread);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
+  const navigatedRef = useRef(false);
 
   const handleProjectSelect = (projectId: string) => {
+    navigatedRef.current = true;
     onOpenChange(false);
     startNewThread(projectId);
     useGitStatusStore.getState().fetchForProject(projectId);
     navigate(buildPath(`/projects/${projectId}`));
   };
 
+  // Prevent Radix from restoring focus to the previously-focused element
+  // after a navigation action (project/settings select). Instead, manually
+  // focus the prompt editor once it has been mounted by React + TipTap.
+  //
+  // Radix Dialog has two focus-restoration paths:
+  //   1. onCloseAutoFocus — we prevent the default here
+  //   2. FocusScope cleanup on unmount — runs after onCloseAutoFocus
+  // A single rAF isn't enough because the FocusScope cleanup steals
+  // focus back after our initial focus call. We schedule multiple
+  // attempts so the last one wins after all Radix teardown is complete.
+  const handleCloseAutoFocus = useCallback((e: Event) => {
+    if (navigatedRef.current) {
+      e.preventDefault();
+      navigatedRef.current = false;
+
+      const focusEditor = () => {
+        const editor = document.querySelector<HTMLElement>('[data-testid="prompt-editor"]');
+        editor?.focus();
+      };
+
+      // Immediate attempt (for fast renders)
+      requestAnimationFrame(focusEditor);
+      // Delayed attempt to beat FocusScope cleanup + animation teardown
+      setTimeout(focusEditor, 50);
+      setTimeout(focusEditor, 150);
+    }
+  }, []);
+
   const handleSettingsSelect = (itemId: string) => {
+    navigatedRef.current = true;
     onOpenChange(false);
     setSettingsOpen(true);
     navigate(buildPath(`/settings/${itemId}`));
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandDialog open={open} onOpenChange={onOpenChange} onCloseAutoFocus={handleCloseAutoFocus}>
       <CommandInput
         data-testid="command-palette-search"
         placeholder={t('commandPalette.searchPlaceholder')}

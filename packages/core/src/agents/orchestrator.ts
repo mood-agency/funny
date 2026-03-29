@@ -47,6 +47,8 @@ export interface StartAgentOptions {
   systemPrefix?: string;
   /** Additional environment variables to pass to the agent subprocess (e.g., API keys). */
   env?: Record<string, string>;
+  /** Effort level for Claude SDK — controls thinking depth ('low' | 'medium' | 'high' | 'max') */
+  effort?: string;
 }
 
 export interface OrchestratorEvents {
@@ -89,6 +91,7 @@ export class AgentOrchestrator extends EventEmitter {
       spawnClaudeCodeProcess,
       systemPrefix,
       env,
+      effort,
     } = options;
 
     dlog.info('startAgent', {
@@ -155,6 +158,7 @@ export class AgentOrchestrator extends EventEmitter {
       spawnClaudeCodeProcess,
       systemPrefix,
       env,
+      effort,
     };
 
     dlog.info('processOpts systemPrefix', {

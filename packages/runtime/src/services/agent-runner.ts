@@ -291,6 +291,7 @@ export class AgentRunner {
     provider: AgentProvider = 'claude',
     mcpServers?: Record<string, any>,
     skipMessageInsert?: boolean,
+    effort?: string,
   ): Promise<void> {
     log.info('startAgent called', {
       namespace: 'agent',
@@ -520,6 +521,7 @@ export class AgentRunner {
         systemPrefix,
         mcpServers,
         env: agentEnv,
+        effort,
       });
 
       threadEventBus.emit('agent:started', {

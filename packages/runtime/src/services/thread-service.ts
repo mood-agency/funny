@@ -212,6 +212,7 @@ export interface CreateAndStartThreadParams {
   provider?: string;
   model?: string;
   permissionMode?: string;
+  effort?: string;
   source?: string;
   baseBranch?: string;
   prompt: string;
@@ -387,6 +388,7 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
             resolvedProvider,
             undefined,
             true, // skipMessageInsert — already inserted at thread creation
+            params.effort,
           );
         } catch (err: any) {
           log.error('Failed to start agent after worktree setup', { threadId, error: err });
@@ -570,6 +572,9 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     params.disallowedTools,
     params.allowedTools,
     resolvedProvider,
+    undefined,
+    undefined,
+    params.effort,
   );
 
   return thread;
@@ -584,6 +589,7 @@ export interface SendMessageParams {
   provider?: string;
   model?: string;
   permissionMode?: string;
+  effort?: string;
   images?: ImageAttachment[];
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -822,6 +828,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     effectiveProvider,
     undefined,
     hasDraftMessage, // skipMessageInsert — draft already exists
+    params.effort,
   );
 
   return { ok: true };

@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { GitBranch, Check, Copy } from 'lucide-react';
+import { GitBranch, Check, Copy, Plus } from 'lucide-react';
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -14,6 +14,7 @@ export interface SearchablePickerItem {
   isSelected: boolean;
   detail?: string;
   badge?: string;
+  icon?: React.ReactNode;
 }
 
 const ITEM_HEIGHT = 32;
@@ -260,6 +261,7 @@ export function SearchablePicker({
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
+                          {item.icon && <span className="shrink-0">{item.icon}</span>}
                           <HighlightText
                             text={item.label}
                             query={search}
@@ -316,6 +318,8 @@ export function SearchablePicker({
   );
 }
 
+const CREATE_NEW_BRANCH_KEY = '__create_new_branch__';
+
 export function BranchPicker({
   branches,
   remoteBranches = [],
@@ -329,6 +333,7 @@ export function BranchPicker({
   extraItems,
   showCopy = true,
   placeholder,
+  showCreateNew = false,
   testId,
 }: {
   branches: string[];
@@ -343,9 +348,13 @@ export function BranchPicker({
   extraItems?: SearchablePickerItem[];
   showCopy?: boolean;
   placeholder?: string;
+  showCreateNew?: boolean;
   testId?: string;
 }) {
   const { t } = useTranslation();
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const newBranchInputRef = useRef<HTMLInputElement>(null);
 
   const remoteSet = useMemo(() => new Set(remoteBranches), [remoteBranches]);
 
@@ -374,18 +383,111 @@ export function BranchPicker({
     return branchItems;
   }, [branches, selected, extraItems, defaultBranch, remoteSet]);
 
+  const handleSelect = useCallback(
+    (key: string) => {
+      if (key === CREATE_NEW_BRANCH_KEY) {
+        setCreatingNew(true);
+        setNewBranchName('');
+        return;
+      }
+      setCreatingNew(false);
+      onChange(key);
+    },
+    [onChange],
+  );
+
+  const handleConfirmNewBranch = useCallback(() => {
+    const trimmed = newBranchName.trim();
+    if (!trimmed) return;
+    // Sanitize: replace spaces with dashes, remove invalid git branch chars
+    const sanitized = trimmed
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9/_.-]/g, '')
+      .replace(/\.{2,}/g, '.')
+      .replace(/^[.-]|[.-]$/g, '');
+    if (!sanitized) return;
+    setCreatingNew(false);
+    setNewBranchName('');
+    onChange(sanitized);
+  }, [newBranchName, onChange]);
+
+  // Focus the new branch input when entering create mode
+  useEffect(() => {
+    if (creatingNew) {
+      requestAnimationFrame(() => newBranchInputRef.current?.focus());
+    }
+  }, [creatingNew]);
+
+  const createNewItem: SearchablePickerItem | undefined = showCreateNew
+    ? {
+        key: CREATE_NEW_BRANCH_KEY,
+        label: t('newThread.createNewBranch', 'Create new branch'),
+        isSelected: false,
+        icon: <Plus className="icon-xs text-muted-foreground" />,
+      }
+    : undefined;
+
+  const allItems = useMemo(() => {
+    if (!createNewItem) return items;
+    return [createNewItem, ...items];
+  }, [createNewItem, items]);
+
+  if (creatingNew) {
+    return (
+      <div className="flex items-center gap-1" data-testid={testId ? `${testId}-new` : undefined}>
+        <Plus className="icon-xs shrink-0 text-muted-foreground" />
+        <input
+          ref={newBranchInputRef}
+          type="text"
+          value={newBranchName}
+          onChange={(e) => setNewBranchName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleConfirmNewBranch();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              setCreatingNew(false);
+              setNewBranchName('');
+            }
+          }}
+          onBlur={() => {
+            // If the user blurs without entering a name, go back
+            if (!newBranchName.trim()) {
+              setCreatingNew(false);
+              setNewBranchName('');
+            }
+          }}
+          placeholder={t('newThread.newBranchPlaceholder', 'new-branch-name')}
+          data-testid={testId ? `${testId}-new-input` : undefined}
+          className="w-40 bg-transparent font-mono text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
+        />
+        <button
+          type="button"
+          onClick={handleConfirmNewBranch}
+          disabled={!newBranchName.trim()}
+          data-testid={testId ? `${testId}-new-confirm` : undefined}
+          className="rounded px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+        >
+          <Check className="icon-xs" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <SearchablePicker
-      items={items}
+      items={allItems}
       label={t('newThread.baseBranch', 'Base branch')}
       displayValue={selected || placeholder || t('newThread.selectBranch')}
       searchPlaceholder={t('newThread.searchBranches', 'Search branches\u2026')}
       noMatchText={t('newThread.noBranchesMatch', 'No branches match')}
-      onSelect={(branch) => onChange(branch)}
+      onSelect={handleSelect}
       onCopy={
         showCopy
-          ? (branch) => {
-              navigator.clipboard.writeText(branch);
+          ? (label) => {
+              if (label === t('newThread.createNewBranch', 'Create new branch')) return;
+              navigator.clipboard.writeText(label);
               toast.success('Branch copied');
             }
           : undefined

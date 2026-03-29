@@ -607,7 +607,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
           )}
           <Breadcrumb className="min-w-0">
             <BreadcrumbList>
-              {project && (
+              {project && activeThreadId && (
                 <BreadcrumbItem className="flex-shrink-0">
                   <BreadcrumbLink className="flex cursor-default items-center gap-1.5 whitespace-nowrap text-sm">
                     <FolderOpen className="icon-sm text-muted-foreground" />

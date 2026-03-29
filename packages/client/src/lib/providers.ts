@@ -205,6 +205,29 @@ export function getUnifiedModelOptions(
   });
 }
 
+// ── Effort levels ───────────────────────────────────────────────
+
+export interface EffortConfig {
+  value: string;
+  label: string;
+  description: string;
+}
+
+export const EFFORT_LEVELS: EffortConfig[] = [
+  { value: 'low', label: 'Low', description: 'Minimal thinking — fastest' },
+  { value: 'medium', label: 'Medium', description: 'Balanced speed and quality' },
+  { value: 'high', label: 'High', description: 'Deep reasoning (default)' },
+];
+
+/** Providers that support effort/reasoning level configuration. */
+const PROVIDERS_WITH_EFFORT = new Set(['claude', 'codex']);
+
+/** Get available effort levels for a given provider. Returns empty array if not supported. */
+export function getEffortLevels(_model: string, provider?: string): EffortConfig[] {
+  if (provider && !PROVIDERS_WITH_EFFORT.has(provider)) return [];
+  return EFFORT_LEVELS;
+}
+
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 /** Get the context window size (in tokens) for a given provider + model. */

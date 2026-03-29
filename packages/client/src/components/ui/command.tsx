@@ -21,13 +21,20 @@ const Command = React.forwardRef<
 ));
 Command.displayName = CommandPrimitive.displayName;
 
-function CommandDialog({ children, ...props }: React.ComponentProps<typeof Dialog>) {
+function CommandDialog({
+  children,
+  onCloseAutoFocus,
+  ...props
+}: React.ComponentProps<typeof Dialog> & {
+  onCloseAutoFocus?: (e: Event) => void;
+}) {
   return (
     <Dialog {...props}>
       <DialogPortal>
         <DialogOverlay />
         <DialogPrimitive.Content
           aria-describedby={undefined}
+          onCloseAutoFocus={onCloseAutoFocus}
           className="fixed left-[50%] top-[20%] z-50 w-full max-w-lg translate-x-[-50%] overflow-hidden rounded-lg border bg-card p-0 shadow-xl data-[state=closed]:animate-fade-out data-[state=open]:animate-fade-in"
         >
           <DialogTitle className="sr-only">Command palette</DialogTitle>

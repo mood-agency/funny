@@ -86,6 +86,8 @@ export interface ClaudeProcessOptions {
   mcpServers?: Record<string, any>;
   /** Extra instructions appended to the system prompt (e.g., arc purpose prompts, project instructions) */
   systemPrefix?: string;
+  /** Effort level for Claude SDK — controls thinking depth ('low' | 'medium' | 'high' | 'max') */
+  effort?: string;
   /** Additional environment variables to pass to the agent subprocess (e.g., API keys). */
   env?: Record<string, string>;
   /** Custom spawn function for sandboxed execution (e.g., Podman container) */

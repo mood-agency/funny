@@ -45,13 +45,14 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
   loadInbox: async (options?: { projectId?: string; triageStatus?: string }) => {
     const result = await api.getAutomationInbox(options);
-    result.match(
-      (inbox) => {
-        const pendingCount = inbox.filter((item) => item.run.triageStatus === 'pending').length;
-        set({ inbox, inboxCount: pendingCount });
-      },
-      (error) => console.error('[automation-store] Failed to load inbox:', error.message),
-    );
+    if (result.isOk()) {
+      const inbox = result.value;
+      const pendingCount = inbox.filter((item) => item.run.triageStatus === 'pending').length;
+      set({ inbox, inboxCount: pendingCount });
+    } else {
+      console.error('[automation-store] Failed to load inbox:', result.error.message);
+      throw result.error;
+    }
   },
 
   loadRuns: async (automationId) => {

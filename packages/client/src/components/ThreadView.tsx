@@ -266,6 +266,7 @@ export function ThreadView() {
         provider?: string;
         model: string;
         mode: string;
+        effort?: string;
         fileReferences?: { path: string; type?: 'file' | 'folder' }[];
         symbolReferences?: {
           path: string;
@@ -367,6 +368,7 @@ export function ThreadView() {
           provider: opts.provider || undefined,
           model: opts.model || undefined,
           permissionMode: opts.mode || undefined,
+          effort: opts.effort || undefined,
           allowedTools,
           disallowedTools,
           fileReferences: opts.fileReferences,
@@ -622,6 +624,7 @@ export function ThreadView() {
   if (newThreadProjectId && !selectedThreadId) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col">
+        <ProjectHeader />
         <NewThreadInput />
       </div>
     );
@@ -631,6 +634,7 @@ export function ThreadView() {
     if (selectedProjectId && hasProjects) {
       return (
         <div className="flex h-full min-w-0 flex-1 flex-col">
+          <ProjectHeader />
           <NewThreadInput />
         </div>
       );

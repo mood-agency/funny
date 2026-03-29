@@ -160,6 +160,36 @@ export const PurposeSelect = memo(function PurposeSelect({
   );
 });
 
+export const EffortSelect = memo(function EffortSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string; description: string }[];
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger
+        data-testid="prompt-effort-select"
+        tabIndex={-1}
+        size="xs"
+        className="w-auto border-none bg-transparent shadow-none"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent side="top" align="start">
+        {options.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value} size="xs">
+            <span title={opt.description}>{opt.label}</span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+});
+
 /** Parse a git remote URL into a friendly `owner/repo` display string. */
 export function formatRemoteUrl(url: string): string {
   const sshMatch = url.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
@@ -183,6 +213,7 @@ export interface PromptInputUIProps {
       provider?: string;
       model: string;
       mode: string;
+      effort?: string;
       threadMode?: string;
       runtime?: string;
       baseBranch?: string;
@@ -277,6 +308,11 @@ export interface PromptInputUIProps {
   arcId?: string;
   /** Callback to trigger phase transition: creates new thread with same arcId but different purpose */
   onPhaseTransition?: (newPurpose: ThreadPurpose) => void;
+
+  // ── Effort (Claude-specific) ──
+  effort?: string;
+  onEffortChange?: (v: string) => void;
+  effortOptions?: { value: string; label: string; description: string }[];
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -335,6 +371,9 @@ export const PromptInputUI = memo(function PromptInputUI({
   onPurposeChange,
   arcId,
   onPhaseTransition,
+  effort,
+  onEffortChange,
+  effortOptions,
 }: PromptInputUIProps) {
   const { t } = useTranslation();
 
@@ -409,6 +448,7 @@ export const PromptInputUI = memo(function PromptInputUI({
         provider,
         model,
         mode,
+        effort,
         ...(isNewThread
           ? {
               threadMode: isLocalOnlyPurpose ? 'local' : createWorktree ? 'worktree' : 'local',
@@ -441,6 +481,7 @@ export const PromptInputUI = memo(function PromptInputUI({
     provider,
     model,
     mode,
+    effort,
     runtime,
     sendToBacklog,
     followUpSelectedBranch,
@@ -852,13 +893,16 @@ export const PromptInputUI = memo(function PromptInputUI({
                 />
               )}
               <ModeSelect value={mode} onChange={onModeChange} modes={modes} />
-              {/* Model + send — always visible, pushed right */}
+              {/* Model + effort + send — always visible, pushed right */}
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 <ModelSelect
                   value={unifiedModel}
                   onChange={onUnifiedModelChange}
                   groups={modelGroups}
                 />
+                {effortOptions && effortOptions.length > 0 && effort && onEffortChange && (
+                  <EffortSelect value={effort} onChange={onEffortChange} options={effortOptions} />
+                )}
                 {hasDictation && (
                   <Tooltip>
                     <TooltipTrigger asChild>

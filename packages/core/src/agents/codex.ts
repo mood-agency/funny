@@ -42,17 +42,30 @@ export class CodexProcess extends BaseAgentProcess {
 
     const codex = new Codex({ config: codexConfig });
 
+    // Map effort level to Codex SDK's modelReasoningEffort values
+    const effortMap: Record<string, string> = {
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+    };
+    const modelReasoningEffort = this.options.effort
+      ? (effortMap[this.options.effort] ?? 'high')
+      : undefined;
+
     // Start or resume a thread
     let thread: CodexThread;
     const isResume = !!this.options.sessionId;
 
+    const threadOpts: Record<string, any> = {
+      workingDirectory: this.options.cwd,
+      skipGitRepoCheck: true,
+      ...(modelReasoningEffort && { modelReasoningEffort }),
+    };
+
     if (isResume) {
-      thread = codex.resumeThread(this.options.sessionId!);
+      thread = codex.resumeThread(this.options.sessionId!, threadOpts);
     } else {
-      thread = codex.startThread({
-        workingDirectory: this.options.cwd,
-        skipGitRepoCheck: true,
-      });
+      thread = codex.startThread(threadOpts);
     }
 
     // Generate a session ID (Codex threads persist to disk at ~/.codex/sessions)

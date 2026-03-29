@@ -2,6 +2,7 @@ import { PanelLeft } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
 import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
@@ -213,33 +214,37 @@ export function App() {
 
   return (
     <SidebarProvider defaultOpen={true} className="h-screen overflow-hidden">
-      <Suspense fallback={<SidebarPlaceholder />}>
-        <AppSidebar />
-      </Suspense>
+      <ErrorBoundary area="sidebar">
+        <Suspense fallback={<SidebarPlaceholder />}>
+          <AppSidebar />
+        </Suspense>
+      </ErrorBoundary>
       <CollapsedSidebarStrip />
 
       <SidebarInset className="flex flex-col overflow-hidden">
         {/* Main content + terminal */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <Suspense>
-            {generalSettingsOpen ? (
-              <GeneralSettingsView />
-            ) : settingsOpen ? (
-              <SettingsDetailView />
-            ) : analyticsOpen ? (
-              <AnalyticsView />
-            ) : liveColumnsOpen ? (
-              <LiveColumnsView />
-            ) : automationInboxOpen ? (
-              <AutomationInboxView />
-            ) : addProjectOpen ? (
-              <AddProjectView />
-            ) : allThreadsProjectId ? (
-              <AllThreadsView />
-            ) : (
-              <ThreadView />
-            )}
-          </Suspense>
+          <ErrorBoundary area="main-content">
+            <Suspense>
+              {generalSettingsOpen ? (
+                <GeneralSettingsView />
+              ) : settingsOpen ? (
+                <SettingsDetailView />
+              ) : analyticsOpen ? (
+                <AnalyticsView />
+              ) : liveColumnsOpen ? (
+                <LiveColumnsView />
+              ) : automationInboxOpen ? (
+                <AutomationInboxView />
+              ) : addProjectOpen ? (
+                <AddProjectView />
+              ) : allThreadsProjectId ? (
+                <AllThreadsView />
+              ) : (
+                <ThreadView />
+              )}
+            </Suspense>
+          </ErrorBoundary>
         </div>
 
         <Suspense>
@@ -291,17 +296,19 @@ export function App() {
           >
             {/* Pane content — controlled by header toggle buttons */}
             <div className="min-h-0 flex-1 overflow-hidden">
-              <Suspense>
-                {rightPaneTab === 'review' ? (
-                  <ReviewPane />
-                ) : rightPaneTab === 'tasks' ? (
-                  <TasksPane />
-                ) : rightPaneTab === 'activity' ? (
-                  <ActivityPane />
-                ) : (
-                  <TestRunnerPane />
-                )}
-              </Suspense>
+              <ErrorBoundary area="right-pane">
+                <Suspense>
+                  {rightPaneTab === 'review' ? (
+                    <ReviewPane />
+                  ) : rightPaneTab === 'tasks' ? (
+                    <TasksPane />
+                  ) : rightPaneTab === 'activity' ? (
+                    <ActivityPane />
+                  ) : (
+                    <TestRunnerPane />
+                  )}
+                </Suspense>
+              </ErrorBoundary>
             </div>
           </div>
         )}

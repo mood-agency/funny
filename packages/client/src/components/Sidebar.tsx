@@ -44,10 +44,11 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useBranchSwitch } from '@/hooks/use-branch-switch';
 import { useStableNavigate } from '@/hooks/use-stable-navigate';
 import { threadsVisuallyEqual } from '@/lib/shallow-compare';
 import { buildPath } from '@/lib/url';
-import { cn } from '@/lib/utils';
+import { cn, resolveThreadBranch } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -87,6 +88,8 @@ export function AppSidebar() {
   const showGlobalSearch = useUIStore((s) => s.showGlobalSearch);
   const authUser = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  // branch-switch
+  const { ensureBranch, branchSwitchDialog } = useBranchSwitch();
 
   const [archiveConfirm, setArchiveConfirm] = useState<{
     threadId: string;
@@ -280,7 +283,18 @@ export function AppSidebar() {
   }, []);
 
   const handleSelectThread = useCallback(
-    (projectId: string, threadId: string) => {
+    async (projectId: string, threadId: string) => {
+      // Check if the thread requires a branch switch (local mode only)
+      const threads = useThreadStore.getState().threadsByProject[projectId] ?? [];
+      const thread = threads.find((th) => th.id === threadId);
+      if (thread?.mode === 'local') {
+        const branch = resolveThreadBranch(thread);
+        if (branch) {
+          const canProceed = await ensureBranch(projectId, branch);
+          if (!canProceed) return;
+        }
+      }
+
       startTransition(() => {
         const store = useThreadStore.getState();
         if (
@@ -292,7 +306,7 @@ export function AppSidebar() {
         navigate(buildPath(`/projects/${projectId}/threads/${threadId}`));
       });
     },
-    [navigate],
+    [navigate, ensureBranch],
   );
 
   const handleArchiveThread = useCallback((projectId: string, threadId: string, title: string) => {
@@ -757,6 +771,8 @@ export function AppSidebar() {
       />
 
       <SidebarRail />
+
+      {branchSwitchDialog}
     </Sidebar>
   );
 }
