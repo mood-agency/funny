@@ -53,6 +53,7 @@ import {
   clearWSBuffer,
   getSelectingThreadId,
   setSelectingThreadId,
+  rebuildThreadProjectIndex,
 } from './thread-store-internals';
 import * as wsHandlers from './thread-ws-handlers';
 import { useUIStore } from './ui-store';
@@ -1014,3 +1015,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 }));
+
+// ── Thread index subscriber ──────────────────────────────────
+// Keep the threadId→projectId index in sync with threadsByProject.
+// This runs synchronously after every store update that touches threadsByProject.
+let _prevThreadsByProject: Record<string, any[]> = {};
+useThreadStore.subscribe((state) => {
+  if (state.threadsByProject !== _prevThreadsByProject) {
+    _prevThreadsByProject = state.threadsByProject;
+    rebuildThreadProjectIndex(state.threadsByProject);
+  }
+});

@@ -233,7 +233,7 @@ export function FolderPicker({ onSelect, onClose }: FolderPickerProps) {
         className="flex flex-col gap-0 p-0"
         style={{ maxWidth: '60vw', height: '70vh' }}
       >
-        <DialogHeader className="p-4 pb-0">
+        <DialogHeader className="p-4 pb-2">
           <DialogTitle className="text-sm">{t('folderPicker.title')}</DialogTitle>
         </DialogHeader>
 

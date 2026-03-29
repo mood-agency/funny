@@ -15,6 +15,7 @@ import { createClientLogger } from '@/lib/client-logger';
 import { getUnifiedModelOptions } from '@/lib/providers';
 import { toastError } from '@/lib/toast-error';
 import { resolveThreadBranch } from '@/lib/utils';
+import { useBranchPickerStore } from '@/stores/branch-picker-store';
 import { useDraftStore } from '@/stores/draft-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -145,19 +146,15 @@ export const PromptInput = memo(function PromptInput({
   const activeThreadArcId = useThreadStore((s) => s.activeThread?.arcId);
   const activeThreadPurpose = useThreadStore((s) => s.activeThread?.purpose);
 
-  // ── Branch state ──
-  const [newThreadBranches, setNewThreadBranches] = useState<string[]>([]);
-  const [newThreadRemoteBranches, setNewThreadRemoteBranches] = useState<string[]>([]);
-  const [newThreadDefaultBranch, setNewThreadDefaultBranch] = useState<string | null>(null);
-  const [newThreadBranchesLoading, setNewThreadBranchesLoading] = useState(false);
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
+  // ── Branch state (new-thread: from shared store, follow-up: local) ──
+  const selectedBranch = useBranchPickerStore((s) => s.selectedBranch);
+  const gitCurrentBranch = useBranchPickerStore((s) => s.currentBranch);
+  const fetchBranches = useBranchPickerStore((s) => s.fetchBranches);
   const [sendToBacklog, setSendToBacklog] = useState(false);
   const [followUpBranches, setFollowUpBranches] = useState<string[]>([]);
   const [followUpRemoteBranches, setFollowUpRemoteBranches] = useState<string[]>([]);
   const [followUpDefaultBranch, setFollowUpDefaultBranch] = useState<string | null>(null);
   const [followUpSelectedBranch, setFollowUpSelectedBranch] = useState<string>('');
-  const [gitCurrentBranch, setGitCurrentBranch] = useState<string | null>(null);
-  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
 
   // ── Queue state ──
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
@@ -331,32 +328,9 @@ export const PromptInput = memo(function PromptInput({
 
   useEffect(() => {
     if (isNewThread && effectiveProjectId) {
-      setNewThreadBranchesLoading(true);
-      (async () => {
-        const result = await api.listBranches(effectiveProjectId);
-        if (result.isOk()) {
-          const data = result.value;
-          setNewThreadBranches(data.branches);
-          setNewThreadRemoteBranches(data.remoteBranches ?? []);
-          setNewThreadDefaultBranch(data.defaultBranch);
-          setGitCurrentBranch(data.currentBranch);
-          if (data.currentBranch && data.branches.includes(data.currentBranch)) {
-            setSelectedBranch(data.currentBranch);
-          } else if (projectDefaultBranch && data.branches.includes(projectDefaultBranch)) {
-            setSelectedBranch(projectDefaultBranch);
-          } else if (data.defaultBranch) {
-            setSelectedBranch(data.defaultBranch);
-          } else if (data.branches.length > 0) {
-            setSelectedBranch(data.branches[0]);
-          }
-        } else {
-          setNewThreadBranches([]);
-          setGitCurrentBranch(null);
-        }
-        setNewThreadBranchesLoading(false);
-      })();
+      fetchBranches(effectiveProjectId, projectDefaultBranch);
     }
-  }, [isNewThread, effectiveProjectId, projectDefaultBranch]);
+  }, [isNewThread, effectiveProjectId, projectDefaultBranch, fetchBranches]);
 
   // Fetch remote URL
   const projectPath = useMemo(
@@ -364,18 +338,6 @@ export const PromptInput = memo(function PromptInput({
       effectiveProjectId ? (projects.find((p) => p.id === effectiveProjectId)?.path ?? '') : '',
     [effectiveProjectId, projects],
   );
-
-  useEffect(() => {
-    if (projectPath) {
-      (async () => {
-        const result = await api.remoteUrl(projectPath);
-        if (result.isOk()) setRemoteUrl(result.value.url);
-        else setRemoteUrl(null);
-      })();
-    } else {
-      setRemoteUrl(null);
-    }
-  }, [projectPath]);
 
   // Fetch follow-up branches
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
@@ -640,7 +602,7 @@ export const PromptInput = memo(function PromptInput({
         return false;
       }
       useProjectStore.getState().fetchBranch(effectiveProjectId);
-      setGitCurrentBranch(branch);
+      useBranchPickerStore.getState().setCurrentBranch(branch);
       return true;
     },
     [effectiveProjectId, gitCurrentBranch, t],
@@ -660,7 +622,7 @@ export const PromptInput = memo(function PromptInput({
       if (result.isOk()) {
         // Update the branch in the project store
         useProjectStore.getState().fetchBranch(effectiveProjectId);
-        setGitCurrentBranch(switchBranchDialog.targetBranch);
+        useBranchPickerStore.getState().setCurrentBranch(switchBranchDialog.targetBranch);
         setSwitchBranchDialog(null);
         switchBranchResolverRef.current?.(true);
         switchBranchResolverRef.current = null;
@@ -735,19 +697,13 @@ export const PromptInput = memo(function PromptInput({
         runtime={runtime}
         onRuntimeChange={setRuntime}
         hasLauncher={hasLauncher}
-        branches={newThreadBranches}
-        remoteBranches={newThreadRemoteBranches}
-        defaultBranch={newThreadDefaultBranch}
-        branchesLoading={newThreadBranchesLoading}
         selectedBranch={selectedBranch}
-        onSelectedBranchChange={setSelectedBranch}
         followUpBranches={followUpBranches}
         followUpRemoteBranches={followUpRemoteBranches}
         followUpDefaultBranch={followUpDefaultBranch}
         followUpSelectedBranch={followUpSelectedBranch}
         onFollowUpSelectedBranchChange={setFollowUpSelectedBranch}
         activeThreadBranch={activeThreadBranch}
-        remoteUrl={remoteUrl}
         effectiveCwd={threadCwd}
         showBacklog={showBacklog}
         sendToBacklog={sendToBacklog}

@@ -1236,7 +1236,11 @@ export function getStatusSummary(
         const headerLine = lines[0]; // e.g. "## main...origin/main [ahead 2]"
         if (headerLine.startsWith('## ')) {
           const ref = headerLine.slice(3).split('...')[0].trim();
-          if (ref && ref !== 'HEAD (no branch)') {
+          // Handle empty repo headers like "## No commits yet on master"
+          const noCommitsMatch = ref.match(/^No commits yet on (.+)$/);
+          if (noCommitsMatch) {
+            branch = noCommitsMatch[1];
+          } else if (ref && ref !== 'HEAD (no branch)') {
             branch = ref;
           }
         }
@@ -1476,15 +1480,19 @@ export function getLog(
   const native = getNativeGit();
   if (native && !baseBranch && skip === 0) {
     return ResultAsync.fromPromise(
-      native.getLog(cwd, limit).then((entries) =>
-        entries.map((e) => ({
-          hash: e.hash,
-          shortHash: e.shortHash,
-          author: e.author,
-          relativeDate: e.relativeDate,
-          message: e.message,
-        })),
-      ),
+      native
+        .getLog(cwd, limit)
+        .then((entries) =>
+          entries.map((e) => ({
+            hash: e.hash,
+            shortHash: e.shortHash,
+            author: e.author,
+            relativeDate: e.relativeDate,
+            message: e.message,
+          })),
+        )
+        // Empty repo (no commits yet) — return empty array instead of throwing
+        .catch(() => [] as GitLogEntry[]),
       (error) => processError(String(error), 1, ''),
     );
   }
@@ -1497,16 +1505,21 @@ export function getLog(
   if (baseBranch) {
     args.push(`${baseBranch}..HEAD`);
   }
-  return git(args, cwd).map((output) => {
-    if (!output.trim()) return [];
-    return output
-      .trim()
-      .split('\n')
-      .map((line) => {
-        const [hash, shortHash, author, relativeDate, message] = line.split(SEP);
-        return { hash, shortHash, author, relativeDate, message };
-      });
-  });
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await gitRead(args, { cwd, reject: false });
+      // Empty repo (no commits yet) returns exit code 128 — treat as empty log
+      if (result.exitCode !== 0 || !result.stdout.trim()) return [];
+      return result.stdout
+        .trim()
+        .split('\n')
+        .map((line) => {
+          const [hash, shortHash, author, relativeDate, message] = line.split(SEP);
+          return { hash, shortHash, author, relativeDate, message };
+        });
+    })(),
+    (error) => processError(String(error), 1, ''),
+  );
 }
 
 /**

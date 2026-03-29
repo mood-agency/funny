@@ -479,6 +479,21 @@ export function AskQuestionCard({
                         ref={otherEditorRef}
                         placeholder={t('tools.otherPlaceholder')}
                         onChange={handleOtherEditorChange}
+                        onSubmit={() => {
+                          // Flush editor text to state before submitting
+                          const text = otherEditorRef.current?.getText() ?? '';
+                          setOtherTexts((prev) => {
+                            const next = new Map(prev);
+                            next.set(activeTab, text);
+                            return next;
+                          });
+                          if (isLastTab || questions.length === 1) {
+                            // Use setTimeout to let state update flush before handleSubmit reads it
+                            setTimeout(handleSubmit, 0);
+                          } else {
+                            setActiveTab((prev) => prev + 1);
+                          }
+                        }}
                         cwd={cwd}
                         loadSkills={loadSkillsForEditor}
                         className="max-h-[120px] min-h-[40px] overflow-y-auto text-sm"

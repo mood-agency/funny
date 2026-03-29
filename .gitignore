@@ -4,6 +4,7 @@ dist/
 *.db-journal
 .env
 .env.local
+.env.railway
 *.tsbuildinfo
 
 # Tauri

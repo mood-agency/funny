@@ -110,16 +110,13 @@ export const Loading: Story = {
   },
 };
 
-/** New thread with branches and worktree toggle visible. */
+/** New thread with worktree toggle visible. */
 export const NewThreadWithBranches: Story = {
   args: {
     isNewThread: true,
-    branches: ['main', 'develop', 'feature/auth', 'fix/login-bug'],
     selectedBranch: 'main',
-    onSelectedBranchChange: fn(),
     createWorktree: false,
     onCreateWorktreeChange: fn(),
-    remoteUrl: 'https://github.com/acme/my-app.git',
   },
 };
 
@@ -127,12 +124,9 @@ export const NewThreadWithBranches: Story = {
 export const WorktreeMode: Story = {
   args: {
     isNewThread: true,
-    branches: ['main', 'develop'],
     selectedBranch: 'main',
-    onSelectedBranchChange: fn(),
     createWorktree: true,
     onCreateWorktreeChange: fn(),
-    remoteUrl: 'git@github.com:acme/my-app.git',
   },
 };
 
@@ -260,9 +254,7 @@ export const WithBacklog: Story = {
     showBacklog: true,
     sendToBacklog: false,
     onSendToBacklogChange: fn(),
-    branches: ['main'],
     selectedBranch: 'main',
-    onSelectedBranchChange: fn(),
   },
 };
 
@@ -273,9 +265,7 @@ export const WithLauncher: Story = {
     hasLauncher: true,
     runtime: 'local',
     onRuntimeChange: fn(),
-    branches: ['main'],
     selectedBranch: 'main',
-    onSelectedBranchChange: fn(),
   },
 };
 

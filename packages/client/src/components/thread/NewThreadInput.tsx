@@ -1,6 +1,7 @@
 import type { ThreadPurpose } from '@funny/shared';
 import { DEFAULT_THREAD_MODE } from '@funny/shared/models';
-import { useState, useCallback, useRef } from 'react';
+import { FolderOpen, GitBranch, Globe, Github, Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -9,12 +10,15 @@ import { useNavigationBlock } from '@/hooks/use-navigation-block';
 import { api } from '@/lib/api';
 import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
+import { useBranchPickerStore } from '@/stores/branch-picker-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
 
 import { PromptInput } from '../PromptInput';
+import { formatRemoteUrl } from '../PromptInputUI';
+import { BranchPicker } from '../SearchablePicker';
 import { SaveBacklogDialog } from './SaveBacklogDialog';
 
 /** Generate a kebab-case arc name from a prompt with a short unique suffix. */
@@ -49,6 +53,29 @@ export function NewThreadInput() {
     : undefined;
   const defaultThreadMode = project?.defaultMode ?? DEFAULT_THREAD_MODE;
   const toolPermissions = useSettingsStore((s) => s.toolPermissions);
+
+  // ── Branch picker (shared store) ──
+  const branchPickerBranches = useBranchPickerStore((s) => s.branches);
+  const branchPickerRemoteBranches = useBranchPickerStore((s) => s.remoteBranches);
+  const branchPickerDefaultBranch = useBranchPickerStore((s) => s.defaultBranch);
+  const branchPickerLoading = useBranchPickerStore((s) => s.loading);
+  const branchPickerSelected = useBranchPickerStore((s) => s.selectedBranch);
+  const branchPickerSetSelected = useBranchPickerStore((s) => s.setSelectedBranch);
+
+  // ── Remote URL ──
+  const projectPath = useMemo(() => project?.path ?? '', [project?.path]);
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (projectPath) {
+      (async () => {
+        const result = await api.remoteUrl(projectPath);
+        if (result.isOk()) setRemoteUrl(result.value.url);
+        else setRemoteUrl(null);
+      })();
+    } else {
+      setRemoteUrl(null);
+    }
+  }, [projectPath]);
 
   // ── Save-to-backlog guard ──
   const hasContentRef = useRef(false);
@@ -217,6 +244,51 @@ export function NewThreadInput() {
   return (
     <div className="flex flex-1 items-center justify-center px-4 text-muted-foreground">
       <div className="w-full max-w-3xl">
+        {/* Context bar: Project / Repo / Branch */}
+        <div
+          className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"
+          data-testid="new-thread-context-bar"
+        >
+          {project && (
+            <span className="flex shrink-0 items-center gap-1">
+              <FolderOpen className="icon-xs shrink-0" />
+              <span className="truncate font-medium">{project.name}</span>
+            </span>
+          )}
+          {project && remoteUrl && (
+            <>
+              <span className="text-muted-foreground/40">/</span>
+              <span className="flex shrink-0 items-center gap-1 truncate">
+                {remoteUrl.includes('github.com') ? (
+                  <Github className="icon-xs shrink-0" />
+                ) : (
+                  <Globe className="icon-xs shrink-0" />
+                )}
+                <span className="truncate font-medium">{formatRemoteUrl(remoteUrl)}</span>
+              </span>
+            </>
+          )}
+          {(branchPickerBranches.length > 0 || branchPickerLoading) && (
+            <>
+              <span className="text-muted-foreground/40">/</span>
+              {branchPickerLoading ? (
+                <span className="flex items-center gap-1">
+                  <GitBranch className="icon-xs shrink-0" />
+                  <Loader2 className="icon-xs animate-spin" />
+                </span>
+              ) : (
+                <BranchPicker
+                  branches={branchPickerBranches}
+                  remoteBranches={branchPickerRemoteBranches}
+                  defaultBranch={branchPickerDefaultBranch}
+                  selected={branchPickerSelected}
+                  onChange={branchPickerSetSelected}
+                  testId="new-thread-branch-picker"
+                />
+              )}
+            </>
+          )}
+        </div>
         <PromptInput
           key={effectiveProjectId}
           onSubmit={handleCreate}

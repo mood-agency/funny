@@ -15,7 +15,7 @@ import {
   wsEventToMachineEvent,
 } from './thread-machine-bridge';
 import type { AgentInitInfo, ThreadState } from './thread-store';
-import { bufferWSEvent, getNavigate } from './thread-store-internals';
+import { bufferWSEvent, getNavigate, getProjectIdForThread } from './thread-store-internals';
 
 const wsLog = createClientLogger('ws-handlers');
 
@@ -116,17 +116,17 @@ export function handleWSMessage(
 
   // Update sidebar snippet for assistant messages
   if (data.role === 'assistant' && data.content) {
-    const { threadsByProject } = get();
-    const snippet = data.content.slice(0, 120);
-    for (const [pid, threads] of Object.entries(threadsByProject)) {
-      const idx = threads.findIndex((t) => t.id === threadId);
-      if (idx >= 0) {
-        const updated = [...threads];
-        updated[idx] = { ...updated[idx], lastAssistantMessage: snippet };
-        set({
-          threadsByProject: { ...threadsByProject, [pid]: updated },
-        });
-        break;
+    const pid = getProjectIdForThread(threadId);
+    if (pid) {
+      const { threadsByProject } = get();
+      const threads = threadsByProject[pid];
+      if (threads) {
+        const idx = threads.findIndex((t) => t.id === threadId);
+        if (idx >= 0) {
+          const updated = [...threads];
+          updated[idx] = { ...updated[idx], lastAssistantMessage: data.content.slice(0, 120) };
+          set({ threadsByProject: { ...threadsByProject, [pid]: updated } });
+        }
       }
     }
   }
@@ -258,33 +258,36 @@ export function handleWSStatus(
   let foundInSidebar = false;
   let updatedProject: { pid: string; threads: Thread[] } | null = null;
 
-  for (const [pid, threads] of Object.entries(threadsByProject)) {
-    const idx = threads.findIndex((t) => t.id === threadId);
-    if (idx >= 0) {
-      foundInSidebar = true;
-      const t = threads[idx];
-      const newStatus = transitionThreadStatus(threadId, machineEvent, t.status, t.cost);
-      wsLog.debug('status transition', {
-        threadId,
-        from: t.status,
-        to: newStatus,
-        waitingReason: data.waitingReason ?? '',
-      });
-      if (
-        newStatus !== t.status ||
-        (data.stage && data.stage !== t.stage) ||
-        (data.permissionMode && data.permissionMode !== t.permissionMode)
-      ) {
-        const copy = [...threads];
-        copy[idx] = {
-          ...t,
-          status: newStatus,
-          ...(data.stage ? { stage: data.stage as any } : {}),
-          ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}),
-        };
-        updatedProject = { pid, threads: copy };
+  const pid = getProjectIdForThread(threadId);
+  if (pid) {
+    const threads = threadsByProject[pid];
+    if (threads) {
+      const idx = threads.findIndex((t) => t.id === threadId);
+      if (idx >= 0) {
+        foundInSidebar = true;
+        const t = threads[idx];
+        const newStatus = transitionThreadStatus(threadId, machineEvent, t.status, t.cost);
+        wsLog.debug('status transition', {
+          threadId,
+          from: t.status,
+          to: newStatus,
+          waitingReason: data.waitingReason ?? '',
+        });
+        if (
+          newStatus !== t.status ||
+          (data.stage && data.stage !== t.stage) ||
+          (data.permissionMode && data.permissionMode !== t.permissionMode)
+        ) {
+          const copy = [...threads];
+          copy[idx] = {
+            ...t,
+            status: newStatus,
+            ...(data.stage ? { stage: data.stage as any } : {}),
+            ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}),
+          };
+          updatedProject = { pid, threads: copy };
+        }
       }
-      break;
     }
   }
 
@@ -386,28 +389,31 @@ export function handleWSResult(get: Get, set: Set, threadId: string, data: any):
   });
   let updatedProject: { pid: string; threads: Thread[] } | null = null;
 
-  for (const [pid, threads] of Object.entries(threadsByProject)) {
-    const idx = threads.findIndex((t) => t.id === threadId);
-    if (idx >= 0) {
-      const t = threads[idx];
-      const newStatus = transitionThreadStatus(
-        threadId,
-        machineEvent,
-        t.status,
-        data.cost ?? t.cost,
-      );
-      // Use server status as authoritative if xstate transition didn't change state
-      // (e.g., actor was in stale state that didn't accept the event)
-      resultStatus = newStatus !== t.status ? newStatus : serverStatus;
-      const copy = [...threads];
-      copy[idx] = {
-        ...t,
-        status: resultStatus,
-        cost: data.cost ?? t.cost,
-        ...(data.stage ? { stage: data.stage } : {}),
-      };
-      updatedProject = { pid, threads: copy };
-      break;
+  const resultPid = getProjectIdForThread(threadId);
+  if (resultPid) {
+    const threads = threadsByProject[resultPid];
+    if (threads) {
+      const idx = threads.findIndex((t) => t.id === threadId);
+      if (idx >= 0) {
+        const t = threads[idx];
+        const newStatus = transitionThreadStatus(
+          threadId,
+          machineEvent,
+          t.status,
+          data.cost ?? t.cost,
+        );
+        // Use server status as authoritative if xstate transition didn't change state
+        // (e.g., actor was in stale state that didn't accept the event)
+        resultStatus = newStatus !== t.status ? newStatus : serverStatus;
+        const copy = [...threads];
+        copy[idx] = {
+          ...t,
+          status: resultStatus,
+          cost: data.cost ?? t.cost,
+          ...(data.stage ? { stage: data.stage } : {}),
+        };
+        updatedProject = { pid: resultPid, threads: copy };
+      }
     }
   }
 
@@ -463,11 +469,7 @@ export function handleWSResult(get: Get, set: Set, threadId: string, data: any):
   if (resultStatus === 'waiting') return;
 
   const projectIdForRefresh =
-    activeThread?.id === threadId
-      ? activeThread.projectId
-      : Object.keys(threadsByProject).find((pid) =>
-          threadsByProject[pid]?.some((t) => t.id === threadId),
-        );
+    activeThread?.id === threadId ? activeThread.projectId : getProjectIdForThread(threadId);
 
   if (projectIdForRefresh) {
     setTimeout(() => loadThreadsForProject(projectIdForRefresh), 500);

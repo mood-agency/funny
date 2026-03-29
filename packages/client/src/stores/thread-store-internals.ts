@@ -78,6 +78,30 @@ export function clearWSBuffer(threadId: string): void {
   wsEventBuffer.delete(threadId);
 }
 
+// ── Thread → Project index ───────────────────────────────────
+// O(1) lookup of which project a thread belongs to, avoiding O(projects*threads)
+// loops in hot WS handlers. Rebuilt whenever threadsByProject changes.
+
+const _threadProjectIndex = new Map<string, string>();
+
+/** Rebuild the index from scratch. Called by the store subscriber. */
+export function rebuildThreadProjectIndex(
+  threadsByProject: Record<string, Array<{ id: string }>>,
+): void {
+  _threadProjectIndex.clear();
+  for (const pid in threadsByProject) {
+    const threads = threadsByProject[pid];
+    for (let i = 0; i < threads.length; i++) {
+      _threadProjectIndex.set(threads[i].id, pid);
+    }
+  }
+}
+
+/** O(1) lookup: returns the projectId for a given threadId, or undefined. */
+export function getProjectIdForThread(threadId: string): string | undefined {
+  return _threadProjectIndex.get(threadId);
+}
+
 // ── Navigation ref ──────────────────────────────────────────────
 
 let _navigate: ((path: string) => void) | null = null;

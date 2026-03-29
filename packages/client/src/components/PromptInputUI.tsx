@@ -10,8 +10,6 @@ import {
   X,
   GitBranch,
   Inbox,
-  Globe,
-  Github,
   FolderOpen,
   Copy,
   ListOrdered,
@@ -230,13 +228,8 @@ export interface PromptInputUIProps {
   onRuntimeChange?: (v: 'local' | 'remote') => void;
   hasLauncher?: boolean;
 
-  // ── Branch picking ──
-  branches?: string[];
-  remoteBranches?: string[];
-  defaultBranch?: string | null;
-  branchesLoading?: boolean;
+  // ── Branch ──
   selectedBranch?: string;
-  onSelectedBranchChange?: (v: string) => void;
   followUpBranches?: string[];
   followUpRemoteBranches?: string[];
   followUpDefaultBranch?: string | null;
@@ -245,7 +238,6 @@ export interface PromptInputUIProps {
   activeThreadBranch?: string | null;
 
   // ── Git context display ──
-  remoteUrl?: string | null;
   effectiveCwd?: string;
 
   // ── Backlog ──
@@ -312,19 +304,13 @@ export const PromptInputUI = memo(function PromptInputUI({
   runtime = 'local',
   onRuntimeChange,
   hasLauncher = false,
-  branches = [],
-  remoteBranches = [],
-  defaultBranch = null,
-  branchesLoading = false,
   selectedBranch = '',
-  onSelectedBranchChange,
   followUpBranches = [],
   followUpRemoteBranches = [],
   followUpDefaultBranch = null,
   followUpSelectedBranch = '',
   onFollowUpSelectedBranchChange,
   activeThreadBranch,
-  remoteUrl,
   effectiveCwd,
   showBacklog = false,
   sendToBacklog = false,
@@ -626,7 +612,7 @@ export const PromptInputUI = memo(function PromptInputUI({
 
   // ── Render ──
   return (
-    <div className="border-border px-4 py-3">
+    <div className="border-border">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         {/* Image previews */}
         {images.length > 0 && (
@@ -949,32 +935,6 @@ export const PromptInputUI = memo(function PromptInputUI({
           <div className="border-t border-border px-2 py-1.5">
             {isNewThread ? (
               <div className="no-scrollbar flex items-center gap-1 overflow-x-auto">
-                {remoteUrl && (
-                  <span className="flex max-w-[200px] shrink-0 items-center gap-1 truncate px-2 py-1 text-xs text-muted-foreground">
-                    {remoteUrl.includes('github.com') ? (
-                      <Github className="icon-xs shrink-0" />
-                    ) : (
-                      <Globe className="icon-xs shrink-0" />
-                    )}
-                    <span className="truncate font-mono">{formatRemoteUrl(remoteUrl)}</span>
-                  </span>
-                )}
-                {branchesLoading ? (
-                  <span className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground">
-                    <GitBranch className="icon-xs shrink-0" />
-                    <Loader2 className="icon-xs animate-spin" />
-                  </span>
-                ) : (
-                  branches.length > 0 && (
-                    <BranchPicker
-                      branches={branches}
-                      remoteBranches={remoteBranches}
-                      defaultBranch={defaultBranch}
-                      selected={selectedBranch}
-                      onChange={onSelectedBranchChange ?? (() => {})}
-                    />
-                  )
-                )}
                 {purpose === 'implement' && (
                   <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                     <Switch
@@ -1052,6 +1012,7 @@ export const PromptInputUI = memo(function PromptInputUI({
                     {activeThreadBranch && (
                       <button
                         type="button"
+                        data-testid="prompt-branch-readonly"
                         className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted"
                         onClick={() => {
                           navigator.clipboard.writeText(activeThreadBranch);
