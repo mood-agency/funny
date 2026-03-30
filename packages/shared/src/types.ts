@@ -249,7 +249,7 @@ export type DeepAgentModel =
   | 'deepagent-gemini-3-pro';
 export type OpenSWEModel = 'openswe-default';
 export type AgentModel = ClaudeModel | CodexModel | GeminiModel | DeepAgentModel | OpenSWEModel;
-export type PermissionMode = 'plan' | 'autoEdit' | 'confirmEdit' | 'ask';
+export type PermissionMode = 'plan' | 'auto' | 'autoEdit' | 'confirmEdit' | 'ask';
 export type EffortLevel = 'low' | 'medium' | 'high' | 'max';
 
 // ─── Agent Definitions ──────────────────────────────────

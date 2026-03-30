@@ -143,6 +143,7 @@ export interface IThreadRepository extends IThreadQuery {
   }): Promise<{ threads: any[]; total: number }>;
   listArchivedThreads(projectId: string, userId: string): Promise<any[]>;
   getThreadByExternalRequestId(externalRequestId: string): Promise<any | undefined>;
+  getThreadBySessionId(sessionId: string): Promise<any | undefined>;
   createThread(data: Record<string, any>): Promise<any>;
   deleteThread(id: string): Promise<void>;
   markStaleThreadsInterrupted(): Promise<void>;

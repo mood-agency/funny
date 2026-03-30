@@ -144,6 +144,7 @@ export class AgentOrchestrator extends EventEmitter {
       ? ['Edit', 'Write', 'Bash', 'NotebookEdit', 'TodoWrite']
       : disallowedTools;
     const processOpts = {
+      threadId,
       prompt: effectivePrompt,
       cwd,
       model: resolvedModel,

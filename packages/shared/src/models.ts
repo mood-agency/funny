@@ -118,6 +118,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
 
 const CLAUDE_PERMISSION_MAP: Record<PermissionMode, string> = {
   plan: 'plan',
+  auto: 'auto',
   autoEdit: 'bypassPermissions',
   confirmEdit: 'default',
   ask: 'default',

@@ -96,6 +96,11 @@ function HighlightedCode({ code, language }: { code: string; language: string })
 }
 
 export const baseMarkdownComponents = {
+  table: ({ children }: any) => (
+    <div className="overflow-x-auto">
+      <table>{children}</table>
+    </div>
+  ),
   code: ({ className, children, ...props }: any) => {
     const isBlock = className?.startsWith('language-');
     if (isBlock) {

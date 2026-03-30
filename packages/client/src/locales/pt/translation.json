@@ -675,6 +675,7 @@
   },
   "prompt": {
     "plan": "Modo Plano",
+    "auto": "Modo Auto",
     "autoEdit": "Edição Automática",
     "ask": "Perguntar",
     "askBeforeEdits": "Perguntar Antes de Editar",

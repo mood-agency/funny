@@ -230,6 +230,11 @@ export function createThreadRepository(deps: ThreadRepositoryDeps) {
     );
   }
 
+  /** Get a thread by its sessionId (used by ingest mapper for OpenSWE threads) */
+  async function getThreadBySessionId(sessionId: string) {
+    return dbGet(db.select().from(schema.threads).where(eq(schema.threads.sessionId, sessionId)));
+  }
+
   /** Insert a new thread */
   async function createThread(data: typeof schema.threads.$inferInsert) {
     await dbRun(db.insert(schema.threads).values(data));
@@ -359,6 +364,7 @@ export function createThreadRepository(deps: ThreadRepositoryDeps) {
     listArchivedThreads,
     getThread,
     getThreadByExternalRequestId,
+    getThreadBySessionId,
     createThread,
     updateThread,
     deleteThread,

@@ -136,15 +136,26 @@ export const PromptInput = memo(function PromptInput({
     () => getEffortLevels(currentModel, currentProvider),
     [currentProvider, currentModel],
   );
-  const modes = useMemo(
-    () => [
+  const modes = useMemo(() => {
+    const baseModes = [
       { value: 'ask', label: t('prompt.ask') },
       { value: 'plan', label: t('prompt.plan') },
       { value: 'autoEdit', label: t('prompt.autoEdit') },
       { value: 'confirmEdit', label: t('prompt.askBeforeEdits') },
-    ],
-    [t],
-  );
+    ];
+    // Auto mode is only available for Claude provider (uses safety classifier)
+    if (currentProvider === 'claude') {
+      baseModes.splice(2, 0, { value: 'auto', label: t('prompt.auto') });
+    }
+    return baseModes;
+  }, [t, currentProvider]);
+
+  // Auto mode is Claude-only — fall back to autoEdit when switching providers
+  useEffect(() => {
+    if (mode === 'auto' && currentProvider !== 'claude') {
+      setMode('autoEdit');
+    }
+  }, [currentProvider, mode]);
 
   // ── Active thread state ──
   const activeThreadPermissionMode = useThreadStore((s) => s.activeThread?.permissionMode);

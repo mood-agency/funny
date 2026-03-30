@@ -21,6 +21,8 @@ export const listArchivedThreads = (
 export const getThread = (id: string) => getServices().threads.getThread(id);
 export const getThreadByExternalRequestId = (id: string) =>
   getServices().threads.getThreadByExternalRequestId(id);
+export const getThreadBySessionId = (sessionId: string) =>
+  getServices().threads.getThreadBySessionId(sessionId);
 export const createThread = (data: Record<string, any>) => getServices().threads.createThread(data);
 export const updateThread = (id: string, updates: Record<string, any>) =>
   getServices().threads.updateThread(id, updates);

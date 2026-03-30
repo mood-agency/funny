@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings-store';
 
+import { MessageContent } from './thread/MessageContent';
 import { AskQuestionCard } from './tool-cards/AskQuestionCard';
 import { BashCard } from './tool-cards/BashCard';
 import { EditFileCard } from './tool-cards/EditFileCard';
@@ -182,6 +183,18 @@ export const ToolCallCard = memo(
                     </button>
                   );
                 })()
+              ) : name === 'WebFetch' && summary ? (
+                <a
+                  href={summary}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="min-w-0 truncate font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
+                  title={summary}
+                  data-testid="tool-webfetch-url"
+                >
+                  {summary}
+                </a>
               ) : (
                 <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
                   {summary}
@@ -211,9 +224,21 @@ export const ToolCallCard = memo(
                         {key}
                       </div>
                       <div className="overflow-x-auto rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
-                        <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-foreground/80">
-                          {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
-                        </pre>
+                        {name === 'WebFetch' && key === 'url' && typeof value === 'string' ? (
+                          <a
+                            href={value}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-foreground/80 hover:text-primary hover:underline"
+                            data-testid="tool-webfetch-url-detail"
+                          >
+                            {value}
+                          </a>
+                        ) : (
+                          <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-foreground/80">
+                            {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+                          </pre>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -223,12 +248,18 @@ export const ToolCallCard = memo(
                     <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
                       {t('tools.output')}
                     </div>
-                    <div className="rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
-                      <pre
-                        className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground"
-                        dangerouslySetInnerHTML={{ __html: htmlOutput! }}
-                      />
-                    </div>
+                    {name === 'WebFetch' ? (
+                      <div className="rounded border border-border/40 bg-background/80 px-2.5 py-1.5 text-sm text-muted-foreground">
+                        <MessageContent content={output} />
+                      </div>
+                    ) : (
+                      <div className="rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
+                        <pre
+                          className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground"
+                          dangerouslySetInnerHTML={{ __html: htmlOutput! }}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
                 {onRespond && !output && (

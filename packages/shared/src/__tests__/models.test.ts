@@ -233,6 +233,10 @@ describe('resolvePermissionMode', () => {
       expect(resolvePermissionMode('claude', 'plan')).toBe('plan');
     });
 
+    test('maps auto to auto', () => {
+      expect(resolvePermissionMode('claude', 'auto')).toBe('auto');
+    });
+
     test('maps autoEdit to bypassPermissions', () => {
       expect(resolvePermissionMode('claude', 'autoEdit')).toBe('bypassPermissions');
     });
@@ -423,6 +427,7 @@ describe('resolveResumePermissionMode', () => {
   test('passes through non-plan modes for claude', () => {
     expect(resolveResumePermissionMode('claude', 'bypassPermissions')).toBe('bypassPermissions');
     expect(resolveResumePermissionMode('claude', 'default')).toBe('default');
+    expect(resolveResumePermissionMode('claude', 'auto')).toBe('auto');
   });
 
   test('passes through undefined for non-claude providers', () => {

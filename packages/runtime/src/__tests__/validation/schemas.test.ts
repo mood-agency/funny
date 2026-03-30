@@ -44,6 +44,10 @@ describe('permissionModeSchema', () => {
     expect(permissionModeSchema.safeParse('plan').success).toBe(true);
   });
 
+  test('accepts "auto"', () => {
+    expect(permissionModeSchema.safeParse('auto').success).toBe(true);
+  });
+
   test('accepts "autoEdit"', () => {
     expect(permissionModeSchema.safeParse('autoEdit').success).toBe(true);
   });

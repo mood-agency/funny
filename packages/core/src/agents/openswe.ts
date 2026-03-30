@@ -54,6 +54,7 @@ export class OpenSWEProcess extends BaseAgentProcess {
       const configurable: Record<string, unknown> = {
         source: 'funny',
         repo: repoConfig,
+        funny_thread_id: (this.options as any).threadId,
       };
 
       // 2. Stream the run via SSE

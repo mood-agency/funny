@@ -721,6 +721,7 @@ function GeneralSettings() {
                 options={[
                   { value: 'ask', label: t('prompt.ask') },
                   { value: 'plan', label: t('prompt.plan') },
+                  { value: 'auto', label: t('prompt.auto') },
                   { value: 'autoEdit', label: t('prompt.autoEdit') },
                   { value: 'confirmEdit', label: t('prompt.askBeforeEdits') },
                 ]}

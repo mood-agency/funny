@@ -692,6 +692,7 @@
   },
   "prompt": {
     "plan": "Plan Mode",
+    "auto": "Auto Mode",
     "autoEdit": "Auto Edit",
     "ask": "Ask",
     "askBeforeEdits": "Ask Before Edits",

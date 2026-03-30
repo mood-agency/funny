@@ -41,7 +41,7 @@ export const agentModelSchema = z.union([
   deepagentModelSchema,
   opensweModelSchema,
 ]);
-export const permissionModeSchema = z.enum(['plan', 'autoEdit', 'confirmEdit', 'ask']);
+export const permissionModeSchema = z.enum(['plan', 'auto', 'autoEdit', 'confirmEdit', 'ask']);
 export const threadStageSchema = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done']);
 export const threadSourceSchema = z.enum([
   'web',
