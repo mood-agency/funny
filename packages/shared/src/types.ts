@@ -1424,6 +1424,18 @@ export interface WSCommandMetricsData {
   memoryUsageKB: number;
 }
 
+// ─── Native Git Build (WebSocket events) ────────────────
+
+export interface WSNativeGitBuildOutputData {
+  text: string;
+  channel: 'stdout' | 'stderr';
+}
+
+export interface WSNativeGitBuildStatusData {
+  status: 'building' | 'completed' | 'failed';
+  exitCode?: number;
+}
+
 // ─── Paisley Park (Project Memory) ──────────────────────
 
 export type FactType = 'decision' | 'bug' | 'pattern' | 'convention' | 'insight' | 'context';

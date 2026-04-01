@@ -24,6 +24,7 @@ import { useDictation } from '@/hooks/use-dictation';
 import { api } from '@/lib/api';
 import { createClientLogger } from '@/lib/client-logger';
 import { cn } from '@/lib/utils';
+import { useProfileStore } from '@/stores/profile-store';
 
 import { useCurrentProjectPath } from './utils';
 
@@ -72,16 +73,8 @@ export const ExitPlanModeCard = memo(function ExitPlanModeCard({
   }, [cwd]);
 
   // ── Dictation (real-time voice-to-text via AssemblyAI) ──
-  const [hasAssemblyaiKey, setHasAssemblyaiKey] = useState(false);
+  const hasAssemblyaiKey = useProfileStore((s) => s.profile?.hasAssemblyaiKey ?? false);
   const partialTextRef = useRef('');
-
-  useEffect(() => {
-    api.getProfile().then((result) => {
-      if (result.isOk() && result.value) {
-        setHasAssemblyaiKey(result.value.hasAssemblyaiKey);
-      }
-    });
-  }, []);
 
   const handlePartialTranscript = useCallback((text: string) => {
     partialTextRef.current = text;

@@ -1,5 +1,5 @@
 import type { FileDiffSummary, PRReviewThread } from '@funny/shared';
-import { Columns2, FileCode, Loader2, MessageSquare, Rows2, X } from 'lucide-react';
+import { Columns2, FileCode, FileText, Loader2, MessageSquare, Rows2, X } from 'lucide-react';
 import {
   type ComponentType,
   Suspense,
@@ -8,6 +8,7 @@ import {
   useRef,
   useEffect,
   useMemo,
+  useTransition,
 } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,8 @@ interface ExpandedDiffDialogProps {
   basePath?: string;
   /** PR review threads for inline comments */
   prReviewThreads?: PRReviewThread[];
+  /** Fetch full-context diff for a file (returns {oldValue, newValue}) */
+  onRequestFullDiff?: (filePath: string) => Promise<{ oldValue: string; newValue: string } | null>;
 }
 
 /* ── Diff content (extracted to avoid re-highlighting on sidebar interactions) ── */
@@ -155,12 +158,14 @@ function DiffContent({
   newValue,
   filePath,
   splitView,
+  showFullFile,
   loading,
 }: {
   oldValue: string;
   newValue: string;
   filePath: string;
   splitView: boolean;
+  showFullFile: boolean;
   loading: boolean;
 }) {
   const { renderContent } = useDiffHighlight(oldValue, newValue, filePath);
@@ -169,6 +174,20 @@ function DiffContent({
   const [scopeId] = useState(() => `diff-scope-${++diffScopeCounter}`);
 
   useSplitDiffProxy(containerRef, proxyRef, splitView);
+
+  const codeFoldMessageRenderer = useCallback(
+    (totalFoldedLines: number, leftStartLineNumber: number, rightStartLineNumber: number) => (
+      <span
+        className="font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+        data-testid="diff-fold-message"
+      >
+        @@ -{leftStartLineNumber - totalFoldedLines},{totalFoldedLines} +
+        {rightStartLineNumber - totalFoldedLines},{totalFoldedLines} @@ — {totalFoldedLines} lines
+        hidden
+      </span>
+    ),
+    [],
+  );
 
   if (loading) {
     return (
@@ -185,41 +204,87 @@ function DiffContent({
 
   return (
     <div ref={containerRef} data-diff-scope={scopeId} className="relative">
-      {/* Scoped CSS: equal columns, clip content, no-wrap */}
-      {splitView && (
-        <style>{`
-          [data-diff-scope="${scopeId}"] table {
-            table-layout: fixed !important;
-            width: 100% !important;
-          }
-          [data-diff-scope="${scopeId}"] colgroup col:nth-child(3),
-          [data-diff-scope="${scopeId}"] colgroup col:nth-child(6) {
-            width: calc(50% - 78px) !important;
-          }
-          [data-diff-scope="${scopeId}"] td.left,
-          [data-diff-scope="${scopeId}"] td.right {
-            overflow: hidden !important;
-            max-width: 0 !important;
-          }
-          [data-diff-scope="${scopeId}"] td.left > *,
-          [data-diff-scope="${scopeId}"] td.right > * {
-            white-space: pre !important;
-            line-break: auto !important;
-            width: max-content !important;
-            will-change: transform;
-          }
-        `}</style>
-      )}
+      {/* Scoped CSS: equal columns, clip content, no-wrap + code fold visibility */}
+      <style>{`
+        ${
+          splitView
+            ? `
+        [data-diff-scope="${scopeId}"] table {
+          table-layout: fixed !important;
+          width: 100% !important;
+        }
+        [data-diff-scope="${scopeId}"] colgroup col:nth-child(3),
+        [data-diff-scope="${scopeId}"] colgroup col:nth-child(6) {
+          width: calc(50% - 78px) !important;
+        }
+        [data-diff-scope="${scopeId}"] td.left,
+        [data-diff-scope="${scopeId}"] td.right {
+          overflow: hidden !important;
+          max-width: 0 !important;
+        }
+        [data-diff-scope="${scopeId}"] td.left > *,
+        [data-diff-scope="${scopeId}"] td.right > * {
+          white-space: pre !important;
+          line-break: auto !important;
+          width: max-content !important;
+          will-change: transform;
+        }
+        `
+            : ''
+        }
+        /* Summary bar (expand/collapse all button) */
+        [data-diff-scope="${scopeId}"] div[class*="sticky-header"] {
+          position: sticky;
+          top: 0;
+          z-index: 3;
+        }
+        [data-diff-scope="${scopeId}"] div[class*="summary"] {
+          background: hsl(var(--muted)) !important;
+          color: hsl(var(--muted-foreground));
+          border-bottom: 1px solid hsl(var(--border) / 0.5);
+        }
+        [data-diff-scope="${scopeId}"] button[class*="all-expand-button"] {
+          cursor: pointer;
+          pointer-events: auto;
+          fill: hsl(var(--muted-foreground));
+        }
+        [data-diff-scope="${scopeId}"] button[class*="all-expand-button"]:hover {
+          fill: hsl(var(--foreground));
+        }
+        /* Ensure code fold rows are visible and clickable */
+        [data-diff-scope="${scopeId}"] tr[class*="code-fold"] {
+          position: relative;
+          z-index: 1;
+          cursor: pointer;
+        }
+        [data-diff-scope="${scopeId}"] tr[class*="code-fold"] td {
+          background: hsl(var(--muted)) !important;
+          border-top: 1px solid hsl(var(--border) / 0.5);
+          border-bottom: 1px solid hsl(var(--border) / 0.5);
+        }
+        [data-diff-scope="${scopeId}"] tr[class*="code-fold"] button[class*="code-fold-expand-button"] {
+          cursor: pointer;
+          pointer-events: auto;
+          background: transparent !important;
+          color: hsl(var(--muted-foreground));
+        }
+        [data-diff-scope="${scopeId}"] tr[class*="code-fold"]:hover td {
+          background: hsl(var(--accent)) !important;
+        }
+      `}</style>
       <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading diff…</div>}>
         <ReactDiffViewer
+          key={`${splitView ? 'split' : 'unified'}-${showFullFile ? 'full' : 'diff'}`}
           oldValue={oldValue}
           newValue={newValue}
           splitView={splitView}
           useDarkTheme={true}
           hideLineNumbers={false}
-          showDiffOnly={true}
+          showDiffOnly={!showFullFile}
+          extraLinesSurroundingDiff={3}
           styles={DIFF_VIEWER_STYLES}
           renderContent={renderContent}
+          codeFoldMessageRenderer={showFullFile ? undefined : codeFoldMessageRenderer}
         />
       </Suspense>
       {/* Single proxy scrollbar at the bottom — drives both panes */}
@@ -265,8 +330,46 @@ export function ExpandedDiffDialog({
   onIgnore,
   basePath,
   prReviewThreads,
+  onRequestFullDiff,
 }: ExpandedDiffDialogProps) {
   const [splitView, setSplitView] = useState(true);
+  const [showFullFile, setShowFullFile] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [fullDiffCache, setFullDiffCache] = useState<
+    Map<string, { oldValue: string; newValue: string }>
+  >(new Map());
+  const [loadingFullDiff, setLoadingFullDiff] = useState(false);
+
+  const toggleSplitView = useCallback(() => {
+    startTransition(() => {
+      setSplitView((prev) => !prev);
+    });
+  }, []);
+
+  const toggleFullFile = useCallback(async () => {
+    if (showFullFile) {
+      // Switching back to changes-only — no fetch needed
+      startTransition(() => setShowFullFile(false));
+      return;
+    }
+    // Switching to full file — fetch if needed
+    if (fullDiffCache.has(filePath)) {
+      startTransition(() => setShowFullFile(true));
+      return;
+    }
+    if (!onRequestFullDiff) {
+      // No callback provided, just toggle (will show same data)
+      startTransition(() => setShowFullFile(true));
+      return;
+    }
+    setLoadingFullDiff(true);
+    const result = await onRequestFullDiff(filePath);
+    setLoadingFullDiff(false);
+    if (result) {
+      setFullDiffCache((prev) => new Map(prev).set(filePath, result));
+      startTransition(() => setShowFullFile(true));
+    }
+  }, [showFullFile, filePath, fullDiffCache, onRequestFullDiff]);
 
   // ── Multi-tab state ──
   const [openTabs, setOpenTabs] = useState<string[]>([filePath]);
@@ -275,7 +378,11 @@ export function ExpandedDiffDialog({
   // Sync tabs: when filePath changes (parent selected a file), ensure it's in the tab list
   useEffect(() => {
     setOpenTabs((prev) => (prev.includes(filePath) ? prev : [...prev, filePath]));
-  }, [filePath]);
+    // Reset full-file view when switching files (unless we have it cached)
+    if (showFullFile && !fullDiffCache.has(filePath)) {
+      setShowFullFile(false);
+    }
+  }, [filePath]); // eslint-disable-line react-hooks/exhaustive-deps -- intentional: only reset on file switch
 
   // Reset tabs when dialog closes
   useEffect(() => {
@@ -350,15 +457,46 @@ export function ExpandedDiffDialog({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={() => setSplitView((prev) => !prev)}
+                onClick={toggleSplitView}
+                disabled={isPending}
                 className="flex-shrink-0 text-muted-foreground"
                 data-testid="diff-toggle-split-view"
               >
-                {splitView ? <Rows2 className="icon-base" /> : <Columns2 className="icon-base" />}
+                {isPending ? (
+                  <Loader2 className="icon-base animate-spin" />
+                ) : splitView ? (
+                  <Rows2 className="icon-base" />
+                ) : (
+                  <Columns2 className="icon-base" />
+                )}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
               {splitView ? 'Unified view' : 'Split view'}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={toggleFullFile}
+                disabled={isPending || loadingFullDiff}
+                className={cn(
+                  'flex-shrink-0 text-muted-foreground',
+                  showFullFile && 'bg-accent text-accent-foreground',
+                )}
+                data-testid="diff-toggle-full-file"
+              >
+                {isPending || loadingFullDiff ? (
+                  <Loader2 className="icon-base animate-spin" />
+                ) : (
+                  <FileText className="icon-base" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {showFullFile ? 'Show changes only' : 'Show full file'}
             </TooltipContent>
           </Tooltip>
           <DialogDescription className="sr-only">
@@ -428,11 +566,20 @@ export function ExpandedDiffDialog({
           {/* Diff content + review threads */}
           <ScrollArea className="min-h-0 flex-1">
             <DiffContent
-              oldValue={oldValue}
-              newValue={newValue}
+              oldValue={
+                showFullFile && fullDiffCache.has(filePath)
+                  ? fullDiffCache.get(filePath)!.oldValue
+                  : oldValue
+              }
+              newValue={
+                showFullFile && fullDiffCache.has(filePath)
+                  ? fullDiffCache.get(filePath)!.newValue
+                  : newValue
+              }
               filePath={filePath}
               splitView={splitView}
-              loading={loading}
+              showFullFile={showFullFile}
+              loading={loading || loadingFullDiff}
             />
             {/* Inline PR review threads for this file */}
             {fileThreads.length > 0 && (

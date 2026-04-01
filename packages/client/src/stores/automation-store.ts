@@ -25,6 +25,11 @@ interface AutomationState {
   handleRunCompleted: (data: { automationId: string; runId: string; hasFindings: boolean }) => void;
 }
 
+// Deduplicate concurrent loadInbox calls (WS events can fire in rapid succession)
+let _inboxInFlight: Promise<void> | null = null;
+const INBOX_COOLDOWN_MS = 2_000;
+let _lastInboxFetch = 0;
+
 export const useAutomationStore = create<AutomationState>((set, get) => ({
   automationsByProject: {},
   inbox: [],
@@ -44,15 +49,30 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   },
 
   loadInbox: async (options?: { projectId?: string; triageStatus?: string }) => {
-    const result = await api.getAutomationInbox(options);
-    if (result.isOk()) {
-      const inbox = result.value;
-      const pendingCount = inbox.filter((item) => item.run.triageStatus === 'pending').length;
-      set({ inbox, inboxCount: pendingCount });
-    } else {
-      console.error('[automation-store] Failed to load inbox:', result.error.message);
-      throw result.error;
+    // Coalesce rapid calls (e.g. handleRunStarted + handleRunCompleted firing together)
+    const now = Date.now();
+    if (now - _lastInboxFetch < INBOX_COOLDOWN_MS && _inboxInFlight) {
+      return _inboxInFlight;
     }
+    if (_inboxInFlight) return _inboxInFlight;
+    _lastInboxFetch = now;
+
+    _inboxInFlight = (async () => {
+      try {
+        const result = await api.getAutomationInbox(options);
+        if (result.isOk()) {
+          const inbox = result.value;
+          const pendingCount = inbox.filter((item) => item.run.triageStatus === 'pending').length;
+          set({ inbox, inboxCount: pendingCount });
+        } else {
+          console.error('[automation-store] Failed to load inbox:', result.error.message);
+          throw result.error;
+        }
+      } finally {
+        _inboxInFlight = null;
+      }
+    })();
+    return _inboxInFlight;
   },
 
   loadRuns: async (automationId) => {

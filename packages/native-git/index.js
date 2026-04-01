@@ -57,6 +57,7 @@ const isMuslFromChildProcess = () => {
       .execSync('ldd --version', { encoding: 'utf8' })
       .includes('musl');
   } catch (e) {
+    // If we reach this case, we don't know if the system is musl or not, so is better to just fallback to false
     return false;
   }
 };
@@ -68,15 +69,151 @@ function requireNative() {
     } catch (err) {
       loadErrors.push(err);
     }
-  } else if (process.platform === 'win32') {
-    if (process.arch === 'x64') {
+  } else if (process.platform === 'android') {
+    if (process.arch === 'arm64') {
       try {
-        return require('./native-git.win32-x64-msvc.node');
+        return require('./native-git.android-arm64.node');
       } catch (e) {
         loadErrors.push(e);
       }
       try {
-        return require('@funny/native-git-win32-x64-msvc');
+        const binding = require('@funny/native-git-android-arm64');
+        const bindingPackageVersion =
+          require('@funny/native-git-android-arm64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 'arm') {
+      try {
+        return require('./native-git.android-arm-eabi.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-android-arm-eabi');
+        const bindingPackageVersion =
+          require('@funny/native-git-android-arm-eabi/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else {
+      loadErrors.push(new Error(`Unsupported architecture on Android ${process.arch}`));
+    }
+  } else if (process.platform === 'win32') {
+    if (process.arch === 'x64') {
+      if (
+        process.config?.variables?.shlib_suffix === 'dll.a' ||
+        process.config?.variables?.node_target_type === 'shared_library'
+      ) {
+        try {
+          return require('./native-git.win32-x64-gnu.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-win32-x64-gnu');
+          const bindingPackageVersion =
+            require('@funny/native-git-win32-x64-gnu/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      } else {
+        try {
+          return require('./native-git.win32-x64-msvc.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-win32-x64-msvc');
+          const bindingPackageVersion =
+            require('@funny/native-git-win32-x64-msvc/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      }
+    } else if (process.arch === 'ia32') {
+      try {
+        return require('./native-git.win32-ia32-msvc.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-win32-ia32-msvc');
+        const bindingPackageVersion =
+          require('@funny/native-git-win32-ia32-msvc/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 'arm64') {
+      try {
+        return require('./native-git.win32-arm64-msvc.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-win32-arm64-msvc');
+        const bindingPackageVersion =
+          require('@funny/native-git-win32-arm64-msvc/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
       } catch (e) {
         loadErrors.push(e);
       }
@@ -84,24 +221,150 @@ function requireNative() {
       loadErrors.push(new Error(`Unsupported architecture on Windows: ${process.arch}`));
     }
   } else if (process.platform === 'darwin') {
-    if (process.arch === 'arm64') {
+    try {
+      return require('./native-git.darwin-universal.node');
+    } catch (e) {
+      loadErrors.push(e);
+    }
+    try {
+      const binding = require('@funny/native-git-darwin-universal');
+      const bindingPackageVersion =
+        require('@funny/native-git-darwin-universal/package.json').version;
+      if (
+        bindingPackageVersion !== '0.1.0' &&
+        process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+        process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+      ) {
+        throw new Error(
+          `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+        );
+      }
+      return binding;
+    } catch (e) {
+      loadErrors.push(e);
+    }
+    if (process.arch === 'x64') {
+      try {
+        return require('./native-git.darwin-x64.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-darwin-x64');
+        const bindingPackageVersion = require('@funny/native-git-darwin-x64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 'arm64') {
       try {
         return require('./native-git.darwin-arm64.node');
       } catch (e) {
         loadErrors.push(e);
       }
       try {
-        return require('@funny/native-git-darwin-arm64');
+        const binding = require('@funny/native-git-darwin-arm64');
+        const bindingPackageVersion =
+          require('@funny/native-git-darwin-arm64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
       } catch (e) {
         loadErrors.push(e);
       }
     } else {
       loadErrors.push(new Error(`Unsupported architecture on macOS: ${process.arch}`));
     }
+  } else if (process.platform === 'freebsd') {
+    if (process.arch === 'x64') {
+      try {
+        return require('./native-git.freebsd-x64.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-freebsd-x64');
+        const bindingPackageVersion = require('@funny/native-git-freebsd-x64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 'arm64') {
+      try {
+        return require('./native-git.freebsd-arm64.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-freebsd-arm64');
+        const bindingPackageVersion =
+          require('@funny/native-git-freebsd-arm64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else {
+      loadErrors.push(new Error(`Unsupported architecture on FreeBSD: ${process.arch}`));
+    }
   } else if (process.platform === 'linux') {
     if (process.arch === 'x64') {
       if (isMusl()) {
-        loadErrors.push(new Error('musl libc is not supported, only glibc'));
+        try {
+          return require('./native-git.linux-x64-musl.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-x64-musl');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-x64-musl/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
       } else {
         try {
           return require('./native-git.linux-x64-gnu.node');
@@ -109,13 +372,336 @@ function requireNative() {
           loadErrors.push(e);
         }
         try {
-          return require('@funny/native-git-linux-x64-gnu');
+          const binding = require('@funny/native-git-linux-x64-gnu');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-x64-gnu/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
         } catch (e) {
           loadErrors.push(e);
         }
       }
+    } else if (process.arch === 'arm64') {
+      if (isMusl()) {
+        try {
+          return require('./native-git.linux-arm64-musl.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-arm64-musl');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-arm64-musl/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      } else {
+        try {
+          return require('./native-git.linux-arm64-gnu.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-arm64-gnu');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-arm64-gnu/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      }
+    } else if (process.arch === 'arm') {
+      if (isMusl()) {
+        try {
+          return require('./native-git.linux-arm-musleabihf.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-arm-musleabihf');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-arm-musleabihf/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      } else {
+        try {
+          return require('./native-git.linux-arm-gnueabihf.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-arm-gnueabihf');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-arm-gnueabihf/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      }
+    } else if (process.arch === 'loong64') {
+      if (isMusl()) {
+        try {
+          return require('./native-git.linux-loong64-musl.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-loong64-musl');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-loong64-musl/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      } else {
+        try {
+          return require('./native-git.linux-loong64-gnu.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-loong64-gnu');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-loong64-gnu/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      }
+    } else if (process.arch === 'riscv64') {
+      if (isMusl()) {
+        try {
+          return require('./native-git.linux-riscv64-musl.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-riscv64-musl');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-riscv64-musl/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      } else {
+        try {
+          return require('./native-git.linux-riscv64-gnu.node');
+        } catch (e) {
+          loadErrors.push(e);
+        }
+        try {
+          const binding = require('@funny/native-git-linux-riscv64-gnu');
+          const bindingPackageVersion =
+            require('@funny/native-git-linux-riscv64-gnu/package.json').version;
+          if (
+            bindingPackageVersion !== '0.1.0' &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+            process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+          ) {
+            throw new Error(
+              `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+            );
+          }
+          return binding;
+        } catch (e) {
+          loadErrors.push(e);
+        }
+      }
+    } else if (process.arch === 'ppc64') {
+      try {
+        return require('./native-git.linux-ppc64-gnu.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-linux-ppc64-gnu');
+        const bindingPackageVersion =
+          require('@funny/native-git-linux-ppc64-gnu/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 's390x') {
+      try {
+        return require('./native-git.linux-s390x-gnu.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-linux-s390x-gnu');
+        const bindingPackageVersion =
+          require('@funny/native-git-linux-s390x-gnu/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
     } else {
       loadErrors.push(new Error(`Unsupported architecture on Linux: ${process.arch}`));
+    }
+  } else if (process.platform === 'openharmony') {
+    if (process.arch === 'arm64') {
+      try {
+        return require('./native-git.openharmony-arm64.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-openharmony-arm64');
+        const bindingPackageVersion =
+          require('@funny/native-git-openharmony-arm64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 'x64') {
+      try {
+        return require('./native-git.openharmony-x64.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-openharmony-x64');
+        const bindingPackageVersion =
+          require('@funny/native-git-openharmony-x64/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else if (process.arch === 'arm') {
+      try {
+        return require('./native-git.openharmony-arm.node');
+      } catch (e) {
+        loadErrors.push(e);
+      }
+      try {
+        const binding = require('@funny/native-git-openharmony-arm');
+        const bindingPackageVersion =
+          require('@funny/native-git-openharmony-arm/package.json').version;
+        if (
+          bindingPackageVersion !== '0.1.0' &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK &&
+          process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0'
+        ) {
+          throw new Error(
+            `Native binding package version mismatch, expected 0.1.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`,
+          );
+        }
+        return binding;
+      } catch (e) {
+        loadErrors.push(e);
+      }
+    } else {
+      loadErrors.push(new Error(`Unsupported architecture on OpenHarmony: ${process.arch}`));
     }
   } else {
     loadErrors.push(
@@ -125,6 +711,39 @@ function requireNative() {
 }
 
 nativeBinding = requireNative();
+
+if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
+  let wasiBinding = null;
+  let wasiBindingError = null;
+  try {
+    wasiBinding = require('./native-git.wasi.cjs');
+    nativeBinding = wasiBinding;
+  } catch (err) {
+    if (process.env.NAPI_RS_FORCE_WASI) {
+      wasiBindingError = err;
+    }
+  }
+  if (!nativeBinding || process.env.NAPI_RS_FORCE_WASI) {
+    try {
+      wasiBinding = require('@funny/native-git-wasm32-wasi');
+      nativeBinding = wasiBinding;
+    } catch (err) {
+      if (process.env.NAPI_RS_FORCE_WASI) {
+        if (!wasiBindingError) {
+          wasiBindingError = err;
+        } else {
+          wasiBindingError.cause = err;
+        }
+        loadErrors.push(err);
+      }
+    }
+  }
+  if (process.env.NAPI_RS_FORCE_WASI === 'error' && !wasiBinding) {
+    const error = new Error('WASI binding not found and NAPI_RS_FORCE_WASI is set to error');
+    error.cause = wasiBindingError;
+    throw error;
+  }
+}
 
 if (!nativeBinding) {
   if (loadErrors.length > 0) {
@@ -144,10 +763,18 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding;
+module.exports.getCommitBody = nativeBinding.getCommitBody;
+module.exports.getCommitFileDiff = nativeBinding.getCommitFileDiff;
+module.exports.getCommitFiles = nativeBinding.getCommitFiles;
 module.exports.getCurrentBranch = nativeBinding.getCurrentBranch;
 module.exports.getDefaultBranch = nativeBinding.getDefaultBranch;
 module.exports.getDiffSummary = nativeBinding.getDiffSummary;
 module.exports.getLog = nativeBinding.getLog;
+module.exports.getRemoteUrl = nativeBinding.getRemoteUrl;
+module.exports.getSingleFileDiff = nativeBinding.getSingleFileDiff;
 module.exports.getStatusSummary = nativeBinding.getStatusSummary;
+module.exports.getUnpushedHashes = nativeBinding.getUnpushedHashes;
 module.exports.listBranches = nativeBinding.listBranches;
+module.exports.listBranchesDetailed = nativeBinding.listBranchesDetailed;
 module.exports.ping = nativeBinding.ping;
+module.exports.resetSoft = nativeBinding.resetSoft;

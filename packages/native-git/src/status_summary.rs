@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use gix::bstr::{BStr, BString, ByteSlice};
+use gix::bstr::{BString, ByteSlice};
 use gix::worktree::stack::state::attributes::Source as AttrSource;
+
+use crate::repo_cache::with_repo;
 
 const MAX_UNTRACKED_TO_COUNT: usize = 200;
 const MAX_UNTRACKED_FILE_SIZE: u64 = 512 * 1024; // 512 KB
@@ -85,9 +87,9 @@ fn count_lines_for_entry(
 
 /// Sink for imara-diff that counts added and deleted lines.
 #[derive(Default)]
-struct LineCounter {
-  added: u32,
-  deleted: u32,
+pub(crate) struct LineCounter {
+  pub(crate) added: u32,
+  pub(crate) deleted: u32,
 }
 
 impl gix::diff::blob::Sink for LineCounter {
@@ -139,194 +141,206 @@ fn is_binary_by_attr(
   false
 }
 
+/// Intermediate result from the main status scan (Phase 1 + 2a).
+struct StatusPhaseResult {
+  dirty_file_count: u32,
+  unpushed_commit_count: u32,
+  has_remote_branch: bool,
+  lines_added: u32,
+  lines_deleted: u32,
+  branch_name: Option<String>,
+}
+
 #[napi]
 pub async fn get_status_summary(
   worktree_cwd: String,
   base_branch: Option<String>,
   project_cwd: Option<String>,
 ) -> napi::Result<GitStatusSummary> {
-  // Open the repo from the worktree path (gix handles worktrees transparently)
-  let repo = gix::open(&worktree_cwd)
-    .map_err(|e| napi::Error::from_reason(format!("Failed to open repo: {e}")))?;
+  // Phase 1 + 2a: status scan, line counting, branch analysis — all from worktree repo
+  let phase1 = with_repo(&worktree_cwd, |repo| {
+    let worktree_path = PathBuf::from(&worktree_cwd);
 
-  let worktree_path = PathBuf::from(&worktree_cwd);
+    // Get HEAD reference
+    let head_ref = repo.head_ref()
+      .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD ref: {e}")))?;
 
-  // Get HEAD reference
-  let head_ref = repo.head_ref()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD ref: {e}")))?;
+    let branch_name = head_ref.as_ref().map(|r| {
+      r.name().shorten().to_string()
+    });
 
-  let branch_name = head_ref.as_ref().map(|r| {
-    r.name().shorten().to_string()
-  });
+    // Get HEAD commit and tree for diffing
+    let head_commit = repo.head_commit()
+      .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD commit: {e}")))?;
 
-  // Get HEAD commit and tree for diffing
-  let head_commit = repo.head_commit()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD commit: {e}")))?;
+    let head_tree = head_commit.tree()
+      .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD tree: {e}")))?;
 
-  let head_tree = head_commit.tree()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD tree: {e}")))?;
-
-  // ── Set up attribute stack for .gitattributes binary detection ──
-  // Use detach() to release the repo borrow so we can use repo.objects later.
-  let (mut attr_stack, mut attr_outcome) = match repo.open_index() {
-    Ok(index) => {
-      match repo.attributes_only(&index, AttrSource::WorktreeThenIdMapping) {
-        Ok(attr_handle) => {
-          let outcome = attr_handle.selected_attribute_matches(["binary", "diff"]);
-          let stack = attr_handle.detach();
-          (Some(stack), Some(outcome))
+    // ── Set up attribute stack for .gitattributes binary detection ──
+    let (mut attr_stack, mut attr_outcome) = match repo.open_index() {
+      Ok(index) => {
+        match repo.attributes_only(&index, AttrSource::WorktreeThenIdMapping) {
+          Ok(attr_handle) => {
+            let outcome = attr_handle.selected_attribute_matches(["binary", "diff"]);
+            let stack = attr_handle.detach();
+            (Some(stack), Some(outcome))
+          }
+          Err(_) => (None, None),
         }
-        Err(_) => (None, None),
+      }
+      Err(_) => (None, None),
+    };
+
+    // ── Phase 1: Status (dirty files, untracked, line counting) ──
+
+    let status_platform = repo
+      .status(gix::progress::Discard)
+      .map_err(|e| napi::Error::from_reason(format!("Failed to create status: {e}")))?
+      .untracked_files(gix::status::UntrackedFiles::Files);
+
+    let empty_patterns: Vec<BString> = Vec::new();
+    let status_iter = status_platform
+      .into_index_worktree_iter(empty_patterns)
+      .map_err(|e| napi::Error::from_reason(format!("Failed to iterate status: {e}")))?;
+
+    let mut dirty_file_count: u32 = 0;
+    let mut untracked_paths: Vec<PathBuf> = Vec::new();
+    let mut untracked_rel_paths: Vec<String> = Vec::new();
+    let mut modified_rel_paths: Vec<String> = Vec::new();
+    let mut lines_added: u32 = 0;
+    let mut lines_deleted: u32 = 0;
+
+    for entry in status_iter {
+      let entry = entry
+        .map_err(|e| napi::Error::from_reason(format!("Status iteration error: {e}")))?;
+
+      dirty_file_count += 1;
+
+      match &entry {
+        gix::status::index_worktree::Item::Modification { rela_path, .. } => {
+          modified_rel_paths.push(rela_path.to_string());
+        }
+        gix::status::index_worktree::Item::DirectoryContents { entry: dir_entry, .. } => {
+          let rel_str = dir_entry.rela_path.to_string();
+          untracked_paths.push(worktree_path.join(&rel_str));
+          untracked_rel_paths.push(rel_str);
+        }
+        gix::status::index_worktree::Item::Rewrite { .. } => {
+          // Renamed file - counts as dirty but line counting not needed
+        }
       }
     }
-    Err(_) => (None, None),
-  };
 
-  // ── Phase 1: Status (dirty files, untracked, line counting) ──
-
-  let status_platform = repo
-    .status(gix::progress::Discard)
-    .map_err(|e| napi::Error::from_reason(format!("Failed to create status: {e}")))?
-    .untracked_files(gix::status::UntrackedFiles::Files);
-
-  // into_index_worktree_iter takes pathspec patterns (empty = all files)
-  let empty_patterns: Vec<BString> = Vec::new();
-  let status_iter = status_platform
-    .into_index_worktree_iter(empty_patterns)
-    .map_err(|e| napi::Error::from_reason(format!("Failed to iterate status: {e}")))?;
-
-  let mut dirty_file_count: u32 = 0;
-  let mut untracked_paths: Vec<PathBuf> = Vec::new();
-  let mut untracked_rel_paths: Vec<String> = Vec::new();
-  let mut modified_rel_paths: Vec<String> = Vec::new();
-  let mut lines_added: u32 = 0;
-  let mut lines_deleted: u32 = 0;
-
-  for entry in status_iter {
-    let entry = entry
-      .map_err(|e| napi::Error::from_reason(format!("Status iteration error: {e}")))?;
-
-    dirty_file_count += 1;
-
-    match &entry {
-      gix::status::index_worktree::Item::Modification { rela_path, .. } => {
-        modified_rel_paths.push(rela_path.to_string());
+    // Count lines for modified tracked files
+    for rel_path_str in &modified_rel_paths {
+      if let (Some(ref mut stack), Some(ref mut outcome)) = (&mut attr_stack, &mut attr_outcome) {
+        if is_binary_by_attr(stack, outcome, rel_path_str, &repo.objects) {
+          continue;
+        }
       }
-      gix::status::index_worktree::Item::DirectoryContents { entry: dir_entry, .. } => {
-        // Untracked file
-        let rel_str = dir_entry.rela_path.to_string();
-        untracked_paths.push(worktree_path.join(&rel_str));
-        untracked_rel_paths.push(rel_str);
-      }
-      gix::status::index_worktree::Item::Rewrite { .. } => {
-        // Renamed file - counts as dirty but line counting not needed
-      }
+      let (added, deleted) = count_lines_for_entry(repo, &worktree_path, rel_path_str, &head_tree);
+      lines_added += added;
+      lines_deleted += deleted;
     }
-  }
 
-  // Count lines for modified tracked files
-  for rel_path_str in &modified_rel_paths {
-    // Check .gitattributes first — skip binary-marked files
-    if let (Some(ref mut stack), Some(ref mut outcome)) = (&mut attr_stack, &mut attr_outcome) {
-      if is_binary_by_attr(stack, outcome, rel_path_str, &repo.objects) {
+    // Count lines for untracked files
+    for (i, (path, rel_path)) in untracked_paths.iter().zip(untracked_rel_paths.iter()).enumerate() {
+      if i >= MAX_UNTRACKED_TO_COUNT {
+        break;
+      }
+      if let (Some(ref mut stack), Some(ref mut outcome)) = (&mut attr_stack, &mut attr_outcome) {
+        if is_binary_by_attr(stack, outcome, rel_path, &repo.objects) {
+          continue;
+        }
+      }
+      if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() == 0 || meta.len() > MAX_UNTRACKED_FILE_SIZE {
+          continue;
+        }
+      } else {
         continue;
       }
+      lines_added += count_file_lines(path);
     }
-    let (added, deleted) = count_lines_for_entry(&repo, &worktree_path, rel_path_str, &head_tree);
-    lines_added += added;
-    lines_deleted += deleted;
-  }
 
-  // Count lines for untracked files
-  for (i, (path, rel_path)) in untracked_paths.iter().zip(untracked_rel_paths.iter()).enumerate() {
-    if i >= MAX_UNTRACKED_TO_COUNT {
-      break;
-    }
-    // Check .gitattributes first — skip binary-marked files
-    if let (Some(ref mut stack), Some(ref mut outcome)) = (&mut attr_stack, &mut attr_outcome) {
-      if is_binary_by_attr(stack, outcome, rel_path, &repo.objects) {
-        continue;
+    // ── Phase 2a: Branch analysis ──
+
+    let branch = match &branch_name {
+      Some(b) => b.clone(),
+      None => {
+        return Ok(StatusPhaseResult {
+          dirty_file_count,
+          unpushed_commit_count: 0,
+          has_remote_branch: false,
+          lines_added,
+          lines_deleted,
+          branch_name: None,
+        });
       }
-    }
-    if let Ok(meta) = std::fs::metadata(path) {
-      if meta.len() == 0 || meta.len() > MAX_UNTRACKED_FILE_SIZE {
-        continue;
-      }
-    } else {
-      continue;
-    }
-    lines_added += count_file_lines(path);
-  }
+    };
 
-  // ── Phase 2: Branch analysis ──
+    // Check for upstream/remote branch
+    let upstream_ref_name = format!("refs/remotes/origin/{}", branch);
+    let has_remote_branch = repo.find_reference(&upstream_ref_name).is_ok();
 
-  let branch = match &branch_name {
-    Some(b) => b.clone(),
-    None => {
-      return Ok(GitStatusSummary {
-        dirty_file_count,
-        unpushed_commit_count: 0,
-        has_remote_branch: false,
-        is_merged_into_base: false,
-        lines_added,
-        lines_deleted,
-      });
-    }
-  };
+    // Count unpushed commits
+    let head_id = head_commit.id();
+    let mut unpushed_commit_count: u32 = 0;
 
-  // Check for upstream/remote branch
-  let upstream_ref_name = format!("refs/remotes/origin/{}", branch);
-  let has_remote_branch = repo.find_reference(&upstream_ref_name).is_ok();
-
-  // Count unpushed commits
-  let head_id = head_commit.id();
-  let mut unpushed_commit_count: u32 = 0;
-
-  if has_remote_branch {
-    if let Ok(upstream_ref) = repo.find_reference(&upstream_ref_name) {
-      if let Ok(upstream_id) = upstream_ref.into_fully_peeled_id() {
-        if let Ok(base_id) = repo.merge_base(head_id, upstream_id) {
-          // Count commits from base to HEAD
-          let walk = repo.rev_walk([head_id]);
-          if let Ok(iter) = walk.all() {
-            for commit_info in iter {
-              if let Ok(info) = commit_info {
-                if info.id == base_id {
-                  break;
+    if has_remote_branch {
+      if let Ok(upstream_ref) = repo.find_reference(&upstream_ref_name) {
+        if let Ok(upstream_id) = upstream_ref.into_fully_peeled_id() {
+          if let Ok(base_id) = repo.merge_base(head_id, upstream_id) {
+            let walk = repo.rev_walk([head_id]);
+            if let Ok(iter) = walk.all() {
+              for commit_info in iter {
+                if let Ok(info) = commit_info {
+                  if info.id == base_id {
+                    break;
+                  }
+                  unpushed_commit_count += 1;
                 }
-                unpushed_commit_count += 1;
+              }
+            }
+          }
+        }
+      }
+    } else if let Some(ref base_b) = base_branch {
+      let base_ref_name = format!("refs/heads/{}", base_b);
+      if let Ok(base_ref) = repo.find_reference(&base_ref_name) {
+        if let Ok(base_id) = base_ref.into_fully_peeled_id() {
+          if let Ok(mb_id) = repo.merge_base(head_id, base_id) {
+            let walk = repo.rev_walk([head_id]);
+            if let Ok(iter) = walk.all() {
+              for commit_info in iter {
+                if let Ok(info) = commit_info {
+                  if info.id == mb_id {
+                    break;
+                  }
+                  unpushed_commit_count += 1;
+                }
               }
             }
           }
         }
       }
     }
-  } else if let Some(ref base_b) = base_branch {
-    let base_ref_name = format!("refs/heads/{}", base_b);
-    if let Ok(base_ref) = repo.find_reference(&base_ref_name) {
-      if let Ok(base_id) = base_ref.into_fully_peeled_id() {
-        if let Ok(mb_id) = repo.merge_base(head_id, base_id) {
-          let walk = repo.rev_walk([head_id]);
-          if let Ok(iter) = walk.all() {
-            for commit_info in iter {
-              if let Ok(info) = commit_info {
-                if info.id == mb_id {
-                  break;
-                }
-                unpushed_commit_count += 1;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
 
-  // Check if branch is merged into base
-  let mut is_merged_into_base = false;
-  if let Some(ref base_b) = base_branch {
+    Ok(StatusPhaseResult {
+      dirty_file_count,
+      unpushed_commit_count,
+      has_remote_branch,
+      lines_added,
+      lines_deleted,
+      branch_name: Some(branch),
+    })
+  })?;
+
+  // Phase 2b: merge-base check — may use a different repo path (project root vs worktree)
+  // This is a SEPARATE with_repo() call to avoid RefCell re-entrancy panic.
+  let is_merged_into_base = if let (Some(ref base_b), Some(ref branch)) = (&base_branch, &phase1.branch_name) {
     let project_path = project_cwd.as_deref().unwrap_or(&worktree_cwd);
-    if let Ok(project_repo) = gix::open(project_path) {
+    with_repo(project_path, |project_repo| {
       let base_ref_name = format!("refs/heads/{}", base_b);
       if let Ok(base_ref) = project_repo.find_reference(&base_ref_name) {
         if let Ok(base_id) = base_ref.into_fully_peeled_id() {
@@ -334,22 +348,24 @@ pub async fn get_status_summary(
           if let Ok(branch_ref) = project_repo.find_reference(&branch_ref_name) {
             if let Ok(branch_id) = branch_ref.into_fully_peeled_id() {
               if let Ok(mb_id) = project_repo.merge_base(base_id, branch_id) {
-                // If merge-base != branch tip, then base has diverged (branch is merged)
-                is_merged_into_base = mb_id != branch_id.detach();
+                return Ok(mb_id != branch_id.detach());
               }
             }
           }
         }
       }
-    }
-  }
+      Ok(false)
+    })?
+  } else {
+    false
+  };
 
   Ok(GitStatusSummary {
-    dirty_file_count,
-    unpushed_commit_count,
-    has_remote_branch,
+    dirty_file_count: phase1.dirty_file_count,
+    unpushed_commit_count: phase1.unpushed_commit_count,
+    has_remote_branch: phase1.has_remote_branch,
     is_merged_into_base,
-    lines_added,
-    lines_deleted,
+    lines_added: phase1.lines_added,
+    lines_deleted: phase1.lines_deleted,
   })
 }

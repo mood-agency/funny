@@ -184,6 +184,19 @@ export interface BranchInfo {
  * List branches with metadata about whether each exists locally and/or on origin.
  */
 export function listBranchesDetailed(cwd: string): ResultAsync<BranchInfo[], DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(
+      native.listBranchesDetailed(cwd).then(async (branches) => {
+        if (branches.length > 0) return branches;
+        // Fall back to symbolic-ref for empty repos
+        const symbolicBranch = await gitOptional(['symbolic-ref', '--short', 'HEAD'], cwd);
+        if (symbolicBranch) return [{ name: symbolicBranch, isLocal: true, isRemote: false }];
+        return [];
+      }),
+      (error) => internal(String(error)),
+    );
+  }
   return ResultAsync.fromPromise(
     (async () => {
       const localSet = new Set<string>();
@@ -300,6 +313,12 @@ export function getDefaultBranch(cwd: string): ResultAsync<string | null, Domain
  * Get the remote URL for origin
  */
 export function getRemoteUrl(cwd: string): ResultAsync<string | null, DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(native.getRemoteUrl(cwd), (error) =>
+      processError(String(error), 1, ''),
+    );
+  }
   return ResultAsync.fromPromise(gitOptional(['remote', 'get-url', 'origin'], cwd), (error) =>
     internal(String(error)),
   );
@@ -1064,6 +1083,12 @@ export function getSingleFileDiff(
   filePath: string,
   staged: boolean,
 ): ResultAsync<string, DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(native.getSingleFileDiff(cwd, filePath, staged), (error) =>
+      processError(String(error), 1, ''),
+    );
+  }
   return ResultAsync.fromPromise(
     (async () => {
       if (staged) {
@@ -1089,6 +1114,47 @@ export function getSingleFileDiff(
       }
       // Tracked, unstaged
       const result = await gitRead(['diff', '--', filePath], { cwd, reject: false });
+      return result.exitCode === 0 ? result.stdout : '';
+    })(),
+    (error) => processError(String(error), 1, ''),
+  );
+}
+
+/**
+ * Get the diff for a single file with full file context (all lines shown).
+ * Uses -U99999 to include the entire file as context around changes.
+ * Always uses the git process (not native) since native uses fixed context.
+ */
+export function getFullContextFileDiff(
+  cwd: string,
+  filePath: string,
+  staged: boolean,
+): ResultAsync<string, DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      if (staged) {
+        const result = await gitRead(['diff', '--staged', '-U99999', '--', filePath], {
+          cwd,
+          reject: false,
+        });
+        return result.exitCode === 0 ? result.stdout : '';
+      }
+      // Check if file is untracked
+      const lsResult = await gitRead(
+        ['ls-files', '--others', '--exclude-standard', '--', filePath],
+        { cwd, reject: false },
+      );
+      if (lsResult.exitCode === 0 && lsResult.stdout.trim()) {
+        // Untracked file — use diff --no-index
+        const result = await gitRead(['diff', '--no-index', '-U99999', '/dev/null', filePath], {
+          cwd,
+          reject: false,
+        });
+        // --no-index exits with 1 when there are differences (expected)
+        return result.stdout;
+      }
+      // Tracked, unstaged
+      const result = await gitRead(['diff', '-U99999', '--', filePath], { cwd, reject: false });
       return result.exitCode === 0 ? result.stdout : '';
     })(),
     (error) => processError(String(error), 1, ''),
@@ -1546,6 +1612,13 @@ export function getLog(
  * Useful for marking unpushed commits in the log UI.
  */
 export function getUnpushedHashes(cwd: string): ResultAsync<Set<string>, DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(
+      native.getUnpushedHashes(cwd).then((hashes) => new Set(hashes)),
+      (error) => processError(String(error), 1, ''),
+    );
+  }
   return ResultAsync.fromPromise(
     (async () => {
       const result = await gitRead(['rev-list', 'HEAD', '--not', '--remotes'], {
@@ -1563,6 +1636,12 @@ export function getUnpushedHashes(cwd: string): ResultAsync<Set<string>, DomainE
  * Get the full commit message body (everything after the subject line) for a single commit.
  */
 export function getCommitBody(cwd: string, hash: string): ResultAsync<string, DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(native.getCommitBody(cwd, hash), (error) =>
+      processError(String(error), 1, ''),
+    );
+  }
   return ResultAsync.fromPromise(
     (async () => {
       const result = await gitRead(['log', '-1', '--format=%b', hash], {
@@ -1600,6 +1679,20 @@ export function getCommitFiles(
   cwd: string,
   hash: string,
 ): ResultAsync<CommitFileEntry[], DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(
+      native.getCommitFiles(cwd, hash).then((files) =>
+        files.map((f) => ({
+          path: f.path,
+          status: (f.status as CommitFileEntry['status']) || 'modified',
+          additions: f.additions,
+          deletions: f.deletions,
+        })),
+      ),
+      (error) => processError(String(error), 1, ''),
+    );
+  }
   return ResultAsync.fromPromise(
     (async () => {
       // Run both commands in parallel
@@ -1658,6 +1751,12 @@ export function getCommitFileDiff(
   hash: string,
   filePath: string,
 ): ResultAsync<string, DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(native.getCommitFileDiff(cwd, hash, filePath), (error) =>
+      processError(String(error), 1, ''),
+    );
+  }
   return ResultAsync.fromPromise(
     (async () => {
       const result = await gitRead(['diff-tree', '-p', '--no-commit-id', hash, '--', filePath], {
@@ -1760,6 +1859,13 @@ export function stashShow(
  * Undo the last commit, keeping changes staged.
  */
 export function resetSoft(cwd: string): ResultAsync<string, DomainError> {
+  const native = getNativeGit();
+  if (native) {
+    return ResultAsync.fromPromise(
+      native.resetSoft(cwd).then(() => ''),
+      (error) => processError(String(error), 1, ''),
+    );
+  }
   return git(['reset', '--soft', 'HEAD~1'], cwd);
 }
 

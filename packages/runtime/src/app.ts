@@ -8,6 +8,7 @@
  * via the WebSocket data channel.
  */
 
+import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 
@@ -161,6 +162,27 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
     }
 
     const claude = providers.get('claude');
+
+    // Detect native git status
+    const nativeGitLoaded = getNativeGit() !== null;
+    const nativeGitDisabled = process.env.FUNNY_DISABLE_NATIVE_GIT === '1';
+    const nativeGitDir = resolve(import.meta.dir, '..', '..', '..', 'native-git');
+    const hasCargoToml = existsSync(join(nativeGitDir, 'Cargo.toml'));
+
+    let rustAvailable = false;
+    let rustVersion: string | null = null;
+    try {
+      const result = spawnSync('cargo', ['--version'], { timeout: 5000 });
+      if (result.status === 0 && result.stdout) {
+        rustVersion = result.stdout.toString().trim();
+        rustAvailable = true;
+      }
+    } catch {
+      // cargo not available
+    }
+
+    const platform = `${process.platform}-${process.arch}`;
+
     return c.json({
       providers: providerInfo,
       claudeCli: {
@@ -172,7 +194,89 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
       agentSdk: {
         available: claude?.sdkAvailable ?? false,
       },
+      nativeGit: {
+        loaded: nativeGitLoaded,
+        disabled: nativeGitDisabled,
+        rustAvailable,
+        rustVersion,
+        platform,
+        canBuild: rustAvailable && hasCargoToml,
+      },
     });
+  });
+
+  // Native git build endpoint
+  let nativeGitBuildInProgress = false;
+  app.post('/api/system/build-native-git', async (c) => {
+    const userId = c.get('userId') as string;
+    if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    if (nativeGitBuildInProgress) {
+      return c.json({ error: 'Build already in progress' }, 409);
+    }
+
+    const nativeGitDir = resolve(import.meta.dir, '..', '..', '..', 'native-git');
+    if (!existsSync(join(nativeGitDir, 'Cargo.toml'))) {
+      return c.json({ error: 'native-git package not found' }, 404);
+    }
+
+    // Check Rust toolchain
+    try {
+      const check = spawnSync('cargo', ['--version'], { timeout: 5000 });
+      if (check.status !== 0) {
+        return c.json({ error: 'Rust toolchain not available' }, 400);
+      }
+    } catch {
+      return c.json({ error: 'Rust toolchain not available' }, 400);
+    }
+
+    nativeGitBuildInProgress = true;
+
+    const emitBuild = (type: string, data: unknown) => {
+      wsBroker.emitToUser(userId, { type, threadId: '', data } as any);
+    };
+
+    emitBuild('native-git:build_status', { status: 'building' });
+
+    // Spawn the build process
+    const proc = Bun.spawn(['napi', 'build', '--platform', '--release'], {
+      cwd: nativeGitDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, FORCE_COLOR: '1' },
+    });
+
+    // Stream stdout/stderr
+    const streamReader = async (stream: ReadableStream<Uint8Array>, channel: string) => {
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          emitBuild('native-git:build_output', {
+            text: decoder.decode(value, { stream: true }),
+            channel,
+          });
+        }
+      } catch {
+        // stream closed
+      }
+    };
+
+    void streamReader(proc.stdout as ReadableStream<Uint8Array>, 'stdout');
+    void streamReader(proc.stderr as ReadableStream<Uint8Array>, 'stderr');
+
+    // Handle exit
+    proc.exited.then((exitCode) => {
+      nativeGitBuildInProgress = false;
+      emitBuild('native-git:build_status', {
+        status: exitCode === 0 ? 'completed' : 'failed',
+        exitCode,
+      });
+    });
+
+    return c.json({ status: 'started' });
   });
 
   // Bootstrap endpoint (public — returns minimal info for client init)

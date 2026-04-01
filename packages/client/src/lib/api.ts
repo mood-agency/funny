@@ -270,9 +270,9 @@ export const api = {
       `/threads/search/content?${params.toString()}`,
     );
   },
-  getThread: (id: string, messageLimit?: number) => {
+  getThread: (id: string, messageLimit?: number, signal?: AbortSignal) => {
     const params = messageLimit ? `?messageLimit=${messageLimit}` : '';
-    return request<ThreadWithMessages>(`/threads/${id}${params}`);
+    return request<ThreadWithMessages>(`/threads/${id}${params}`, { signal });
   },
   getThreadMessages: (threadId: string, cursor: string, limit = 50) => {
     const params = new URLSearchParams({ cursor, limit: String(limit) });
@@ -290,13 +290,14 @@ export const api = {
       }>;
     }>(`/threads/${threadId}/messages/search?${params.toString()}`);
   },
-  getThreadEvents: (threadId: string) => {
+  getThreadEvents: (threadId: string, signal?: AbortSignal) => {
     return request<{ events: Array<import('@funny/shared').ThreadEvent> }>(
       `/threads/${threadId}/events`,
+      { signal },
     );
   },
-  getTouchedFiles: (threadId: string) => {
-    return request<{ files: string[] }>(`/threads/${threadId}/touched-files`);
+  getTouchedFiles: (threadId: string, signal?: AbortSignal) => {
+    return request<{ files: string[] }>(`/threads/${threadId}/touched-files`, { signal });
   },
   createThread: (data: {
     projectId: string;
@@ -460,18 +461,31 @@ export const api = {
 
   // Git
   getDiff: (threadId: string) => request<FileDiff[]>(`/git/${threadId}/diff`),
-  getDiffSummary: (threadId: string, excludePatterns?: string[], maxFiles?: number) => {
+  getDiffSummary: (
+    threadId: string,
+    excludePatterns?: string[],
+    maxFiles?: number,
+    signal?: AbortSignal,
+  ) => {
     const params = new URLSearchParams();
     if (excludePatterns?.length) params.set('exclude', excludePatterns.join(','));
     if (maxFiles) params.set('maxFiles', String(maxFiles));
     const qs = params.toString();
     return request<import('@funny/shared').DiffSummaryResponse>(
       `/git/${threadId}/diff/summary${qs ? `?${qs}` : ''}`,
+      { signal },
     );
   },
-  getFileDiff: (threadId: string, filePath: string, staged: boolean) =>
+  getFileDiff: (
+    threadId: string,
+    filePath: string,
+    staged: boolean,
+    signal?: AbortSignal,
+    context?: 'full',
+  ) =>
     request<{ diff: string }>(
-      `/git/${threadId}/diff/file?path=${encodeURIComponent(filePath)}&staged=${staged}`,
+      `/git/${threadId}/diff/file?path=${encodeURIComponent(filePath)}&staged=${staged}${context ? `&context=${context}` : ''}`,
+      { signal },
     ),
   stageFiles: (threadId: string, paths: string[]) =>
     request<{ ok: boolean }>(`/git/${threadId}/stage`, {
@@ -524,7 +538,7 @@ export const api = {
     request<{ statuses: GitStatusInfo[] }>(`/git/status?projectId=${projectId}`, { signal }),
   getGitStatus: (threadId: string, signal?: AbortSignal) =>
     request<GitStatusInfo>(`/git/${threadId}/status`, { signal }),
-  getGitLog: (threadId: string, limit = 50, all = false, skip = 0) =>
+  getGitLog: (threadId: string, limit = 50, all = false, skip = 0, signal?: AbortSignal) =>
     request<{
       entries: Array<{
         hash: string;
@@ -537,6 +551,7 @@ export const api = {
       unpushedHashes: string[];
     }>(
       `/git/${threadId}/log?limit=${limit}${all ? '&all=true' : ''}${skip > 0 ? `&skip=${skip}` : ''}`,
+      { signal },
     ),
   getCommitFiles: (threadId: string, hash: string) =>
     request<{
@@ -561,9 +576,10 @@ export const api = {
     request<{ ok: boolean; output?: string }>(`/git/${threadId}/stash`, { method: 'POST' }),
   stashPop: (threadId: string) =>
     request<{ ok: boolean; output?: string }>(`/git/${threadId}/stash/pop`, { method: 'POST' }),
-  stashList: (threadId: string) =>
+  stashList: (threadId: string, signal?: AbortSignal) =>
     request<{ entries: Array<{ index: string; message: string; relativeDate: string }> }>(
       `/git/${threadId}/stash/list`,
+      { signal },
     ),
   stashShow: (threadId: string, stashIndex: string) =>
     request<{ files: Array<{ path: string; additions: number; deletions: number }> }>(
@@ -578,18 +594,31 @@ export const api = {
       `/git/project/${projectId}/status`,
       { signal },
     ),
-  projectDiffSummary: (projectId: string, excludePatterns?: string[], maxFiles?: number) => {
+  projectDiffSummary: (
+    projectId: string,
+    excludePatterns?: string[],
+    maxFiles?: number,
+    signal?: AbortSignal,
+  ) => {
     const params = new URLSearchParams();
     if (excludePatterns?.length) params.set('exclude', excludePatterns.join(','));
     if (maxFiles) params.set('maxFiles', String(maxFiles));
     const qs = params.toString();
     return request<import('@funny/shared').DiffSummaryResponse>(
       `/git/project/${projectId}/diff/summary${qs ? `?${qs}` : ''}`,
+      { signal },
     );
   },
-  projectFileDiff: (projectId: string, filePath: string, staged: boolean) =>
+  projectFileDiff: (
+    projectId: string,
+    filePath: string,
+    staged: boolean,
+    signal?: AbortSignal,
+    context?: 'full',
+  ) =>
     request<{ diff: string }>(
-      `/git/project/${projectId}/diff/file?path=${encodeURIComponent(filePath)}&staged=${staged}`,
+      `/git/project/${projectId}/diff/file?path=${encodeURIComponent(filePath)}&staged=${staged}${context ? `&context=${context}` : ''}`,
+      { signal },
     ),
   projectStageFiles: (projectId: string, paths: string[]) =>
     request<{ ok: boolean }>(`/git/project/${projectId}/stage`, {
@@ -630,9 +659,10 @@ export const api = {
     request<{ ok: boolean; output?: string }>(`/git/project/${projectId}/stash/pop`, {
       method: 'POST',
     }),
-  projectStashList: (projectId: string) =>
+  projectStashList: (projectId: string, signal?: AbortSignal) =>
     request<{ entries: Array<{ index: string; message: string; relativeDate: string }> }>(
       `/git/project/${projectId}/stash/list`,
+      { signal },
     ),
   projectStashShow: (projectId: string, stashIndex: string) =>
     request<{ files: Array<{ path: string; additions: number; deletions: number }> }>(
@@ -642,7 +672,7 @@ export const api = {
     request<{ ok: boolean; output?: string }>(`/git/project/${projectId}/reset-soft`, {
       method: 'POST',
     }),
-  projectGitLog: (projectId: string, limit = 50, skip = 0) =>
+  projectGitLog: (projectId: string, limit = 50, skip = 0, signal?: AbortSignal) =>
     request<{
       entries: Array<{
         hash: string;
@@ -653,7 +683,9 @@ export const api = {
       }>;
       hasMore: boolean;
       unpushedHashes: string[];
-    }>(`/git/project/${projectId}/log?limit=${limit}${skip > 0 ? `&skip=${skip}` : ''}`),
+    }>(`/git/project/${projectId}/log?limit=${limit}${skip > 0 ? `&skip=${skip}` : ''}`, {
+      signal,
+    }),
   projectCommitFiles: (projectId: string, hash: string) =>
     request<{
       files: Array<{
@@ -1118,6 +1150,14 @@ export const api = {
         error: string | null;
         version: string | null;
       };
+      nativeGit: {
+        loaded: boolean;
+        disabled: boolean;
+        rustAvailable: boolean;
+        rustVersion: string | null;
+        platform: string;
+        canBuild: boolean;
+      };
     }>('/setup/status'),
 
   // System
@@ -1125,6 +1165,8 @@ export const api = {
     request<{
       shells: Array<{ id: string; label: string; path: string }>;
     }>('/system/shells'),
+
+  buildNativeGit: () => request<{ status: string }>('/system/build-native-git', { method: 'POST' }),
 
   // Profile
   getProfile: () => request<import('@funny/shared').UserProfile>('/profile'),

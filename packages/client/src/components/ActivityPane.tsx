@@ -123,6 +123,7 @@ function useThreadTouchedPaths(): Set<string> {
   const [paths, setPaths] = useState<Set<string>>(EMPTY_SET);
   const prevRef = useRef<Set<string>>(EMPTY_SET);
   const prevThreadIdRef = useRef<string | undefined>(undefined);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     // Clear when switching threads
@@ -130,6 +131,9 @@ function useThreadTouchedPaths(): Set<string> {
       prevThreadIdRef.current = threadId;
       setPaths(EMPTY_SET);
       prevRef.current = EMPTY_SET;
+      // Abort any in-flight request for the old thread
+      abortRef.current?.abort();
+      abortRef.current = null;
     }
 
     if (!threadId) return;
@@ -137,8 +141,14 @@ function useThreadTouchedPaths(): Set<string> {
     let cancelled = false;
 
     const fetchPaths = async () => {
-      const result = await api.getTouchedFiles(threadId);
-      if (cancelled) return;
+      // Abort the previous in-flight request to prevent pileup when
+      // responses are slower than the polling interval
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+
+      const result = await api.getTouchedFiles(threadId, ac.signal);
+      if (cancelled || ac.signal.aborted) return;
       if (result.isOk()) {
         const files = result.value.files;
         // Use stable EMPTY_SET for empty results to avoid unnecessary re-renders
@@ -166,12 +176,14 @@ function useThreadTouchedPaths(): Set<string> {
       const interval = setInterval(fetchPaths, 5000);
       return () => {
         cancelled = true;
+        abortRef.current?.abort();
         clearInterval(interval);
       };
     }
 
     return () => {
       cancelled = true;
+      abortRef.current?.abort();
     };
   }, [threadId, isRunning]);
 

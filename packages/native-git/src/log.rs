@@ -2,6 +2,8 @@ use std::time::SystemTime;
 
 use gix::bstr::ByteSlice;
 
+use crate::repo_cache::with_repo;
+
 #[napi(object)]
 #[derive(Debug, Clone)]
 pub struct GitLogEntry {
@@ -65,66 +67,155 @@ fn format_relative_date(seconds_since_epoch: i64) -> String {
 
 #[napi]
 pub async fn get_log(cwd: String, limit: Option<u32>) -> napi::Result<Vec<GitLogEntry>> {
-  let repo = gix::open(&cwd)
-    .map_err(|e| napi::Error::from_reason(format!("Failed to open repo: {e}")))?;
+  with_repo(&cwd, |repo| {
+    let head_commit = repo
+      .head_commit()
+      .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD commit: {e}")))?;
 
-  let head_commit = repo
-    .head_commit()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to get HEAD commit: {e}")))?;
+    let max = limit.unwrap_or(20) as usize;
+    let mut entries: Vec<GitLogEntry> = Vec::with_capacity(max);
 
-  let max = limit.unwrap_or(20) as usize;
-  let mut entries: Vec<GitLogEntry> = Vec::with_capacity(max);
+    let walk = repo.rev_walk([head_commit.id()]);
+    let iter = walk
+      .all()
+      .map_err(|e| napi::Error::from_reason(format!("Failed to start rev walk: {e}")))?;
 
-  let walk = repo.rev_walk([head_commit.id()]);
-  let iter = walk
-    .all()
-    .map_err(|e| napi::Error::from_reason(format!("Failed to start rev walk: {e}")))?;
+    for commit_info in iter {
+      if entries.len() >= max {
+        break;
+      }
+      let info = commit_info
+        .map_err(|e| napi::Error::from_reason(format!("Rev walk error: {e}")))?;
 
-  for commit_info in iter {
-    if entries.len() >= max {
-      break;
+      let commit = info
+        .object()
+        .map_err(|e| napi::Error::from_reason(format!("Failed to read commit: {e}")))?;
+
+      let hash = commit.id().to_string();
+      let short_hash = hash[..7.min(hash.len())].to_string();
+
+      let author_sig = commit.author().ok();
+
+      let author_name = author_sig
+        .as_ref()
+        .map(|a| a.name.to_string())
+        .unwrap_or_default();
+
+      let time_seconds = author_sig
+        .as_ref()
+        .and_then(|a| a.time().ok())
+        .map(|t| t.seconds)
+        .unwrap_or(0);
+
+      let relative_date = format_relative_date(time_seconds);
+
+      // message_raw_sloppy returns &BStr, use ByteSlice::lines()
+      let raw_message = commit.message_raw_sloppy();
+      let message = raw_message
+        .lines()
+        .next()
+        .map(|l| l.to_str_lossy().to_string())
+        .unwrap_or_default();
+
+      entries.push(GitLogEntry {
+        hash,
+        short_hash,
+        author: author_name,
+        relative_date,
+        message,
+      });
     }
-    let info = commit_info
-      .map_err(|e| napi::Error::from_reason(format!("Rev walk error: {e}")))?;
 
-    let commit = info
+    Ok(entries)
+  })
+}
+
+#[napi]
+pub async fn get_commit_body(cwd: String, hash: String) -> napi::Result<String> {
+  with_repo(&cwd, |repo| {
+    let commit_id = repo
+      .rev_parse_single(hash.as_str())
+      .map_err(|e| napi::Error::from_reason(format!("Failed to parse revision '{}': {e}", hash)))?;
+
+    let commit = commit_id
       .object()
-      .map_err(|e| napi::Error::from_reason(format!("Failed to read commit: {e}")))?;
+      .map_err(|e| napi::Error::from_reason(format!("Failed to read object: {e}")))?
+      .try_into_commit()
+      .map_err(|e| napi::Error::from_reason(format!("Object is not a commit: {e}")))?;
 
-    let hash = commit.id().to_string();
-    let short_hash = hash[..7.min(hash.len())].to_string();
+    let raw = commit.message_raw_sloppy();
+    let full = raw.to_str_lossy();
+    let body = match full.find('\n') {
+      Some(idx) => full[idx + 1..].trim().to_string(),
+      None => String::new(),
+    };
 
-    let author_sig = commit.author().ok();
+    Ok(body)
+  })
+}
 
-    let author_name = author_sig
-      .as_ref()
-      .map(|a| a.name.to_string())
-      .unwrap_or_default();
+#[napi]
+pub async fn get_unpushed_hashes(cwd: String) -> napi::Result<Vec<String>> {
+  with_repo(&cwd, |repo| {
+    let head_commit = match repo.head_commit() {
+      Ok(c) => c,
+      Err(_) => return Ok(Vec::new()),
+    };
 
-    let time_seconds = author_sig
-      .as_ref()
-      .and_then(|a| a.time().ok())
-      .map(|t| t.seconds)
-      .unwrap_or(0);
+    // Collect all remote ref commit IDs
+    let refs = repo
+      .references()
+      .map_err(|e| napi::Error::from_reason(format!("Failed to get references: {e}")))?;
+    let remote_refs = match refs.remote_branches() {
+      Ok(r) => r,
+      Err(_) => return Ok(Vec::new()),
+    };
 
-    let relative_date = format_relative_date(time_seconds);
+    let mut remote_tips: Vec<gix::ObjectId> = Vec::new();
+    for r in remote_refs {
+      if let Ok(r) = r {
+        if let Ok(peeled) = r.into_fully_peeled_id() {
+          remote_tips.push(peeled.detach());
+        }
+      }
+    }
 
-    // message_raw_sloppy returns &BStr, use ByteSlice::lines()
-    let raw_message = commit.message_raw_sloppy();
-    let message = raw_message
-      .lines()
-      .next()
-      .map(|l| l.to_str_lossy().to_string())
-      .unwrap_or_default();
+    // Walk from HEAD collecting ancestors
+    const MAX_WALK: usize = 1000;
+    let mut head_ancestors = Vec::new();
+    let walk = repo.rev_walk([head_commit.id()]);
+    if let Ok(iter) = walk.all() {
+      for (i, ci) in iter.enumerate() {
+        if i >= MAX_WALK { break; }
+        if let Ok(info) = ci {
+          head_ancestors.push(info.id);
+        }
+      }
+    }
 
-    entries.push(GitLogEntry {
-      hash,
-      short_hash,
-      author: author_name,
-      relative_date,
-      message,
-    });
-  }
+    if remote_tips.is_empty() {
+      // No remotes: all commits are "unpushed"
+      return Ok(head_ancestors.into_iter().map(|id| id.to_string()).collect());
+    }
 
-  Ok(entries)
+    // Walk from all remote refs to find reachable commits
+    let mut remote_reachable = std::collections::HashSet::new();
+    let walk = repo.rev_walk(remote_tips);
+    if let Ok(iter) = walk.all() {
+      for (i, ci) in iter.enumerate() {
+        if i >= MAX_WALK { break; }
+        if let Ok(info) = ci {
+          remote_reachable.insert(info.id);
+        }
+      }
+    }
+
+    let unpushed: Vec<String> = head_ancestors
+      .into_iter()
+      .filter(|id| !remote_reachable.contains(id))
+      .map(|id| id.to_string())
+      .collect();
+
+    Ok(unpushed)
+  })
 }

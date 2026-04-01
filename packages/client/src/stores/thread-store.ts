@@ -252,6 +252,11 @@ const _prefetchCache = new Map<
 
 // ── Store ────────────────────────────────────────────────────────
 
+// Abort controller for in-flight selectThread API requests.
+// When a new thread is selected, the previous fetch is aborted immediately
+// to avoid piling up stale network requests during rapid thread switching.
+let _selectAbortController: AbortController | null = null;
+
 const _threadLoadPromises = new Map<string, Promise<void>>();
 
 export const useThreadStore = create<ThreadState>((set, get) => ({
@@ -312,6 +317,12 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     // Skip if already loading this exact thread (prevents StrictMode double-fire)
     if (threadId && threadId === getSelectingThreadId()) return;
 
+    // Abort any in-flight fetch from a previous selectThread call.
+    // This prevents piling up stale network requests during rapid clicking.
+    _selectAbortController?.abort();
+    const abortController = new AbortController();
+    _selectAbortController = abortController;
+
     const gen = nextSelectGeneration();
     setSelectingThreadId(threadId);
     // Keep stale activeThread visible during load to avoid layout shift.
@@ -325,6 +336,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     useUIStore.setState({ newThreadProjectId: null, allThreadsProjectId: null });
 
     if (!threadId) {
+      _selectAbortController = null;
       setSelectingThreadId(null);
       return;
     }
@@ -334,11 +346,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const prefetched = _prefetchCache.get(threadId);
       _prefetchCache.delete(threadId);
       const [result, eventsResult] = await Promise.all([
-        prefetched?.threadPromise ?? api.getThread(threadId, 50),
-        prefetched?.eventsPromise ?? api.getThreadEvents(threadId),
+        prefetched?.threadPromise ?? api.getThread(threadId, 50, abortController.signal),
+        prefetched?.eventsPromise ?? api.getThreadEvents(threadId, abortController.signal),
       ]);
 
       if (result.isErr()) {
+        // If aborted (superseded by a newer selectThread), silently bail out
+        if (abortController.signal.aborted) return;
         if (getSelectGeneration() === gen) {
           clearWSBuffer(threadId);
           set({ selectedThreadId: null, activeThread: null });
@@ -450,6 +464,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       // Clear in-flight tracker so future selectThread calls for this thread can proceed
       if (getSelectingThreadId() === threadId) {
         setSelectingThreadId(null);
+      }
+      // Clear abort controller if this is still the active one
+      if (_selectAbortController === abortController) {
+        _selectAbortController = null;
       }
     }
   },

@@ -410,7 +410,7 @@ export function AppSidebar() {
     const result: Record<string, Thread[]> = {};
     for (const project of projects) {
       const src = threadsByProject[project.id];
-      const filtered = (src ?? []).filter((t) => !t.archived);
+      const filtered = (Array.isArray(src) ? src : []).filter((t) => !t.archived);
       const prev = prevFiltered[project.id];
       if (
         prev &&

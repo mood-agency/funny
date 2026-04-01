@@ -22,6 +22,12 @@ export const DIFF_VIEWER_STYLES = {
       gutterBackgroundDark: 'hsl(var(--muted))',
       highlightBackground: 'hsl(var(--accent))',
       highlightGutterBackground: 'hsl(var(--accent))',
+      codeFoldBackground: 'hsl(var(--muted))',
+      codeFoldGutterBackground: 'hsl(var(--muted))',
+      codeFoldContentColor: 'hsl(var(--muted-foreground))',
+      diffViewerTitleBackground: 'hsl(var(--muted))',
+      diffViewerTitleColor: 'hsl(var(--foreground))',
+      diffViewerTitleBorderColor: 'hsl(var(--border))',
     },
     dark: {
       diffViewerBackground: 'hsl(var(--background))',
@@ -38,6 +44,12 @@ export const DIFF_VIEWER_STYLES = {
       gutterBackgroundDark: 'hsl(var(--muted))',
       highlightBackground: 'hsl(var(--accent))',
       highlightGutterBackground: 'hsl(var(--accent))',
+      codeFoldBackground: 'hsl(var(--muted))',
+      codeFoldGutterBackground: 'hsl(var(--muted))',
+      codeFoldContentColor: 'hsl(var(--muted-foreground))',
+      diffViewerTitleBackground: 'hsl(var(--muted))',
+      diffViewerTitleColor: 'hsl(var(--foreground))',
+      diffViewerTitleBorderColor: 'hsl(var(--border))',
     },
   },
   line: {
@@ -52,6 +64,14 @@ export const DIFF_VIEWER_STYLES = {
     whiteSpace: 'nowrap',
     width: '1%',
     minWidth: '40px',
+  },
+  codeFold: {
+    cursor: 'pointer',
+    position: 'relative' as const,
+    zIndex: 1,
+  },
+  codeFoldGutter: {
+    cursor: 'pointer',
   },
 };
 

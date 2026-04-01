@@ -22,6 +22,35 @@ const wsLog = createClientLogger('ws-handlers');
 type Get = () => ThreadState;
 type Set = (partial: Partial<ThreadState> | ((state: ThreadState) => Partial<ThreadState>)) => void;
 
+// ── Debounced "refresh all projects" for unknown threads ─────────
+// When a WS event arrives for a thread not in any loaded project, we need to
+// refresh projects so it appears. But doing this on every event causes an
+// O(projects) API storm. Debounce to at most once per 2 seconds.
+let _refreshAllTimer: ReturnType<typeof setTimeout> | null = null;
+const _pendingRefreshPids = new Set<string>();
+
+function scheduleProjectRefresh(get: Get, specificPid?: string): void {
+  if (specificPid) {
+    _pendingRefreshPids.add(specificPid);
+  }
+  if (_refreshAllTimer) return; // already scheduled
+  _refreshAllTimer = setTimeout(() => {
+    _refreshAllTimer = null;
+    const { threadsByProject, loadThreadsForProject } = get();
+    if (_pendingRefreshPids.size > 0) {
+      for (const pid of _pendingRefreshPids) {
+        loadThreadsForProject(pid);
+      }
+    } else {
+      // No specific project — refresh all loaded projects
+      for (const pid of Object.keys(threadsByProject)) {
+        loadThreadsForProject(pid);
+      }
+    }
+    _pendingRefreshPids.clear();
+  }, 2000);
+}
+
 // Buffer for dequeued user messages — injected when the next agent:message
 // arrives so the user message appears right before the new agent's response.
 // We use handleWSMessage (called synchronously during flush) rather than
@@ -65,7 +94,26 @@ export function handleWSMessage(
           content: data.content,
           ...(data.author ? { author: data.author } : {}),
         };
-        set({ activeThread: { ...activeThread, messages: updated } });
+        // Merge sidebar snippet update into same set() for existing message updates
+        const earlyUpdate: Partial<ThreadState> = {
+          activeThread: { ...activeThread, messages: updated },
+        };
+        if (data.role === 'assistant' && data.content) {
+          const pid = getProjectIdForThread(threadId);
+          if (pid) {
+            const { threadsByProject } = get();
+            const threads = threadsByProject[pid];
+            if (threads) {
+              const tidx = threads.findIndex((t) => t.id === threadId);
+              if (tidx >= 0) {
+                const copy = [...threads];
+                copy[tidx] = { ...copy[tidx], lastAssistantMessage: data.content.slice(0, 120) };
+                earlyUpdate.threadsByProject = { ...threadsByProject, [pid]: copy };
+              }
+            }
+          }
+        }
+        set(earlyUpdate as any);
         return;
       }
     }
@@ -103,19 +151,40 @@ export function handleWSMessage(
           ? newMsg
           : activeThread.lastUserMessage;
 
-    set({
+    // Build the state update — combine activeThread + sidebar snippet
+    // into a single set() call to avoid double store updates per message.
+    const stateUpdate: Partial<ThreadState> = {
       activeThread: {
         ...activeThread,
         lastUserMessage,
         messages: [...activeThread.messages, ...extraMessages, newMsg],
       },
-    });
+    };
+
+    // Update sidebar snippet for assistant messages (merged into same set())
+    if (data.role === 'assistant' && data.content) {
+      const pid = getProjectIdForThread(threadId);
+      if (pid) {
+        const { threadsByProject } = get();
+        const threads = threadsByProject[pid];
+        if (threads) {
+          const idx = threads.findIndex((t) => t.id === threadId);
+          if (idx >= 0) {
+            const updated = [...threads];
+            updated[idx] = { ...updated[idx], lastAssistantMessage: data.content.slice(0, 120) };
+            stateUpdate.threadsByProject = { ...threadsByProject, [pid]: updated };
+          }
+        }
+      }
+    }
+
+    set(stateUpdate as any);
   } else if (selectedThreadId === threadId) {
     bufferWSEvent(threadId, 'message', data);
   }
 
-  // Update sidebar snippet for assistant messages
-  if (data.role === 'assistant' && data.content) {
+  // Update sidebar snippet for assistant messages on non-active threads
+  if (activeThread?.id !== threadId && data.role === 'assistant' && data.content) {
     const pid = getProjectIdForThread(threadId);
     if (pid) {
       const { threadsByProject } = get();
@@ -307,10 +376,20 @@ export function handleWSStatus(
       activeThread.status,
       activeThread.cost,
     );
+    const statusChanged = newStatus !== activeThread.status;
+    const stageChanged = !!data.stage && data.stage !== activeThread.stage;
+    const permModeChanged =
+      !!data.permissionMode && data.permissionMode !== activeThread.permissionMode;
+    const waitingReasonChanged =
+      data.waitingReason !== undefined && data.waitingReason !== activeThread.waitingReason;
+    const permReqChanged = !!data.permissionRequest !== !!activeThread.pendingPermission;
+
     if (
-      newStatus !== activeThread.status ||
-      (data.stage && data.stage !== activeThread.stage) ||
-      (data.permissionMode && data.permissionMode !== activeThread.permissionMode)
+      statusChanged ||
+      stageChanged ||
+      permModeChanged ||
+      waitingReasonChanged ||
+      permReqChanged
     ) {
       // If transitioning to waiting, include waitingReason and permissionRequest
       if (newStatus === 'waiting' && !data.waitingReason) {
@@ -350,13 +429,11 @@ export function handleWSStatus(
 
   if (!foundInSidebar) {
     if (activeThread?.id === threadId) {
-      loadThreadsForProject(activeThread.projectId);
+      scheduleProjectRefresh(get, activeThread.projectId);
     } else {
       // Thread not found in any loaded project — likely created externally
-      // (e.g. Chrome extension ingest). Refresh all loaded projects.
-      for (const pid of Object.keys(threadsByProject)) {
-        loadThreadsForProject(pid);
-      }
+      // (e.g. Chrome extension ingest). Debounce refresh to avoid API storm.
+      scheduleProjectRefresh(get);
     }
   }
 }
@@ -475,10 +552,8 @@ export function handleWSResult(get: Get, set: Set, threadId: string, data: any):
     setTimeout(() => loadThreadsForProject(projectIdForRefresh), 500);
   } else {
     // Thread not found in any loaded project — likely created externally
-    // (e.g. Chrome extension ingest). Refresh all loaded projects so it appears.
-    for (const pid of Object.keys(threadsByProject)) {
-      loadThreadsForProject(pid);
-    }
+    // (e.g. Chrome extension ingest). Debounce refresh to avoid API storm.
+    scheduleProjectRefresh(get);
   }
 
   // Toast notification

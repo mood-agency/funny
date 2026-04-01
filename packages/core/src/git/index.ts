@@ -57,6 +57,7 @@ export {
   resetSoft,
   cloneRepo,
   getUnpushedHashes,
+  getFullContextFileDiff,
   type BranchInfo,
   type GitIdentityOptions,
   type GitStatusSummary,

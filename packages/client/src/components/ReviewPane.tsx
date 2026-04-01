@@ -108,11 +108,13 @@ export function ReviewPane() {
   const setReviewSubTabStore = useUIStore((s) => s.setReviewSubTab);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
 
-  // Derive effectiveThreadId from the active thread only.
-  // Never fall back to the first thread in the project list — that can return
-  // a worktree thread when the user selected a local (master) thread, causing
-  // the review pane to show diff data from the wrong working directory.
-  const effectiveThreadId = useThreadStore((s) => s.activeThread?.id);
+  // Use selectedThreadId for git requests — it updates *immediately* when the
+  // user clicks a thread in the sidebar (before the thread data loads from the
+  // API). This decouples git loading from thread loading so ReviewPane can
+  // start fetching status/diff/summary right away instead of waiting 1-2s for
+  // the thread data to arrive.
+  const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
+  const effectiveThreadId = selectedThreadId || undefined;
 
   // When no thread is active but a project is selected, use project-based git endpoints
   const projectModeId = !effectiveThreadId ? selectedProjectId : null;
@@ -231,9 +233,9 @@ export function ReviewPane() {
     prProjectId || undefined,
     gitStatus?.prNumber ?? undefined,
   );
-  // Unpushed count fetched directly during refresh via the log endpoint —
-  // does not depend on the gitStatus store resolving its branchKey chain
-  const [unpushedCommitCount, setUnpushedCommitCount] = useState(0);
+  // Derive unpushed count from gitStatus store (populated by git/status endpoint).
+  // Falls back to 0 until gitStatus resolves.
+  const unpushedCommitCount = gitStatus?.unpushedCommitCount ?? 0;
   const [mergeInProgress, setMergeInProgress] = useState(false);
   const [pushInProgress, setPushInProgress] = useState(false);
   const [prInProgress, setPrInProgress] = useState(false);
@@ -362,15 +364,33 @@ export function ReviewPane() {
 
   const fileListRef = useRef<HTMLDivElement>(null);
 
+  // AbortController for in-flight git requests. Aborted when the git context
+  // changes (thread/project switch) to prevent piling up stale requests that
+  // saturate the server's git process pool and cause progressive slowdown.
+  const abortRef = useRef<AbortController | null>(null);
+
   // Monotonically increasing counter to detect stale refresh results.
   // When a new refresh starts, it captures the current value; if another
   // refresh starts before it finishes, the older one detects the mismatch
   // and bails out instead of overwriting state with stale data.
   const refreshEpochRef = useRef(0);
 
+  // True while refresh() is running — used to suppress the selectedFile
+  // effect from firing a duplicate diff/file load (refresh already loads it).
+  const refreshingRef = useRef(false);
+
   const refresh = async () => {
     if (!hasGitContext) return;
+    refreshingRef.current = true;
     const epoch = ++refreshEpochRef.current;
+
+    // Abort any in-flight git requests from a previous refresh to prevent
+    // piling up stale requests that saturate the server's git process pool.
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    const { signal } = ac;
+
     setLoading(true);
     setLoadError(false);
 
@@ -379,22 +399,15 @@ export function ReviewPane() {
     if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId);
     else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId);
 
-    // Also fetch unpushed count directly via the log endpoint — reliable
-    // fallback when gitStatus store hasn't resolved the branchKey yet
-    const unpushedPromise = effectiveThreadId
-      ? api.getGitLog(effectiveThreadId, 50, true, 0)
-      : api.projectGitLog(projectModeId!, 50, 0);
-    unpushedPromise.then((r) => {
-      if (refreshEpochRef.current !== epoch) return;
-      if (r.isOk()) setUnpushedCommitCount(r.value.unpushedHashes?.length ?? 0);
-    });
-
     const result = effectiveThreadId
-      ? await api.getDiffSummary(effectiveThreadId)
-      : await api.projectDiffSummary(projectModeId!);
+      ? await api.getDiffSummary(effectiveThreadId, undefined, undefined, signal)
+      : await api.projectDiffSummary(projectModeId!, undefined, undefined, signal);
 
     // Bail out if a newer refresh has started while we were awaiting
-    if (refreshEpochRef.current !== epoch) return;
+    if (refreshEpochRef.current !== epoch || signal.aborted) {
+      refreshingRef.current = false;
+      return;
+    }
 
     if (result.isOk()) {
       const data = result.value;
@@ -435,7 +448,7 @@ export function ReviewPane() {
       }
       // Load diff for the currently selected file (uses filtered cache, not stale closure)
       const fileToLoad = selectedFile ?? (data.files.length > 0 ? data.files[0].path : null);
-      if (fileToLoad) {
+      if (fileToLoad && !signal.aborted) {
         const summary = data.files.find((s) => s.path === fileToLoad);
         if (summary) {
           // Use the filtered cache we just computed (not the stale closure value)
@@ -443,8 +456,8 @@ export function ReviewPane() {
           if (!cachedDiff) {
             setLoadingDiff(fileToLoad);
             const diffResult = effectiveThreadId
-              ? await api.getFileDiff(effectiveThreadId, fileToLoad, summary.staged)
-              : await api.projectFileDiff(projectModeId!, fileToLoad, summary.staged);
+              ? await api.getFileDiff(effectiveThreadId, fileToLoad, summary.staged, signal)
+              : await api.projectFileDiff(projectModeId!, fileToLoad, summary.staged, signal);
             if (refreshEpochRef.current === epoch && diffResult.isOk()) {
               setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
             }
@@ -453,10 +466,14 @@ export function ReviewPane() {
         }
       }
     } else {
-      console.error('Failed to load diff summary:', result.error);
-      setLoadError(true);
+      // Don't log abort errors as failures
+      if (!signal.aborted) {
+        console.error('Failed to load diff summary:', result.error);
+        setLoadError(true);
+      }
     }
-    setLoading(false);
+    if (!signal.aborted) setLoading(false);
+    refreshingRef.current = false;
   };
 
   // Lazy load diff content for the selected file
@@ -464,19 +481,42 @@ export function ReviewPane() {
     if (!hasGitContext || diffCache.has(filePath)) return;
     const summary = summaries.find((s) => s.path === filePath);
     if (!summary) return;
+    const signal = abortRef.current?.signal;
     setLoadingDiff(filePath);
     const result = effectiveThreadId
-      ? await api.getFileDiff(effectiveThreadId, filePath, summary.staged)
-      : await api.projectFileDiff(projectModeId!, filePath, summary.staged);
-    if (result.isOk()) {
+      ? await api.getFileDiff(effectiveThreadId, filePath, summary.staged, signal)
+      : await api.projectFileDiff(projectModeId!, filePath, summary.staged, signal);
+    if (result.isOk() && !signal?.aborted) {
       setDiffCache((prev) => new Map(prev).set(filePath, result.value.diff));
     }
     setLoadingDiff((prev) => (prev === filePath ? null : prev));
   };
 
-  // Load diff when selected file or expanded file changes
+  // Fetch full-context diff for the "Show full file" toggle
+  const requestFullDiff = async (
+    path: string,
+  ): Promise<{ oldValue: string; newValue: string } | null> => {
+    if (!hasGitContext) return null;
+    const summary = summaries.find((s) => s.path === path);
+    if (!summary) return null;
+    const signal = abortRef.current?.signal;
+    const result = effectiveThreadId
+      ? await api.getFileDiff(effectiveThreadId, path, summary.staged, signal, 'full')
+      : await api.projectFileDiff(projectModeId!, path, summary.staged, signal, 'full');
+    if (result.isOk() && !signal?.aborted) {
+      return {
+        oldValue: parseDiffOld(result.value.diff),
+        newValue: parseDiffNew(result.value.diff),
+      };
+    }
+    return null;
+  };
+
+  // Load diff when selected file or expanded file changes.
+  // Skip when refresh() is running — it already loads the diff for the
+  // selected file inline, so firing here would cause a duplicate request.
   useEffect(() => {
-    if (selectedFile && !diffCache.has(selectedFile)) {
+    if (selectedFile && !diffCache.has(selectedFile) && !refreshingRef.current) {
       loadDiffForFile(selectedFile);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on file selection change; diffCache/loadDiffForFile change on every refresh and would cause loops
@@ -501,6 +541,11 @@ export function ReviewPane() {
   // the same git working directory.
   const gitContextKey = effectiveThreadId || projectModeId;
   useEffect(() => {
+    // Abort any in-flight git requests from the previous thread/project.
+    // This is the key fix for progressive slowdown: without this, each thread
+    // switch piles up 5-6 git requests that saturate the server's process pool.
+    abortRef.current?.abort();
+
     setSummaries([]);
     setDiffCache(new Map());
     setSelectedFile(null);
@@ -962,10 +1007,11 @@ export function ReviewPane() {
 
   const refreshStashList = async () => {
     if (!hasGitContext) return;
+    const signal = abortRef.current?.signal;
     const result = effectiveThreadId
-      ? await api.stashList(effectiveThreadId)
-      : await api.projectStashList(projectModeId!);
-    if (result.isOk()) {
+      ? await api.stashList(effectiveThreadId, signal)
+      : await api.projectStashList(projectModeId!, signal);
+    if (result.isOk() && !signal?.aborted) {
       setStashEntries(result.value.entries);
     }
   };
@@ -990,13 +1036,15 @@ export function ReviewPane() {
     await refresh();
   };
 
-  // Load stash list on mount / thread change (only when pane is visible)
+  // Load stash list lazily — only when the stash tab is active and visible.
+  // Previously loaded on every context change even if only the Changes tab
+  // was active, wasting a git request that saturated the process pool.
   useEffect(() => {
-    if (reviewPaneOpen) {
+    if (reviewPaneOpen && reviewSubTab === 'stash') {
       refreshStashList();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshStashList is a non-memoized function; only trigger on context/visibility change
-  }, [gitContextKey, reviewPaneOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshStashList is a non-memoized function; only trigger on context/visibility/tab change
+  }, [gitContextKey, reviewPaneOpen, reviewSubTab]);
 
   // ── Sync active sub-tab with URL query param ──
   const setReviewSubTab = useCallback(
@@ -1412,7 +1460,7 @@ export function ReviewPane() {
                   {t('review.noMatchingFiles', 'No matching files')}
                 </p>
               ) : (
-                <div className={cn(loading && 'opacity-60 pointer-events-none')}>
+                <div className={cn(loading && 'pointer-events-none')}>
                   <div
                     style={{
                       height: `${virtualizer.getTotalSize()}px`,
@@ -1429,7 +1477,7 @@ export function ReviewPane() {
                         return (
                           <div
                             key={`folder-${row.path}`}
-                            className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
+                            className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground hover:bg-sidebar-accent/50"
                             style={{
                               position: 'absolute',
                               top: 0,
@@ -1485,7 +1533,7 @@ export function ReviewPane() {
                             paddingLeft,
                           }}
                           className={cn(
-                            'group flex items-center gap-1.5 text-xs cursor-pointer transition-colors',
+                            'group flex items-center gap-1.5 text-xs cursor-pointer',
                             selectedFile === f.path
                               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                               : 'hover:bg-sidebar-accent/50 text-muted-foreground',
@@ -2229,6 +2277,7 @@ export function ReviewPane() {
             onIgnore={handleIgnore}
             basePath={basePath}
             prReviewThreads={prThreads}
+            onRequestFullDiff={requestFullDiff}
           />
         );
       })()}

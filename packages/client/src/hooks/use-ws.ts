@@ -232,6 +232,18 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
       useTerminalStore.getState().updateCommandMetrics(data);
       break;
     }
+    case 'native-git:build_output':
+    case 'native-git:build_status': {
+      import('@/stores/native-git-store').then(({ useNativeGitStore }) => {
+        const store = useNativeGitStore.getState();
+        if (type === 'native-git:build_output') {
+          store.appendBuildOutput(data.text);
+        } else {
+          store.setBuildStatus(data.status, data.exitCode);
+        }
+      });
+      break;
+    }
     case 'automation:run_started': {
       import('@/stores/automation-store').then(({ useAutomationStore }) => {
         useAutomationStore.getState().handleRunStarted({ ...data, threadId });
@@ -518,6 +530,8 @@ const ALL_EVENT_TYPES = [
   'clone:progress',
   'worktree:setup',
   'worktree:setup_complete',
+  'native-git:build_output',
+  'native-git:build_status',
 ];
 
 function registerSocketIOHandlers(socket: Socket): void {

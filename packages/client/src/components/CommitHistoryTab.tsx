@@ -78,7 +78,9 @@ interface CommitHistoryTabProps {
 export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
   const { t } = useTranslation();
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
-  const effectiveThreadId = useThreadStore((s) => s.activeThread?.id);
+  // Use selectedThreadId for git requests — it updates immediately on click,
+  // before the thread data finishes loading from the API.
+  const effectiveThreadId = useThreadStore((s) => s.selectedThreadId) || undefined;
   const projectModeId = !effectiveThreadId ? selectedProjectId : null;
   const hasGitContext = !!(effectiveThreadId || projectModeId);
 
@@ -140,6 +142,9 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
 
   const gitContextKey = effectiveThreadId || projectModeId;
 
+  // AbortController for in-flight git log requests — aborted on context change
+  const abortRef = useRef<AbortController | null>(null);
+
   // ── Load commits (with pagination) ──
 
   const loadLog = useCallback(
@@ -147,9 +152,10 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
       if (!hasGitContext || loadingRef.current) return;
       loadingRef.current = true;
       setLogLoading(true);
+      const signal = abortRef.current?.signal;
       const result = effectiveThreadId
-        ? await api.getGitLog(effectiveThreadId, PAGE_SIZE, true, skip)
-        : await api.projectGitLog(projectModeId!, PAGE_SIZE, skip);
+        ? await api.getGitLog(effectiveThreadId, PAGE_SIZE, true, skip, signal)
+        : await api.projectGitLog(projectModeId!, PAGE_SIZE, skip, signal);
       if (result.isOk()) {
         const { entries, hasMore: more, unpushedHashes: hashes } = result.value;
         setLogEntries((prev) => (append ? [...prev, ...entries] : entries));
@@ -192,6 +198,10 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
 
     if (!contextChanged) return;
 
+    // Abort in-flight git log requests from the previous context
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+
     loadedRef.current = false;
     setLogEntries([]);
     setHasMore(false);
@@ -206,11 +216,11 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
   }, [gitContextKey, setSelectedHash]);
 
   useEffect(() => {
-    if (hasGitContext && !loadedRef.current) {
+    if (visible && hasGitContext && !loadedRef.current) {
       loadedRef.current = true;
       loadLog(0, false);
     }
-  }, [hasGitContext, loadLog]);
+  }, [visible, hasGitContext, loadLog]);
 
   // Refresh when tab becomes visible (e.g. after committing in Changes tab)
   const prevVisibleRef = useRef(visible);

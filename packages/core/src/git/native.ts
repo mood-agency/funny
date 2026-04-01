@@ -35,6 +35,19 @@ export interface NativeDiffSummaryResult {
   truncated: boolean;
 }
 
+export interface NativeCommitFileEntry {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface NativeBranchDetailedInfo {
+  name: string;
+  isLocal: boolean;
+  isRemote: boolean;
+}
+
 export interface NativeGitModule {
   ping(): string;
   getStatusSummary(
@@ -51,6 +64,14 @@ export interface NativeGitModule {
   listBranches(cwd: string): Promise<string[]>;
   getDefaultBranch(cwd: string): Promise<string | null>;
   getLog(cwd: string, limit?: number | null): Promise<NativeGitLogEntry[]>;
+  getCommitBody(cwd: string, hash: string): Promise<string>;
+  getRemoteUrl(cwd: string): Promise<string | null>;
+  listBranchesDetailed(cwd: string): Promise<NativeBranchDetailedInfo[]>;
+  getSingleFileDiff(cwd: string, filePath: string, staged: boolean): Promise<string>;
+  getCommitFileDiff(cwd: string, hash: string, filePath: string): Promise<string>;
+  getCommitFiles(cwd: string, hash: string): Promise<NativeCommitFileEntry[]>;
+  getUnpushedHashes(cwd: string): Promise<string[]>;
+  resetSoft(cwd: string): Promise<void>;
 }
 
 // Heavy I/O ops (status scan, diff scan) — limit concurrent disk reads
@@ -79,6 +100,14 @@ export interface PooledNativeGitModule {
   listBranches(cwd: string): Promise<string[]>;
   getDefaultBranch(cwd: string): Promise<string | null>;
   getLog(cwd: string, limit?: number | null): Promise<NativeGitLogEntry[]>;
+  getCommitBody(cwd: string, hash: string): Promise<string>;
+  getRemoteUrl(cwd: string): Promise<string | null>;
+  listBranchesDetailed(cwd: string): Promise<NativeBranchDetailedInfo[]>;
+  getSingleFileDiff(cwd: string, filePath: string, staged: boolean): Promise<string>;
+  getCommitFileDiff(cwd: string, hash: string, filePath: string): Promise<string>;
+  getCommitFiles(cwd: string, hash: string): Promise<NativeCommitFileEntry[]>;
+  getUnpushedHashes(cwd: string): Promise<string[]>;
+  resetSoft(cwd: string): Promise<void>;
 }
 
 function createPooledModule(mod: NativeGitModule): PooledNativeGitModule {
@@ -90,6 +119,14 @@ function createPooledModule(mod: NativeGitModule): PooledNativeGitModule {
     listBranches: (...args) => lightPool(() => mod.listBranches(...args)),
     getDefaultBranch: (...args) => lightPool(() => mod.getDefaultBranch(...args)),
     getLog: (...args) => lightPool(() => mod.getLog(...args)),
+    getCommitBody: (...args) => lightPool(() => mod.getCommitBody(...args)),
+    getRemoteUrl: (...args) => lightPool(() => mod.getRemoteUrl(...args)),
+    listBranchesDetailed: (...args) => lightPool(() => mod.listBranchesDetailed(...args)),
+    getSingleFileDiff: (...args) => heavyPool(() => mod.getSingleFileDiff(...args)),
+    getCommitFileDiff: (...args) => heavyPool(() => mod.getCommitFileDiff(...args)),
+    getCommitFiles: (...args) => heavyPool(() => mod.getCommitFiles(...args)),
+    getUnpushedHashes: (...args) => lightPool(() => mod.getUnpushedHashes(...args)),
+    resetSoft: (...args) => heavyPool(() => mod.resetSoft(...args)),
   };
 }
 

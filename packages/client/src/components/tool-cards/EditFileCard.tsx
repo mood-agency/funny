@@ -1,5 +1,5 @@
 import { ChevronRight, FilePen, Maximize2 } from 'lucide-react';
-import { useState, useMemo, Suspense } from 'react';
+import { type ReactElement, useState, useMemo, useCallback, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,20 @@ export function EditFileCard({
   }, [filePath, oldString, newString]);
 
   const { renderContent } = useDiffHighlight(oldString || '', newString || '', filePath || '');
+
+  const codeFoldMessageRenderer = useCallback(
+    (
+      totalFoldedLines: number,
+      leftStartLineNumber: number,
+      rightStartLineNumber: number,
+    ): ReactElement => (
+      <span className="font-mono text-[10px] text-muted-foreground">
+        @@ -{leftStartLineNumber - totalFoldedLines},{totalFoldedLines} +
+        {rightStartLineNumber - totalFoldedLines},{totalFoldedLines} @@
+      </span>
+    ),
+    [],
+  );
 
   return (
     <div className="w-full min-w-0 overflow-hidden rounded-lg border border-border text-sm">
@@ -129,8 +143,10 @@ export function EditFileCard({
                 useDarkTheme={true}
                 hideLineNumbers={false}
                 showDiffOnly={true}
+                extraLinesSurroundingDiff={3}
                 styles={DIFF_VIEWER_STYLES}
                 renderContent={renderContent}
+                codeFoldMessageRenderer={codeFoldMessageRenderer}
               />
             </Suspense>
           </div>

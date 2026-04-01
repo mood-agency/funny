@@ -14,6 +14,7 @@ import {
   getDiff,
   getDiffSummary,
   getSingleFileDiff,
+  getFullContextFileDiff,
   stageFiles,
   unstageFiles,
   revertFiles,
@@ -381,7 +382,10 @@ gitRoutes.get('/project/:projectId/diff/file', async (c) => {
     return resultToResponse(c, err(badRequest('Missing required query parameter: path')));
   }
   const staged = c.req.query('staged') === 'true';
-  const result = await getSingleFileDiff(cwd, filePath, staged);
+  const fullContext = c.req.query('context') === 'full';
+  const result = fullContext
+    ? await getFullContextFileDiff(cwd, filePath, staged)
+    : await getSingleFileDiff(cwd, filePath, staged);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ diff: result.value });
 });
@@ -893,7 +897,10 @@ gitRoutes.get('/:threadId/diff/file', async (c) => {
     return resultToResponse(c, err(badRequest('Missing required query parameter: path')));
   }
   const staged = c.req.query('staged') === 'true';
-  const result = await getSingleFileDiff(cwd, filePath, staged);
+  const fullContext = c.req.query('context') === 'full';
+  const result = fullContext
+    ? await getFullContextFileDiff(cwd, filePath, staged)
+    : await getSingleFileDiff(cwd, filePath, staged);
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ diff: result.value });
 });

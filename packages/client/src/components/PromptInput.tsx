@@ -18,6 +18,7 @@ import { toastError } from '@/lib/toast-error';
 import { resolveThreadBranch } from '@/lib/utils';
 import { useBranchPickerStore } from '@/stores/branch-picker-store';
 import { useDraftStore } from '@/stores/draft-store';
+import { useProfileStore } from '@/stores/profile-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 
@@ -194,16 +195,8 @@ export const PromptInput = memo(function PromptInput({
   const [queueLoading, setQueueLoading] = useState(false);
 
   // ── Dictation ──
-  const [hasAssemblyaiKey, setHasAssemblyaiKey] = useState(false);
+  const hasAssemblyaiKey = useProfileStore((s) => s.profile?.hasAssemblyaiKey ?? false);
   const partialTextRef = useRef('');
-
-  useEffect(() => {
-    api.getProfile().then((result) => {
-      if (result.isOk() && result.value) {
-        setHasAssemblyaiKey(result.value.hasAssemblyaiKey);
-      }
-    });
-  }, []);
 
   const handlePartialTranscript = useCallback((text: string) => {
     partialTextRef.current = text;
@@ -372,35 +365,66 @@ export const PromptInput = memo(function PromptInput({
     [effectiveProjectId, projects],
   );
 
-  // Fetch follow-up branches
+  // Fetch follow-up branches — only refetch when the project changes.
+  // Branch selection is updated separately when activeThreadBaseBranch changes.
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const followUpBranchCacheRef = useRef<{
+    projectId: string;
+    branches: string[];
+    remoteBranches: string[];
+    defaultBranch: string | null;
+    currentBranch: string | null;
+  } | null>(null);
+
   useEffect(() => {
     if (!isNewThread && selectedProjectId) {
+      // Use cached data if we already fetched for this project
+      if (followUpBranchCacheRef.current?.projectId === selectedProjectId) {
+        return;
+      }
       (async () => {
         const result = await api.listBranches(selectedProjectId);
         if (result.isOk()) {
           const data = result.value;
+          followUpBranchCacheRef.current = {
+            projectId: selectedProjectId,
+            branches: data.branches,
+            remoteBranches: data.remoteBranches ?? [],
+            defaultBranch: data.defaultBranch,
+            currentBranch: data.currentBranch,
+          };
           setFollowUpBranches(data.branches);
           setFollowUpRemoteBranches(data.remoteBranches ?? []);
           setFollowUpDefaultBranch(data.defaultBranch);
-          const proj = projects.find((p) => p.id === selectedProjectId);
-          if (activeThreadBaseBranch) {
-            setFollowUpSelectedBranch(activeThreadBaseBranch);
-          } else if (proj?.defaultBranch && data.branches.includes(proj.defaultBranch)) {
-            setFollowUpSelectedBranch(proj.defaultBranch);
-          } else if (data.defaultBranch) {
-            setFollowUpSelectedBranch(data.defaultBranch);
-          } else if (data.currentBranch) {
-            setFollowUpSelectedBranch(data.currentBranch);
-          } else if (data.branches.length > 0) {
-            setFollowUpSelectedBranch(data.branches[0]);
-          }
         } else {
           setFollowUpBranches([]);
         }
       })();
     } else {
       setFollowUpBranches([]);
+      followUpBranchCacheRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewThread, selectedProjectId]);
+
+  // Update selection when the active thread's base branch changes (no network call)
+  useEffect(() => {
+    if (isNewThread || !selectedProjectId) return;
+    const cache = followUpBranchCacheRef.current;
+    const branchList = cache?.branches ?? followUpBranches;
+    if (activeThreadBaseBranch) {
+      setFollowUpSelectedBranch(activeThreadBaseBranch);
+    } else {
+      const proj = projects.find((p) => p.id === selectedProjectId);
+      if (proj?.defaultBranch && branchList.includes(proj.defaultBranch)) {
+        setFollowUpSelectedBranch(proj.defaultBranch);
+      } else if (cache?.defaultBranch) {
+        setFollowUpSelectedBranch(cache.defaultBranch);
+      } else if (cache?.currentBranch) {
+        setFollowUpSelectedBranch(cache.currentBranch);
+      } else if (branchList.length > 0) {
+        setFollowUpSelectedBranch(branchList[0]);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewThread, selectedProjectId, activeThreadBaseBranch]);

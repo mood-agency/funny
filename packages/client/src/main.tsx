@@ -9,6 +9,7 @@ import { AppShellSkeleton } from './components/AppShellSkeleton';
 import { TooltipProvider } from './components/ui/tooltip';
 import { api } from './lib/api';
 import { useAuthStore } from './stores/auth-store';
+import { useProfileStore } from './stores/profile-store';
 import { useSettingsStore } from './stores/settings-store';
 import '@fontsource/geist-sans/latin.css';
 import '@fontsource/geist-mono/latin.css';
@@ -89,6 +90,7 @@ function AuthGate() {
       api.getProfile().then((res) => {
         if (res.isOk()) {
           const profile = res.value;
+          useProfileStore.getState().setProfile(profile);
           const completed = profile.setupCompleted ?? false;
           setSetupCompleted(completed);
           if (completed) {

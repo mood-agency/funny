@@ -5,6 +5,7 @@ import {
   Bot,
   Building2,
   Check,
+  Cpu,
   Github,
   Mail,
   Mic,
@@ -54,6 +55,7 @@ import { useUIStore } from '@/stores/ui-store';
 import { OrganizationManagement } from './settings/OrganizationManagement';
 import { RunnersSettings } from './settings/RunnersSettings';
 import { SettingRow } from './settings/SettingRow';
+import { SystemSettings } from './settings/SystemSettings';
 
 type GeneralPage =
   | 'general'
@@ -63,7 +65,8 @@ type GeneralPage =
   | 'speech'
   | 'email'
   | 'organizations'
-  | 'runners';
+  | 'runners'
+  | 'system';
 
 const NAV_ITEMS: Array<{ id: GeneralPage; label: string; icon: typeof SlidersHorizontal }> = [
   { id: 'general', label: 'settings.general', icon: SlidersHorizontal },
@@ -74,6 +77,7 @@ const NAV_ITEMS: Array<{ id: GeneralPage; label: string; icon: typeof SlidersHor
   { id: 'email', label: 'Email (SMTP)', icon: Mail },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'runners', label: 'Runners', icon: Server },
+  { id: 'system', label: 'System', icon: Cpu },
 ];
 
 function getLanguageName(code: string): string {
@@ -676,6 +680,8 @@ export function GeneralSettingsView() {
         {activePreferencesPage === 'organizations' && <OrganizationManagement />}
 
         {activePreferencesPage === 'runners' && <RunnersSettings />}
+
+        {activePreferencesPage === 'system' && <SystemSettings />}
 
         {activePreferencesPage === 'email' && (
           <>
