@@ -34,6 +34,8 @@ import { resolveIdentity } from '../services/git-service.js';
 import * as pc from '../services/project-config-service.js';
 import * as ph from '../services/project-hooks-service.js';
 import { getServices } from '../services/service-registry.js';
+import * as tm from '../services/thread-manager.js';
+import { wsBroker } from '../services/ws-broker.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { requireProject } from '../utils/route-helpers.js';
@@ -133,8 +135,9 @@ projectRoutes.post('/:id/checkout', async (c) => {
     branch: string;
     strategy?: 'stash' | 'carry';
     create?: boolean;
+    threadId?: string;
   }>();
-  const { branch, strategy = 'carry', create = false } = body;
+  const { branch, strategy = 'carry', create = false, threadId } = body;
   if (!branch) return c.json({ error: 'Missing required field: branch' }, 400);
 
   const project = projectResult.value;
@@ -166,6 +169,20 @@ projectRoutes.post('/:id/checkout', async (c) => {
   }
 
   invalidateStatusCache(project.path);
+
+  // If a threadId was provided, update the thread's branch in the DB and notify the client
+  if (threadId) {
+    await tm.updateThread(threadId, { branch });
+    const userId = c.get('userId');
+    if (userId) {
+      wsBroker.emitToUser(userId, {
+        type: 'thread:updated',
+        threadId,
+        data: { branch },
+      });
+    }
+  }
+
   return c.json({ ok: true, currentBranch: branch });
 });
 

@@ -16,12 +16,20 @@ export { validatePath, validatePathSync, pathExists, sanitizePath } from './path
 
 export { getNativeGit } from './native.js';
 
+export { toDomainError } from './errors.js';
+
 export {
   git,
+  gitOptional,
   gitSync,
   gitSafeSync,
   isGitRepo,
   isGitRepoSync,
+  gitRemote,
+  type GitIdentityOptions,
+} from './base.js';
+
+export {
   getCurrentBranch,
   listBranches,
   listBranchesDetailed,
@@ -30,41 +38,43 @@ export {
   getRemoteUrl,
   extractRepoName,
   initRepo,
-  stageFiles,
-  unstageFiles,
-  revertFiles,
-  addToGitignore,
-  commit,
-  runHookCommand,
-  push,
-  pull,
-  createPR,
-  mergeBranch,
-  getDiff,
-  getDiffSummary,
-  getSingleFileDiff,
+  type BranchInfo,
+} from './branch.js';
+
+export { stageFiles, unstageFiles, revertFiles, addToGitignore } from './stage.js';
+
+export { commit, runHookCommand } from './commit.js';
+
+export { push, pull, createPR, mergeBranch, cloneRepo } from './remote.js';
+
+export { getDiff, getDiffSummary, getSingleFileDiff, getFullContextFileDiff } from './diff.js';
+
+export {
   getStatusSummary,
   invalidateStatusCache,
   deriveGitSyncState,
+  type GitStatusSummary,
+} from './status.js';
+
+export {
   getLog,
   getCommitBody,
   getCommitFiles,
   getCommitFileDiff,
+  getUnpushedHashes,
+  type GitLogEntry,
+  type CommitFileEntry,
+} from './log.js';
+
+export {
   stash,
   stashPop,
+  stashDrop,
   stashList,
   stashShow,
   resetSoft,
-  cloneRepo,
-  getUnpushedHashes,
-  getFullContextFileDiff,
-  type BranchInfo,
-  type GitIdentityOptions,
-  type GitStatusSummary,
-  type GitLogEntry,
-  type CommitFileEntry,
   type StashEntry,
-} from './git.js';
+} from './stash.js';
 
 export {
   createWorktree,

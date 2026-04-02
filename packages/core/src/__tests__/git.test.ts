@@ -36,7 +36,7 @@ import {
   getDiffSummary,
   invalidateStatusCache,
   getRemoteUrl,
-} from '../git/git.js';
+} from '../git/index.js';
 import { executeSync } from '../git/process.js';
 
 const TMP = resolve(tmpdir(), 'core-git-test-' + Date.now());

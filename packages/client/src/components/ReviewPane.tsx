@@ -5,13 +5,13 @@ import {
   FileCode,
   FilePlus,
   FileX,
+  FileWarning,
   PanelRightClose,
   Search,
   X,
   GitCommit,
   GitMerge,
   Upload,
-  Download,
   GitPullRequest,
   GitPullRequestClosed,
   Sparkles,
@@ -29,10 +29,10 @@ import {
   AlertTriangle,
   Archive,
   ArchiveRestore,
+  Trash2,
   PenLine,
   RotateCcw,
   ChevronRight,
-  CloudDownload,
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -40,6 +40,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { PullFetchButtons } from '@/components/pull-fetch-buttons';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -92,6 +93,7 @@ const fileStatusIcons: Record<string, typeof FileCode> = {
   modified: FileCode,
   deleted: FileX,
   renamed: FileCode,
+  conflicted: FileWarning,
 };
 
 const FILE_ROW_HEIGHT = 24;
@@ -198,11 +200,13 @@ export function ReviewPane() {
     Array<{ index: string; message: string; relativeDate: string }>
   >([]);
   const [stashPopInProgress, setStashPopInProgress] = useState(false);
+  const [stashDropInProgress, setStashDropInProgress] = useState<string | null>(null);
   const [resetInProgress, setResetInProgress] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
-    type: 'revert' | 'reset' | 'discard-all';
+    type: 'revert' | 'reset' | 'discard-all' | 'drop-stash';
     path?: string;
     paths?: string[];
+    stashIndex?: string;
   } | null>(null);
 
   const isWorktree = useThreadStore((s) => s.activeThread?.mode === 'worktree');
@@ -1016,6 +1020,29 @@ export function ReviewPane() {
     refreshStashList();
   };
 
+  const executeStashDrop = async (stashIndex: string) => {
+    if (!hasGitContext || stashDropInProgress) return;
+    setStashDropInProgress(stashIndex);
+    const result = effectiveThreadId
+      ? await api.stashDrop(effectiveThreadId, stashIndex)
+      : await api.projectStashDrop(projectModeId!, stashIndex);
+    if (result.isErr()) {
+      toast.error(
+        t('review.stashDropFailed', {
+          message: result.error.message,
+          defaultValue: `Drop stash failed: ${result.error.message}`,
+        }),
+      );
+    } else {
+      toast.success(t('review.stashDropSuccess', 'Stash discarded'));
+    }
+    setStashDropInProgress(null);
+    setExpandedStashIndex(null);
+    setStashFiles([]);
+    await refresh();
+    refreshStashList();
+  };
+
   const refreshStashList = async () => {
     if (!hasGitContext) return;
     const signal = abortRef.current?.signal;
@@ -1204,50 +1231,14 @@ export function ReviewPane() {
                 </TooltipTrigger>
                 <TooltipContent side="top">{t('review.refresh')}</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handlePull}
-                    disabled={pullInProgress}
-                    className="relative text-muted-foreground"
-                    data-testid="review-pull"
-                  >
-                    <Download className={cn('icon-base', pullInProgress && 'animate-pulse')} />
-                    {(gitStatus?.unpulledCommitCount ?? 0) > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-blue-500" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {(gitStatus?.unpulledCommitCount ?? 0) > 0
-                    ? t('review.readyToPull', {
-                        count: gitStatus!.unpulledCommitCount,
-                        defaultValue: `${gitStatus!.unpulledCommitCount} commit(s) to pull`,
-                      })
-                    : t('review.pull', 'Pull')}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleFetchOrigin}
-                    disabled={fetchInProgress}
-                    className="text-muted-foreground"
-                    data-testid="review-fetch-origin"
-                  >
-                    <CloudDownload
-                      className={cn('icon-base', fetchInProgress && 'animate-pulse')}
-                    />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  {t('review.fetchOrigin', 'Fetch from origin')}
-                </TooltipContent>
-              </Tooltip>
+              <PullFetchButtons
+                onPull={handlePull}
+                onFetch={handleFetchOrigin}
+                pullInProgress={pullInProgress}
+                fetchInProgress={fetchInProgress}
+                unpulledCommitCount={gitStatus?.unpulledCommitCount ?? 0}
+                testIdPrefix="review"
+              />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1591,22 +1582,26 @@ export function ReviewPane() {
                             className="flex-shrink-0 text-xs font-medium"
                             style={{
                               color:
-                                f.status === 'added'
-                                  ? 'hsl(142 40% 45%)'
-                                  : f.status === 'modified'
-                                    ? 'hsl(30 90% 55%)'
-                                    : f.status === 'deleted'
-                                      ? 'hsl(0 45% 55%)'
-                                      : 'hsl(200 80% 60%)',
+                                f.status === 'conflicted'
+                                  ? 'hsl(0 72% 51%)'
+                                  : f.status === 'added'
+                                    ? 'hsl(142 40% 45%)'
+                                    : f.status === 'modified'
+                                      ? 'hsl(30 90% 55%)'
+                                      : f.status === 'deleted'
+                                        ? 'hsl(0 45% 55%)'
+                                        : 'hsl(200 80% 60%)',
                             }}
                           >
-                            {f.status === 'added'
-                              ? 'A'
-                              : f.status === 'modified'
-                                ? 'M'
-                                : f.status === 'deleted'
-                                  ? 'D'
-                                  : 'R'}
+                            {f.status === 'conflicted'
+                              ? 'C'
+                              : f.status === 'added'
+                                ? 'A'
+                                : f.status === 'modified'
+                                  ? 'M'
+                                  : f.status === 'deleted'
+                                    ? 'D'
+                                    : 'R'}
                           </span>
                           <DropdownMenu
                             onOpenChange={(open) => {
@@ -2092,6 +2087,30 @@ export function ReviewPane() {
                             : t('review.popStashOnlyLatest', 'Only the latest stash can be popped')}
                         </TooltipContent>
                       </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="shrink-0 text-muted-foreground hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDialog({ type: 'drop-stash', stashIndex: idx });
+                            }}
+                            disabled={!!stashDropInProgress || !!isAgentRunning}
+                            data-testid={`stash-drop-${idx}`}
+                          >
+                            {stashDropInProgress === idx ? (
+                              <Loader2 className="icon-sm animate-spin" />
+                            ) : (
+                              <Trash2 className="icon-sm" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                          {t('review.dropStash', 'Discard stash')}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                     {isExpanded && (
                       <div className="border-t border-sidebar-border/50 bg-sidebar-accent/20">
@@ -2155,7 +2174,9 @@ export function ReviewPane() {
         title={
           confirmDialog?.type === 'revert' || confirmDialog?.type === 'discard-all'
             ? t('review.discardChanges', 'Discard changes')
-            : t('review.undoLastCommit', 'Undo last commit')
+            : confirmDialog?.type === 'drop-stash'
+              ? t('review.dropStashTitle', 'Discard stash')
+              : t('review.undoLastCommit', 'Undo last commit')
         }
         description={
           confirmDialog?.type === 'revert'
@@ -2165,7 +2186,9 @@ export function ReviewPane() {
                   count: confirmDialog?.paths?.length,
                   defaultValue: `Discard changes in ${confirmDialog?.paths?.length} file(s)? This cannot be undone.`,
                 })
-              : t('review.resetSoftConfirm', 'Undo the last commit? Changes will be kept.')
+              : confirmDialog?.type === 'drop-stash'
+                ? t('review.dropStashConfirm', 'Drop this stash entry? This cannot be undone.')
+                : t('review.resetSoftConfirm', 'Undo the last commit? Changes will be kept.')
         }
         cancelLabel={t('common.cancel', 'Cancel')}
         confirmLabel={t('common.confirm', 'Confirm')}
@@ -2179,6 +2202,8 @@ export function ReviewPane() {
             await executeDiscardAll(dialog.paths);
           } else if (dialog?.type === 'reset') {
             await executeResetSoft();
+          } else if (dialog?.type === 'drop-stash' && dialog.stashIndex != null) {
+            await executeStashDrop(dialog.stashIndex);
           }
         }}
       />

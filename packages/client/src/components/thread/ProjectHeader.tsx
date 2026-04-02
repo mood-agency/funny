@@ -180,7 +180,7 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
       .replace(/[^a-zA-Z0-9\-_/.]/g, '');
     if (!name || !threadProjectId) return;
     setCreateBranchLoading(true);
-    const result = await api.checkout(threadProjectId, name, 'carry', true);
+    const result = await api.checkout(threadProjectId, name, 'carry', true, threadId);
     setCreateBranchLoading(false);
     if (result.isErr()) {
       toast.error(String(result.error));
@@ -188,7 +188,7 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
       setCreateBranchOpen(false);
       setBranchName('');
     }
-  }, [branchName, threadProjectId]);
+  }, [branchName, threadProjectId, threadId]);
 
   const handleDeleteConfirm = useCallback(async () => {
     const state = useThreadStore.getState();

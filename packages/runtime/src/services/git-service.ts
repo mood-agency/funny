@@ -3,7 +3,7 @@
  * @domain subdomain-type: supporting
  * @domain type: app-service
  * @domain layer: application
- * @domain emits: git:staged, git:unstaged, git:reverted, git:committed, git:pushed, git:pulled, git:merged, git:stashed, git:stash-popped, git:reset-soft
+ * @domain emits: git:staged, git:unstaged, git:reverted, git:committed, git:pushed, git:pulled, git:merged, git:stashed, git:stash-popped, git:stash-dropped, git:reset-soft
  * @domain depends: GitCore, ThreadEventBus, ProfileService, WSBroker
  */
 
@@ -17,6 +17,7 @@ import {
   mergeBranch as gitMerge,
   stash as gitStash,
   stashPop as gitStashPop,
+  stashDrop as gitStashDrop,
   resetSoft as gitResetSoft,
   createPR as gitCreatePR,
   git,
@@ -224,6 +225,25 @@ export function popStash(
 ): ResultAsync<string, DomainError> {
   return gitStashPop(cwd).map(async (output) => {
     threadEventBus.emit('git:stash-popped', {
+      threadId,
+      userId,
+      projectId: await getProjectId(threadId),
+      cwd,
+      output,
+    });
+    invalidateStatusCache(cwd);
+    return output;
+  });
+}
+
+export function dropStash(
+  threadId: string,
+  userId: string,
+  cwd: string,
+  stashIndex: number,
+): ResultAsync<string, DomainError> {
+  return gitStashDrop(cwd, stashIndex).map(async (output) => {
+    threadEventBus.emit('git:stash-dropped', {
       threadId,
       userId,
       projectId: await getProjectId(threadId),

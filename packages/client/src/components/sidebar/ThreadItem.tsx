@@ -122,7 +122,7 @@ export const ThreadItem = memo(function ThreadItem({
       .replace(/[^a-zA-Z0-9\-_/.]/g, '');
     if (!name || !thread.projectId) return;
     setCreateBranchLoading(true);
-    const result = await api.checkout(thread.projectId, name, 'carry', true);
+    const result = await api.checkout(thread.projectId, name, 'carry', true, thread.id);
     setCreateBranchLoading(false);
     if (result.isErr()) {
       toastError(result.error);
@@ -130,7 +130,7 @@ export const ThreadItem = memo(function ThreadItem({
       setIsCreateBranchOpen(false);
       setBranchName('');
     }
-  }, [branchName, thread.projectId]);
+  }, [branchName, thread.projectId, thread.id]);
 
   // Thread status config
   const threadStatusCfg = statusConfig[thread.status as ThreadStatus] ?? statusConfig.pending;

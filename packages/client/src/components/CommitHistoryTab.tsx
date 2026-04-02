@@ -2,8 +2,6 @@ import type { FileDiffSummary, FileStatus } from '@funny/shared';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ArrowUp,
-  CloudDownload,
-  Download,
   GitCommit,
   GitMerge,
   GitPullRequest,
@@ -17,6 +15,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
+import { PullFetchButtons } from '@/components/pull-fetch-buttons';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -507,48 +506,14 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
           </TooltipTrigger>
           <TooltipContent side="top">{t('review.refresh', 'Refresh')}</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handlePull}
-              disabled={pullInProgress}
-              className="relative text-muted-foreground"
-              data-testid="history-pull"
-            >
-              <Download className={cn('icon-base', pullInProgress && 'animate-pulse')} />
-              {(gitStatus?.unpulledCommitCount ?? 0) > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-blue-500 px-0.5 text-[9px] font-bold leading-none text-white">
-                  {gitStatus!.unpulledCommitCount}
-                </span>
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {(gitStatus?.unpulledCommitCount ?? 0) > 0
-              ? t('review.readyToPull', {
-                  count: gitStatus!.unpulledCommitCount,
-                  defaultValue: `${gitStatus!.unpulledCommitCount} commit(s) to pull`,
-                })
-              : t('review.pull', 'Pull')}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleFetchOrigin}
-              disabled={fetchInProgress}
-              className="text-muted-foreground"
-              data-testid="history-fetch-origin"
-            >
-              <CloudDownload className={cn('icon-base', fetchInProgress && 'animate-pulse')} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{t('review.fetchOrigin', 'Fetch from origin')}</TooltipContent>
-        </Tooltip>
+        <PullFetchButtons
+          onPull={handlePull}
+          onFetch={handleFetchOrigin}
+          pullInProgress={pullInProgress}
+          fetchInProgress={fetchInProgress}
+          unpulledCommitCount={gitStatus?.unpulledCommitCount ?? 0}
+          testIdPrefix="history"
+        />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

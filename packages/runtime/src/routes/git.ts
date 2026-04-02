@@ -32,6 +32,7 @@ import {
   getCommitFileDiff,
   stash,
   stashPop,
+  stashDrop,
   stashList,
   stashShow,
   resetSoft,
@@ -54,6 +55,7 @@ import {
   pullChanges as gitServicePull,
   stashChanges as gitServiceStash,
   popStash as gitServicePopStash,
+  dropStash as gitServiceDropStash,
   softReset as gitServiceSoftReset,
   merge as gitServiceMerge,
   createPullRequest as gitServiceCreatePR,
@@ -668,6 +670,23 @@ gitRoutes.post('/project/:projectId/stash/pop', async (c) => {
   const cwdResult = await requireProjectCwd(projectId, userId, orgId);
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
   const result = await stashPop(cwdResult.value);
+  if (result.isErr()) return resultToResponse(c, result);
+  _gitStatusCache.delete(projectId);
+  return c.json({ ok: true, output: result.value });
+});
+
+// POST /api/git/project/:projectId/stash/drop/:stashIndex
+gitRoutes.post('/project/:projectId/stash/drop/:stashIndex', async (c) => {
+  const projectId = c.req.param('projectId');
+  const userId = c.get('userId') as string;
+  const orgId = c.get('organizationId');
+  const cwdResult = await requireProjectCwd(projectId, userId, orgId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+  const stashIndex = parseInt(c.req.param('stashIndex'), 10);
+  if (Number.isNaN(stashIndex) || stashIndex < 0) {
+    return resultToResponse(c, err(badRequest('Invalid stash index')));
+  }
+  const result = await stashDrop(cwdResult.value, stashIndex);
   if (result.isErr()) return resultToResponse(c, result);
   _gitStatusCache.delete(projectId);
   return c.json({ ok: true, output: result.value });
@@ -1507,6 +1526,24 @@ gitRoutes.post('/:threadId/stash/pop', async (c) => {
   if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
 
   const result = await gitServicePopStash(threadId, userId, cwdResult.value);
+  if (result.isErr()) return resultToResponse(c, result);
+  await invalidateGitStatusCache(threadId);
+  return c.json({ ok: true, output: result.value });
+});
+
+// POST /api/git/:threadId/stash/drop/:stashIndex
+gitRoutes.post('/:threadId/stash/drop/:stashIndex', async (c) => {
+  const threadId = c.req.param('threadId');
+  const userId = c.get('userId') as string;
+  const orgId = c.get('organizationId');
+  const cwdResult = await requireThreadCwd(threadId, userId, orgId);
+  if (cwdResult.isErr()) return resultToResponse(c, cwdResult);
+
+  const stashIndex = parseInt(c.req.param('stashIndex'), 10);
+  if (Number.isNaN(stashIndex) || stashIndex < 0) {
+    return resultToResponse(c, err(badRequest('Invalid stash index')));
+  }
+  const result = await gitServiceDropStash(threadId, userId, cwdResult.value, stashIndex);
   if (result.isErr()) return resultToResponse(c, result);
   await invalidateGitStatusCache(threadId);
   return c.json({ ok: true, output: result.value });

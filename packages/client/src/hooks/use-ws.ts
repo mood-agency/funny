@@ -293,6 +293,8 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
         store2.refreshAllLoadedThreads();
       }
       if (data.branch || data.worktreePath || data.containerUrl) {
+        // Update the thread in the sidebar list
+        store2.refreshAllLoadedThreads();
         if (store2.activeThread?.id === threadId) {
           store2.refreshActiveThread();
         }

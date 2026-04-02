@@ -6,7 +6,7 @@ import type { SetupProgressFn } from '@funny/core/ports';
 import { badRequest, internal, type DomainError } from '@funny/shared/errors';
 import { ResultAsync } from 'neverthrow';
 
-import { git } from './git.js';
+import { git } from './base.js';
 import { gitRead, gitWrite } from './process.js';
 
 /**

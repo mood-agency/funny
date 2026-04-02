@@ -885,7 +885,7 @@ export interface ProjectHook {
 
 // ─── Git Diffs ───────────────────────────────────────────
 
-export type FileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
+export type FileStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'conflicted';
 
 export interface FileDiff {
   path: string;

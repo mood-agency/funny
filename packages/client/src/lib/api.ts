@@ -252,10 +252,11 @@ export const api = {
     branch: string,
     strategy: 'stash' | 'carry' = 'carry',
     create = false,
+    threadId?: string,
   ) =>
     request<{ ok: boolean; currentBranch: string }>(`/projects/${projectId}/checkout`, {
       method: 'POST',
-      body: JSON.stringify({ branch, strategy, create }),
+      body: JSON.stringify({ branch, strategy, create, threadId }),
     }),
 
   // Threads
@@ -590,6 +591,10 @@ export const api = {
     request<{ files: Array<{ path: string; additions: number; deletions: number }> }>(
       `/git/${threadId}/stash/show/${stashIndex}`,
     ),
+  stashDrop: (threadId: string, stashIndex: string) =>
+    request<{ ok: boolean; output?: string }>(`/git/${threadId}/stash/drop/${stashIndex}`, {
+      method: 'POST',
+    }),
   resetSoft: (threadId: string) =>
     request<{ ok: boolean; output?: string }>(`/git/${threadId}/reset-soft`, { method: 'POST' }),
 
@@ -672,6 +677,11 @@ export const api = {
   projectStashShow: (projectId: string, stashIndex: string) =>
     request<{ files: Array<{ path: string; additions: number; deletions: number }> }>(
       `/git/project/${projectId}/stash/show/${stashIndex}`,
+    ),
+  projectStashDrop: (projectId: string, stashIndex: string) =>
+    request<{ ok: boolean; output?: string }>(
+      `/git/project/${projectId}/stash/drop/${stashIndex}`,
+      { method: 'POST' },
     ),
   projectResetSoft: (projectId: string) =>
     request<{ ok: boolean; output?: string }>(`/git/project/${projectId}/reset-soft`, {

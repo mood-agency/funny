@@ -61,7 +61,7 @@ pub async fn get_diff_summary(
           use gix_status::index_as_worktree::EntryStatus;
           use gix_status::index_as_worktree::Change;
           let s = match status {
-            EntryStatus::Conflict { .. } => "modified",
+            EntryStatus::Conflict { .. } => "conflicted",
             EntryStatus::Change(change) => match change {
               Change::Removed => "deleted",
               Change::Type { .. } => "modified",
