@@ -57,19 +57,20 @@ export function commit(
 
 /**
  * Run a single hook command (e.g. one step from .husky/pre-commit) in the given cwd.
- * Returns { success, output } so the caller can track per-hook progress.
+ * Returns ok({ success, output }) or err(DomainError) on unexpected failures.
  */
-export async function runHookCommand(
+export function runHookCommand(
   cwd: string,
   command: string,
-): Promise<{ success: boolean; output: string }> {
-  try {
-    const result = await executeShell(command, { cwd, reject: false, timeout: 120_000 });
-    const output = (result.stdout + '\n' + result.stderr).trim();
-    return { success: result.exitCode === 0, output };
-  } catch (e: any) {
-    return { success: false, output: e.message || 'Hook command failed' };
-  }
+): ResultAsync<{ success: boolean; output: string }, DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const result = await executeShell(command, { cwd, reject: false, timeout: 120_000 });
+      const output = (result.stdout + '\n' + result.stderr).trim();
+      return { success: result.exitCode === 0, output };
+    })(),
+    (e: unknown) => processError((e as Error).message || 'Hook command failed', 1, ''),
+  );
 }
 
 // ─── Hook wrapper helpers ───────────────────────────────

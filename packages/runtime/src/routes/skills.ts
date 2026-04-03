@@ -49,11 +49,8 @@ app.post('/', async (c) => {
   const parsed = validate(addSkillSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
 
-  try {
-    await addSkill(parsed.value.identifier);
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Failed to install skill' }, 500);
-  }
+  const result = await addSkill(parsed.value.identifier);
+  if (result?.isErr?.()) return resultToResponse(c, result);
   return c.json({ ok: true });
 });
 

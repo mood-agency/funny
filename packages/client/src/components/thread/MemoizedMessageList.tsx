@@ -622,7 +622,7 @@ export const MemoizedMessageList = memo(
                   <CopyButton content={msg.content} />
                 </div>
                 <div className="mt-1">
-                  <span className="select-none text-xs text-muted-foreground/60">
+                  <span className="select-none text-xs text-muted-foreground/80">
                     {timeAgo(msg.timestamp, t)}
                   </span>
                 </div>

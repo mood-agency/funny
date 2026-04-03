@@ -3,7 +3,11 @@ import { Folder, GitBranch } from 'lucide-react';
 import { useMemo } from 'react';
 
 import { DiffStats } from '@/components/DiffStats';
-import { PowerlineBar, type PowerlineSegmentData } from '@/components/ui/powerline-bar';
+import {
+  PowerlineBar,
+  type PowerlineBarProps,
+  type PowerlineSegmentData,
+} from '@/components/ui/powerline-bar';
 import { colorFromName, darkenHex } from '@/components/ui/project-chip';
 import { cn, resolveThreadBranch } from '@/lib/utils';
 
@@ -19,6 +23,8 @@ export interface ThreadPowerlineProps {
   gitStatus?: GitStatusInfo;
   /** DiffStats size variant */
   diffStatsSize?: 'sm' | 'xs' | 'xxs';
+  /** Powerline visual style — forwarded to PowerlineBar */
+  variant?: PowerlineBarProps['variant'];
   /** Additional className for the outer wrapper */
   className?: string;
   'data-testid'?: string;
@@ -37,6 +43,7 @@ export function ThreadPowerline({
   projectTooltip,
   gitStatus,
   diffStatsSize = 'xs',
+  variant,
   className,
   ...props
 }: ThreadPowerlineProps) {
@@ -109,6 +116,7 @@ export function ThreadPowerline({
         <PowerlineBar
           segments={segments}
           size="sm"
+          variant={variant}
           className="min-w-0 flex-shrink"
           data-testid={props['data-testid']}
         />

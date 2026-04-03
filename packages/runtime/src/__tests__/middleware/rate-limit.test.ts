@@ -1,7 +1,13 @@
 import { Hono } from 'hono';
 import { describe, test, expect, beforeEach } from 'vitest';
 
-import { rateLimit } from '../../middleware/rate-limit.js';
+import {
+  rateLimit,
+  defaultRateLimit,
+  authRateLimit,
+  mutationRateLimit,
+  readRateLimit,
+} from '../../middleware/rate-limit.js';
 
 describe('rateLimit middleware', () => {
   let app: Hono;
@@ -133,5 +139,107 @@ describe('rateLimit middleware', () => {
 
     const res = await app.request('/test');
     expect(res.status).toBe(429);
+  });
+});
+
+describe('tiered rate limit presets', () => {
+  describe('defaultRateLimit', () => {
+    test('allows requests under the 5000 req/min limit', async () => {
+      const app = new Hono();
+      app.use('*', defaultRateLimit());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(200);
+    });
+
+    test('rejects after 5000 requests', async () => {
+      const app = new Hono();
+      const mw = defaultRateLimit();
+      app.use('*', mw);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      for (let i = 0; i < 5000; i++) {
+        await app.request('/test');
+      }
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe('authRateLimit', () => {
+    test('allows requests under the 20 req/min limit', async () => {
+      const app = new Hono();
+      app.use('*', authRateLimit());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(200);
+    });
+
+    test('rejects after 20 requests', async () => {
+      const app = new Hono();
+      app.use('*', authRateLimit());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      for (let i = 0; i < 20; i++) {
+        const res = await app.request('/test');
+        expect(res.status).toBe(200);
+      }
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe('mutationRateLimit', () => {
+    test('allows requests under the 200 req/min limit', async () => {
+      const app = new Hono();
+      app.use('*', mutationRateLimit());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(200);
+    });
+
+    test('rejects after 200 requests', async () => {
+      const app = new Hono();
+      app.use('*', mutationRateLimit());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      for (let i = 0; i < 200; i++) {
+        const res = await app.request('/test');
+        expect(res.status).toBe(200);
+      }
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe('readRateLimit', () => {
+    test('allows requests under the 10000 req/min limit', async () => {
+      const app = new Hono();
+      app.use('*', readRateLimit());
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(200);
+    });
+
+    test('rejects after 10000 requests', async () => {
+      const app = new Hono();
+      const mw = readRateLimit();
+      app.use('*', mw);
+      app.get('/test', (c) => c.json({ ok: true }));
+
+      for (let i = 0; i < 10_000; i++) {
+        await app.request('/test');
+      }
+
+      const res = await app.request('/test');
+      expect(res.status).toBe(429);
+    });
   });
 });

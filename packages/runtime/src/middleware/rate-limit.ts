@@ -9,16 +9,16 @@ import type { Context, Next } from 'hono';
 
 import { shutdownManager, ShutdownPhase } from '../services/shutdown-manager.js';
 
-let pruneTimer: ReturnType<typeof setInterval> | null = null;
+const pruneTimers: ReturnType<typeof setInterval>[] = [];
 
 // ── Self-register with ShutdownManager ──────────────────────
 shutdownManager.register(
   'rate-limit-timer',
   () => {
-    if (pruneTimer) {
-      clearInterval(pruneTimer);
-      pruneTimer = null;
+    for (const timer of pruneTimers) {
+      clearInterval(timer);
     }
+    pruneTimers.length = 0;
   },
   ShutdownPhase.SERVICES,
 );
@@ -32,11 +32,8 @@ export function rateLimit(opts: { windowMs: number; max: number }) {
   const { windowMs, max } = opts;
   const hits = new Map<string, number[]>();
 
-  // Clear previous timer if rateLimit is called again (hot reload)
-  if (pruneTimer) clearInterval(pruneTimer);
-
   // Periodically prune stale entries to prevent memory growth
-  pruneTimer = setInterval(() => {
+  const pruneTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, timestamps] of hits) {
       const valid = timestamps.filter((t) => now - t < windowMs);
@@ -48,6 +45,7 @@ export function rateLimit(opts: { windowMs: number; max: number }) {
     }
   }, windowMs);
   pruneTimer.unref();
+  pruneTimers.push(pruneTimer);
 
   return async (c: Context, next: Next) => {
     // Use Bun's socket address when available; only fall back to proxy
@@ -69,3 +67,17 @@ export function rateLimit(opts: { windowMs: number; max: number }) {
     return next();
   };
 }
+
+// ── Tiered rate limit presets ────────────────────────────────
+
+/** Default API rate limit: 5000 req/min */
+export const defaultRateLimit = () => rateLimit({ windowMs: 60_000, max: 5000 });
+
+/** Strict rate limit for auth endpoints: 20 req/min (prevents brute force) */
+export const authRateLimit = () => rateLimit({ windowMs: 60_000, max: 20 });
+
+/** Strict rate limit for mutation endpoints (create/delete): 200 req/min */
+export const mutationRateLimit = () => rateLimit({ windowMs: 60_000, max: 200 });
+
+/** Relaxed rate limit for read-heavy endpoints (WS, browse): 10000 req/min */
+export const readRateLimit = () => rateLimit({ windowMs: 60_000, max: 10_000 });

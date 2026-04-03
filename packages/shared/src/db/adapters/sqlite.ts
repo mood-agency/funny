@@ -44,6 +44,7 @@ export function createSqliteProvider(options: CreateSqliteOptions): DatabaseProv
 
   sqliteDb.exec('PRAGMA journal_mode = WAL');
   sqliteDb.exec('PRAGMA foreign_keys = ON');
+  sqliteDb.exec('PRAGMA busy_timeout = 5000');
 
   const WAL_CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
   const walCheckpointTimer = setInterval(() => {

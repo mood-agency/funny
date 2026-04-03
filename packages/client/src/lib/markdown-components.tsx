@@ -112,7 +112,10 @@ export const baseMarkdownComponents = {
       return <HighlightedCode code={code} language={language} />;
     }
     return (
-      <code className="rounded bg-muted-foreground/35 px-1 py-0.5 font-mono text-xs" {...props}>
+      <code
+        className="rounded bg-muted-foreground/20 px-1 py-0.5 font-mono text-xs text-foreground"
+        {...props}
+      >
         {children}
       </code>
     );
@@ -139,7 +142,7 @@ export const baseMarkdownComponents = {
       <div className="group/codeblock relative my-2">
         <pre className="overflow-x-auto rounded bg-muted p-2 font-mono">
           {language && (
-            <div className="mb-1 select-none text-[10px] uppercase tracking-wider text-muted-foreground/60">
+            <div className="mb-1 select-none text-[10px] uppercase tracking-wider text-muted-foreground/80">
               {language}
             </div>
           )}

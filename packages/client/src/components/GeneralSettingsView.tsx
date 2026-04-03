@@ -122,6 +122,11 @@ const THEME_OPTIONS: ThemeOption[] = [
     colors: { bg: '#1e1e2e', sidebar: '#181825', accent: '#89b4fa', fg: '#cdd6f4' },
   },
   {
+    value: 'sunrise',
+    label: 'settings.themes.sunrise',
+    colors: { bg: '#FAFAFA', sidebar: '#F5F5F5', accent: '#171717', fg: '#171717' },
+  },
+  {
     value: 'monochrome',
     label: 'settings.themes.monochrome',
     colors: { bg: '#ffffff', sidebar: '#f7f7f7', accent: '#000000', fg: '#000000' },

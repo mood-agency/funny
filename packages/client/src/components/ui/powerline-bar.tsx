@@ -5,6 +5,21 @@ import { cn, ICON_SIZE } from '@/lib/utils';
 import { contrastText, darkenHex } from './project-chip';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip';
 
+type PowerlineVariant = 'arrow' | 'chips';
+
+/** Read --powerline-variant from the current theme CSS (defaults to 'arrow'). */
+function useThemeVariant(): PowerlineVariant {
+  const [variant, setVariant] = React.useState<PowerlineVariant>('arrow');
+  React.useEffect(() => {
+    const raw = getComputedStyle(document.documentElement)
+      .getPropertyValue('--powerline-variant')
+      .trim();
+    if (raw === 'chips') setVariant('chips');
+    else setVariant('arrow');
+  });
+  return variant;
+}
+
 export interface PowerlineSegmentData {
   /** Unique key for React rendering */
   key: string;
@@ -25,6 +40,9 @@ export interface PowerlineBarProps {
   segments: PowerlineSegmentData[];
   /** Size variant */
   size?: 'sm' | 'md';
+  /** Visual style: "arrow" (powerline chevrons) or "chips" (rounded pills).
+   *  When omitted, falls back to the theme's --powerline-variant CSS variable (default: arrow). */
+  variant?: PowerlineVariant;
   /** Additional class names for the outer container */
   className?: string;
   'data-testid'?: string;
@@ -55,14 +73,27 @@ function arrowEdgeShadow(color: string): string {
   return `drop-shadow(1px 0 0 ${darker})`;
 }
 
-export function PowerlineBar({ segments, size = 'md', className, ...props }: PowerlineBarProps) {
+export function PowerlineBar({
+  segments,
+  size = 'md',
+  variant: variantProp,
+  className,
+  ...props
+}: PowerlineBarProps) {
+  const themeVariant = useThemeVariant();
+  const variant = variantProp ?? themeVariant;
+
   if (segments.length === 0) return null;
   const config = sizeConfig[size];
 
   return (
     <TooltipProvider delayDuration={300}>
       <div
-        className={cn('inline-flex items-center min-w-0', className)}
+        className={cn(
+          'inline-flex items-center min-w-0',
+          variant === 'chips' && 'gap-1',
+          className,
+        )}
         data-testid={props['data-testid']}
       >
         {segments.map((segment, i) => {
@@ -70,6 +101,29 @@ export function PowerlineBar({ segments, size = 'md', className, ...props }: Pow
           const isLast = i === segments.length - 1;
           const textColor = segment.textColor || contrastText(segment.color);
           const Icon = segment.icon;
+
+          if (variant === 'chips') {
+            return (
+              <Tooltip key={segment.key}>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      'inline-flex items-center gap-0.5 min-w-0 rounded-full',
+                      config.padding,
+                    )}
+                    style={{ backgroundColor: segment.color, color: textColor }}
+                    data-testid={`powerline-segment-${segment.key}`}
+                  >
+                    {Icon && <Icon className={cn(config.icon, 'shrink-0')} aria-hidden="true" />}
+                    <span className={cn(config.text, 'truncate font-medium whitespace-nowrap')}>
+                      {segment.label}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>{segment.tooltip || segment.label}</TooltipContent>
+              </Tooltip>
+            );
+          }
 
           return (
             <Tooltip key={segment.key}>

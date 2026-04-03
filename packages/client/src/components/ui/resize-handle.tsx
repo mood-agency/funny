@@ -95,7 +95,7 @@ export function ResizeHandle({
       className={cn(
         'relative z-10 flex-shrink-0',
         isHorizontal
-          ? 'w-px cursor-col-resize bg-border hover:bg-sidebar-accent'
+          ? 'w-[3px] cursor-col-resize bg-border hover:bg-ring/50'
           : 'h-1.5 cursor-row-resize after:absolute after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2 after:bg-border after:transition-colors hover:after:bg-sidebar-border',
         !isHorizontal && resizing && 'after:bg-sidebar-border',
         !resizing && 'transition-colors',

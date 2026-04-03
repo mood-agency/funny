@@ -1,6 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
+import { internal, type DomainError } from '@funny/shared/errors';
+import { ResultAsync } from 'neverthrow';
+
 import { executeShell } from '../git/process.js';
 import { getWorktreeBase } from '../git/worktree.js';
 import { readProjectConfig } from './config-reader.js';
@@ -29,60 +32,60 @@ export type SetupProgressFn = (
  * Full worktree setup: allocate ports, copy .env files, run postCreate commands.
  * Reads .funny.json from the project root. No-op if no config exists.
  */
-export async function setupWorktree(
+export function setupWorktree(
   projectPath: string,
   worktreePath: string,
   onProgress?: SetupProgressFn,
-): Promise<SetupWorktreeResult> {
-  const config = readProjectConfig(projectPath);
-  const result: SetupWorktreeResult = { ports: [], postCreateErrors: [] };
+): ResultAsync<SetupWorktreeResult, DomainError> {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const config = readProjectConfig(projectPath);
+      const result: SetupWorktreeResult = { ports: [], postCreateErrors: [] };
 
-  if (!config) return result;
+      if (!config) return result;
 
-  // 1. Port allocation + .env copy
-  if (config.portGroups?.length && config.envFiles?.length) {
-    onProgress?.('ports', 'Allocating ports', 'running');
-    try {
-      const exclude = await collectSiblingPorts(projectPath, worktreePath, config.envFiles);
-      result.ports = await allocatePorts(config.portGroups, exclude);
+      // 1. Port allocation + .env copy
+      if (config.portGroups?.length && config.envFiles?.length) {
+        onProgress?.('ports', 'Allocating ports', 'running');
+        const exclude = await collectSiblingPorts(projectPath, worktreePath, config.envFiles);
+        result.ports = await allocatePorts(config.portGroups, exclude);
 
-      for (const relPath of config.envFiles) {
-        const relevantVars = detectRelevantVars(projectPath, relPath, result.ports);
-        const filtered = result.ports
-          .map((a) => ({
-            ...a,
-            envVars: a.envVars.filter((v) => relevantVars.has(v)),
-          }))
-          .filter((a) => a.envVars.length > 0);
+        for (const relPath of config.envFiles) {
+          const relevantVars = detectRelevantVars(projectPath, relPath, result.ports);
+          const filtered = result.ports
+            .map((a) => ({
+              ...a,
+              envVars: a.envVars.filter((v) => relevantVars.has(v)),
+            }))
+            .filter((a) => a.envVars.length > 0);
 
-        if (filtered.length > 0) {
-          copyAndOverrideEnv(projectPath, worktreePath, relPath, filtered);
+          if (filtered.length > 0) {
+            copyAndOverrideEnv(projectPath, worktreePath, relPath, filtered);
+          }
+        }
+        onProgress?.('ports', 'Allocating ports', 'completed');
+      }
+
+      // 2. Post-create commands (best-effort — failures are collected, not fatal)
+      if (config.postCreate?.length) {
+        for (const cmd of config.postCreate) {
+          const stepId = `cmd:${cmd}`;
+          onProgress?.(stepId, cmd, 'running');
+          try {
+            await executeShell(cmd, { cwd: worktreePath, timeout: 120_000 });
+            onProgress?.(stepId, cmd, 'completed');
+          } catch (err) {
+            const errMsg = String(err);
+            result.postCreateErrors.push(`"${cmd}": ${errMsg}`);
+            onProgress?.(stepId, cmd, 'failed', errMsg);
+          }
         }
       }
-      onProgress?.('ports', 'Allocating ports', 'completed');
-    } catch (err) {
-      onProgress?.('ports', 'Allocating ports', 'failed', String(err));
-      throw err;
-    }
-  }
 
-  // 2. Post-create commands
-  if (config.postCreate?.length) {
-    for (const cmd of config.postCreate) {
-      const stepId = `cmd:${cmd}`;
-      onProgress?.(stepId, cmd, 'running');
-      try {
-        await executeShell(cmd, { cwd: worktreePath, timeout: 120_000 });
-        onProgress?.(stepId, cmd, 'completed');
-      } catch (err) {
-        const errMsg = String(err);
-        result.postCreateErrors.push(`"${cmd}": ${errMsg}`);
-        onProgress?.(stepId, cmd, 'failed', errMsg);
-      }
-    }
-  }
-
-  return result;
+      return result;
+    })(),
+    (err) => internal(`Worktree setup failed: ${err}`),
+  );
 }
 
 // Keep backward-compatible export

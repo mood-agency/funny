@@ -4,10 +4,17 @@ import { okAsync, errAsync } from 'neverthrow';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 // ── Shared mock state that we can reassign per test ──────────────────
-const mockLoadThreadsForProject = vi.fn().mockResolvedValue(undefined);
-const mockClearProjectThreads = vi.fn();
-let mockThreadsByProject: Record<string, unknown[]> = {};
-const mockFetchForProject = vi.fn();
+const {
+  mockLoadThreadsForProject,
+  mockClearProjectThreads,
+  mockThreadsByProject,
+  mockFetchForProject,
+} = vi.hoisted(() => ({
+  mockLoadThreadsForProject: vi.fn().mockResolvedValue(undefined),
+  mockClearProjectThreads: vi.fn(),
+  mockThreadsByProject: { current: {} as Record<string, unknown[]> },
+  mockFetchForProject: vi.fn(),
+}));
 
 // Mock dependencies
 vi.mock('@/lib/api', () => ({
@@ -24,16 +31,16 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
-vi.mock('@/stores/thread-store', () => ({
-  useThreadStore: {
-    getState: () => ({
-      loadThreadsForProject: mockLoadThreadsForProject,
-      get threadsByProject() {
-        return mockThreadsByProject;
-      },
-      clearProjectThreads: mockClearProjectThreads,
-    }),
+vi.mock('@/stores/store-bridge', () => ({
+  batchUpdateThreads: vi.fn(),
+  ensureThreadsLoaded: (projectId: string) => {
+    // Mimic the bridge logic: only call loadThreadsForProject if not already loaded
+    if (!mockThreadsByProject.current[projectId]) {
+      mockLoadThreadsForProject(projectId);
+    }
   },
+  clearProjectThreads: (...args: any[]) => mockClearProjectThreads(...args),
+  registerProjectStore: vi.fn(),
 }));
 
 vi.mock('@/stores/git-status-store', () => ({
@@ -70,7 +77,7 @@ describe('ProjectStore', () => {
       initialized: false,
     });
     vi.clearAllMocks();
-    mockThreadsByProject = {};
+    mockThreadsByProject.current = {};
   });
 
   describe('Initial state', () => {
@@ -155,7 +162,7 @@ describe('ProjectStore', () => {
     });
 
     test('does not load threads if already loaded', () => {
-      mockThreadsByProject = { p1: [] };
+      mockThreadsByProject.current = { p1: [] };
 
       useProjectStore.getState().toggleProject('p1');
 

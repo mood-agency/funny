@@ -1,4 +1,4 @@
-@import 'highlight.js/styles/github-dark-dimmed.css';
+@import 'highlight.js/styles/github-dark.css';
 
 @tailwind base;
 @tailwind components;
@@ -138,8 +138,8 @@
     --status-neutral: 220 9% 46%;
     --status-violet: 263 70% 50%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI colors (dark default) */
     --terminal-black: #000000;
@@ -201,8 +201,8 @@
     --status-neutral: 219 10% 55%;
     --status-violet: 263 73% 52%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI — One Dark */
     --terminal-black: #282c34;
@@ -264,8 +264,8 @@
     --status-neutral: 225.5 26.6% 51.4%;
     --status-violet: 264.7 89.5% 77.6%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI — Dracula */
     --terminal-black: #21222c;
@@ -327,8 +327,8 @@
     --status-neutral: 214.7 7.9% 52.7%;
     --status-violet: 263 70% 50%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI — GitHub Dark */
     --terminal-black: #484f58;
@@ -390,8 +390,8 @@
     --status-neutral: 206.8 22.8% 48.2%;
     --status-violet: 261.9 46.7% 55.1%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI — Night Owl */
     --terminal-black: #011627;
@@ -518,8 +518,8 @@
     --status-neutral: 0 0% 45%;
     --status-violet: 0 0% 60%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI — Monochrome Dark (colorful terminal for readability) */
     --terminal-black: #1a1a1a;
@@ -539,6 +539,71 @@
     --terminal-bright-cyan: #22d3ee;
     --terminal-bright-white: #ffffff;
     --terminal-selection: #444444;
+  }
+
+  /* ── Sunrise (Warm Light) ──────────────────────────────────── */
+  .theme-sunrise {
+    --background: 0 0% 98%;
+    --foreground: 0 0% 58%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 15%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;
+    --input: 0 0% 91%;
+    --ring: 0 0% 9%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 96%;
+    --sidebar-foreground: 0 0% 20%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 91%;
+    --sidebar-accent-foreground: 0 0% 20%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-ring: 0 0% 9%;
+
+    --status-success: 152 60% 40%;
+    --status-error: 0 72% 51%;
+    --status-warning: 38 92% 50%;
+    --status-info: 210 75% 50%;
+    --status-pending: 48 90% 50%;
+    --status-interrupted: 25 90% 50%;
+    --status-neutral: 30 8% 50%;
+    --status-violet: 263 60% 55%;
+
+    --diff-added: 142 40% 45%;
+    --diff-removed: 0 45% 55%;
+
+    --powerline-variant: chips;
+
+    /* Terminal ANSI — Sunrise (warm light) */
+    --terminal-black: #3B3228;
+    --terminal-red: #C4384B;
+    --terminal-green: #2E8B57;
+    --terminal-yellow: #B8860B;
+    --terminal-blue: #3A6EA5;
+    --terminal-magenta: #A0522D;
+    --terminal-cyan: #2E8B8B;
+    --terminal-white: #5C5044;
+    --terminal-bright-black: #7B7068;
+    --terminal-bright-red: #D14D41;
+    --terminal-bright-green: #3CB371;
+    --terminal-bright-yellow: #DAA520;
+    --terminal-bright-blue: #4A86C8;
+    --terminal-bright-magenta: #B8733D;
+    --terminal-bright-cyan: #3AA5A5;
+    --terminal-bright-white: #A09888;
+    --terminal-selection: #E0D5C5;
   }
 
   /* ── Catppuccin Mocha ─────────────────────────────────────── */
@@ -581,8 +646,8 @@
     --status-neutral: 227.6 23.6% 71.8%;
     --status-violet: 267.4 83.5% 80%;
 
-    --diff-added: 142 40% 45%;
-    --diff-removed: 0 45% 55%;
+    --diff-added: 142 50% 55%;
+    --diff-removed: 0 55% 60%;
 
     /* Terminal ANSI — Catppuccin Mocha */
     --terminal-black: #45475a;
@@ -665,6 +730,10 @@
   }
 
   /* Markdown prose styles for agent messages */
+  .prose {
+    color: hsl(var(--foreground));
+  }
+
   .prose h1,
   .prose h2,
   .prose h3,
@@ -672,6 +741,7 @@
     font-weight: 600;
     margin-top: 0.75em;
     margin-bottom: 0.25em;
+    color: hsl(var(--foreground));
   }
 
   .prose h1 {

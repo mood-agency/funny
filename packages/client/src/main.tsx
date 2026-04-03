@@ -199,6 +199,7 @@ root.render(
         'github-dark',
         'night-owl',
         'catppuccin',
+        'sunrise',
         'monochrome',
         'monochrome-dark',
       ]}
@@ -208,6 +209,7 @@ root.render(
         'github-dark': 'theme-github-dark',
         'night-owl': 'theme-night-owl',
         catppuccin: 'theme-catppuccin',
+        sunrise: 'theme-sunrise',
         monochrome: 'theme-monochrome',
         'monochrome-dark': 'theme-monochrome-dark',
       }}

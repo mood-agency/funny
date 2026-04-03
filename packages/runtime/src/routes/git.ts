@@ -603,8 +603,9 @@ gitRoutes.post('/project/:projectId/run-hook-command', async (c) => {
   if (hookIndex < 0 || hookIndex >= hooks.length) {
     return resultToResponse(c, err(badRequest(`Invalid hookIndex: ${hookIndex}`)));
   }
-  const result = await runHookCommand(cwd, hooks[hookIndex].command);
-  return c.json(result);
+  const hookResult = await runHookCommand(cwd, hooks[hookIndex].command);
+  if (hookResult.isErr()) return resultToResponse(c, hookResult);
+  return c.json(hookResult.value);
 });
 
 // POST /api/git/project/:projectId/push
@@ -1104,8 +1105,9 @@ gitRoutes.post('/:threadId/run-hook-command', async (c) => {
     return resultToResponse(c, err(badRequest(`Invalid hookIndex: ${hookIndex}`)));
   }
   // Run the hook command in the thread's working directory (not the project root)
-  const result = await runHookCommand(cwd, hooks[hookIndex].command);
-  return c.json(result);
+  const hookResult = await runHookCommand(cwd, hooks[hookIndex].command);
+  if (hookResult.isErr()) return resultToResponse(c, hookResult);
+  return c.json(hookResult.value);
 });
 
 // POST /api/git/:threadId/push

@@ -1,3 +1,4 @@
+import { FileIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -85,17 +86,27 @@ export function DiffStats({
     />
   );
 
+  const iconSize = size === 'xxs' ? 10 : size === 'xs' ? 12 : 14;
+
   return (
-    <span className={cn('flex flex-shrink-0 items-center gap-1 font-mono', textSize, className)}>
+    <span
+      className={cn('inline-flex flex-shrink-0 items-center gap-1 font-mono', textSize, className)}
+    >
+      {hasDirty && (
+        <>
+          <FileIcon size={iconSize} className="shrink-0 text-muted-foreground" />
+          <Stat
+            value={dirtyFileCount}
+            colorClass="text-muted-foreground"
+            tooltip={showTooltips ? fileTooltip : undefined}
+          />
+        </>
+      )}
+      {hasDirty && (linesAdded > 0 || linesDeleted > 0) && (
+        <span className="text-muted-foreground">·</span>
+      )}
       {added}
       {deleted}
-      {hasDirty && (
-        <Stat
-          value={`· ${dirtyFileCount}`}
-          colorClass="text-muted-foreground"
-          tooltip={showTooltips ? fileTooltip : undefined}
-        />
-      )}
     </span>
   );
 }
@@ -105,7 +116,7 @@ function Stat({
   colorClass,
   tooltip,
 }: {
-  value: string;
+  value: React.ReactNode;
   colorClass: string;
   tooltip?: string;
 }) {

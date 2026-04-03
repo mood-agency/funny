@@ -47,6 +47,14 @@ export default defineConfig({
     },
   },
   test: {
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/__tests__/**', 'dist/**'],
+      thresholds: {
+        lines: 30,
+      },
+    },
     include: ['src/**/*.test.ts'],
     exclude: [
       'dist/**',
@@ -60,6 +68,7 @@ export default defineConfig({
       'src/__tests__/services/worktree-manager.test.ts',
       'src/__tests__/services/agent-runner.test.ts',
       'src/__tests__/services/agent-runner-class.test.ts',
+      'src/__tests__/services/thread-repository-transactions.test.ts',
       'src/__tests__/services/automation-manager.test.ts',
       'src/__tests__/services/pipeline-db.test.ts',
       'src/__tests__/services/pty-persistence.test.ts',

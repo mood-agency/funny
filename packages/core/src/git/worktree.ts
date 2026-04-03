@@ -276,6 +276,57 @@ export async function getLastGitActivity(worktreePath: string): Promise<number |
  * Preview a worktree creation without actually creating it.
  * Returns the sanitized directory name, branch name, path, and whether it already exists.
  */
+/**
+ * Prune orphan worktrees for a given project path.
+ * Runs `git worktree prune` to clean up stale bookkeeping entries,
+ * then removes any leftover directories under the worktree base that
+ * are no longer registered with git.
+ */
+export async function pruneOrphanWorktrees(projectPath: string): Promise<number> {
+  // Run git worktree prune to clean stale entries
+  await gitWrite(['worktree', 'prune'], { cwd: projectPath, reject: false });
+
+  const base = getWorktreeBasePath(projectPath);
+  if (!existsSync(base)) return 0;
+
+  // List registered worktrees
+  const listResult = await gitRead(['worktree', 'list', '--porcelain'], {
+    cwd: projectPath,
+    reject: false,
+  });
+  const registeredPaths = new Set<string>();
+  if (listResult.exitCode === 0) {
+    for (const line of listResult.stdout.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        registeredPaths.add(normalize(line.slice('worktree '.length)));
+      }
+    }
+  }
+
+  // Check for orphan directories under the worktree base
+  let pruned = 0;
+  try {
+    const { readdir } = await import('fs/promises');
+    const entries = await readdir(base, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const dirPath = normalize(resolve(base, entry.name));
+      if (!registeredPaths.has(dirPath)) {
+        try {
+          await rm(dirPath, { recursive: true, force: true });
+          pruned++;
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    }
+  } catch {
+    // Base directory unreadable — nothing to prune
+  }
+
+  return pruned;
+}
+
 export function previewWorktree(
   projectPath: string,
   branchName: string,

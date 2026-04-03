@@ -340,13 +340,14 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
         }
         const wtPath = wtResult.value;
 
-        try {
-          const setup = await setupWorktree(projectPath, wtPath, emitSetupProgress);
-          if (setup.postCreateErrors.length) {
-            log.warn('Worktree postCreate errors', { threadId, errors: setup.postCreateErrors });
-          }
-        } catch (err) {
-          log.warn('Failed to setup worktree', { threadId, error: String(err) });
+        const setupResult = await setupWorktree(projectPath, wtPath, emitSetupProgress);
+        if (setupResult.isOk() && setupResult.value.postCreateErrors.length) {
+          log.warn('Worktree postCreate errors', {
+            threadId,
+            errors: setupResult.value.postCreateErrors,
+          });
+        } else if (setupResult.isErr()) {
+          log.warn('Failed to setup worktree', { threadId, error: setupResult.error.message });
         }
 
         // Update thread with worktree info and transition to pending
@@ -1072,13 +1073,14 @@ async function autoStartIdleThread(
         }
         const wtPath = wtResult.value;
 
-        try {
-          const setup = await setupWorktree(projectPath, wtPath, emitSetupProgress);
-          if (setup.postCreateErrors.length) {
-            log.warn('Worktree postCreate errors', { threadId, errors: setup.postCreateErrors });
-          }
-        } catch (err) {
-          log.warn('Failed to setup worktree', { threadId, error: String(err) });
+        const setupResult = await setupWorktree(projectPath, wtPath, emitSetupProgress);
+        if (setupResult.isOk() && setupResult.value.postCreateErrors.length) {
+          log.warn('Worktree postCreate errors', {
+            threadId,
+            errors: setupResult.value.postCreateErrors,
+          });
+        } else if (setupResult.isErr()) {
+          log.warn('Failed to setup worktree', { threadId, error: setupResult.error.message });
         }
 
         // Update thread with worktree info

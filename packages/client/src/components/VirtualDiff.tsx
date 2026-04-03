@@ -392,9 +392,9 @@ const UnifiedRow = memo(function UnifiedRow({
 }) {
   const bgStyle =
     line.type === 'add'
-      ? { backgroundColor: 'hsl(var(--diff-added) / 0.12)' }
+      ? { backgroundColor: 'hsl(var(--diff-added) / 0.22)' }
       : line.type === 'del'
-        ? { backgroundColor: 'hsl(var(--diff-removed) / 0.12)' }
+        ? { backgroundColor: 'hsl(var(--diff-removed) / 0.22)' }
         : undefined;
 
   const textClass =
@@ -453,8 +453,8 @@ const H_SCROLL_STYLE: React.CSSProperties = {
  * the row's visual color exactly.
  */
 const GUTTER_BG_CARD = 'hsl(var(--card))';
-const GUTTER_BG_ADDED = 'color-mix(in srgb, hsl(var(--diff-added)) 12%, hsl(var(--card)))';
-const GUTTER_BG_REMOVED = 'color-mix(in srgb, hsl(var(--diff-removed)) 12%, hsl(var(--card)))';
+const GUTTER_BG_ADDED = 'color-mix(in srgb, hsl(var(--diff-added)) 22%, hsl(var(--card)))';
+const GUTTER_BG_REMOVED = 'color-mix(in srgb, hsl(var(--diff-removed)) 22%, hsl(var(--card)))';
 
 const SplitRow = memo(function SplitRow({
   left,
@@ -474,8 +474,8 @@ const SplitRow = memo(function SplitRow({
   currentMatchIdx?: number;
 }) {
   const leftMatches = searchQuery && left ? countTextMatches(left.text, searchQuery) : 0;
-  const leftBg = left?.type === 'del' ? 'hsl(var(--diff-removed) / 0.12)' : undefined;
-  const rightBg = right?.type === 'add' ? 'hsl(var(--diff-added) / 0.12)' : undefined;
+  const leftBg = left?.type === 'del' ? 'hsl(var(--diff-removed) / 0.22)' : undefined;
+  const rightBg = right?.type === 'add' ? 'hsl(var(--diff-added) / 0.22)' : undefined;
   const leftGutterBg = left?.type === 'del' ? GUTTER_BG_REMOVED : GUTTER_BG_CARD;
   const rightGutterBg = right?.type === 'add' ? GUTTER_BG_ADDED : GUTTER_BG_CARD;
   return (
@@ -595,8 +595,8 @@ const ThreePaneRow = memo(function ThreePaneRow({
   const leftMatches = searchQuery && left ? countTextMatches(left.text, searchQuery) : 0;
   const centerMatches = searchQuery && center ? countTextMatches(center.text, searchQuery) : 0;
   const align = wrap ? 'items-start overflow-visible' : 'items-center overflow-hidden';
-  const leftBg = left?.type === 'del' ? 'hsl(var(--diff-removed) / 0.12)' : undefined;
-  const rightBg = right?.type === 'add' ? 'hsl(var(--diff-added) / 0.12)' : undefined;
+  const leftBg = left?.type === 'del' ? 'hsl(var(--diff-removed) / 0.22)' : undefined;
+  const rightBg = right?.type === 'add' ? 'hsl(var(--diff-added) / 0.22)' : undefined;
   const leftGutterBg = left?.type === 'del' ? GUTTER_BG_REMOVED : GUTTER_BG_CARD;
   const rightGutterBg = right?.type === 'add' ? GUTTER_BG_ADDED : GUTTER_BG_CARD;
   return (
@@ -1272,10 +1272,12 @@ export const VirtualDiff = memo(function VirtualDiff({
     virtualizer.measure();
   }, [wordWrap, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Measure actual max content width using a canvas for accurate monospace measurement
+  // Measure actual max content width using a canvas for accurate monospace measurement.
+  // Used by split/three-pane for the custom horizontal scrollbar AND by unified mode
+  // to set an explicit container width so row backgrounds extend on horizontal scroll.
   const needsHScroll = !wordWrap && viewMode !== 'unified';
   const maxContentWidth = useMemo(() => {
-    if (!needsHScroll) return 0;
+    if (wordWrap) return 0;
     let maxLen = 0;
     let longestText = '';
     for (const line of parsed.lines) {
@@ -1285,6 +1287,9 @@ export const VirtualDiff = memo(function VirtualDiff({
       }
     }
     if (maxLen === 0) return 0;
+    // Gutter: unified = 2×w-11 (88px) + w-4 (16px) + pr-4 (16px) = 120px
+    //         split/three-pane = w-11 (44px) + w-4 (16px) + padding = 80px
+    const gutter = viewMode === 'unified' ? 120 : 80;
     // Measure with canvas for accuracy (tabs, unicode, etc.)
     try {
       const canvas = document.createElement('canvas');
@@ -1292,13 +1297,13 @@ export const VirtualDiff = memo(function VirtualDiff({
       if (ctx) {
         ctx.font = '11px monospace';
         const measured = ctx.measureText(longestText);
-        return measured.width + 80; // measured width + gutter + padding
+        return Math.ceil(measured.width) + gutter;
       }
     } catch {
       /* fallback below */
     }
-    return maxLen * 7.2 + 80; // fallback estimate
-  }, [needsHScroll, parsed.lines]);
+    return Math.ceil(maxLen * 7.2) + gutter; // fallback estimate
+  }, [wordWrap, parsed.lines, viewMode]);
 
   // Single horizontal scrollbar for split/three-pane (only when not wrapping)
   const hSpacerWidth = useHorizontalScroll(scrollRef, hScrollBarRef, needsHScroll, maxContentWidth);
@@ -1333,7 +1338,8 @@ export const VirtualDiff = memo(function VirtualDiff({
         <div
           style={{
             height: virtualizer.getTotalSize(),
-            width: '100%',
+            minWidth: '100%',
+            width: maxContentWidth > 0 ? maxContentWidth : '100%',
             position: 'relative',
           }}
         >

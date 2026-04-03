@@ -85,6 +85,7 @@ export {
   getWorktreeBasePath,
   getLastGitActivity,
   previewWorktree,
+  pruneOrphanWorktrees,
   WORKTREE_DIR_NAME,
   type WorktreeInfo,
   type WorktreePreview,

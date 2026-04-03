@@ -219,7 +219,10 @@ async function hooksNode(ctx: GitPipelineContext): Promise<GitPipelineContext> {
       }));
       ctx.setStep('hooks', { status: 'running', subItems });
 
-      const hookResult = await runHookCommand(ctx.cwd, ctx.hooks[i].command);
+      const hookResultR = await runHookCommand(ctx.cwd, ctx.hooks[i].command);
+      const hookResult = hookResultR.isOk()
+        ? hookResultR.value
+        : { success: false, output: hookResultR.error.message };
 
       if (!hookResult.success) {
         // Check if we can auto-fix this hook failure
@@ -664,7 +667,8 @@ async function testRunnerNode(ctx: GitPipelineContext): Promise<GitPipelineConte
 
   ctx.setStep('test-run', { status: 'running' });
 
-  const result = await runHookCommand(ctx.cwd, ctx.testCommand);
+  const resultR = await runHookCommand(ctx.cwd, ctx.testCommand);
+  const result = resultR.isOk() ? resultR.value : { success: false, output: resultR.error.message };
 
   if (result.success) {
     log.info('Pipeline: tests passed', { namespace: 'pipeline', iteration: ctx.testIteration });
@@ -1185,7 +1189,10 @@ async function attemptPrecommitAutoFix(params: AutoFixParams): Promise<boolean> 
       return false;
     }
 
-    const retryResult = await runHookCommand(cwd, hookCommand);
+    const retryResultR = await runHookCommand(cwd, hookCommand);
+    const retryResult = retryResultR.isOk()
+      ? retryResultR.value
+      : { success: false, output: retryResultR.error.message };
     if (retryResult.success) {
       log.info('Pre-commit auto-fix: hook now passes', {
         namespace: 'pipeline',

@@ -235,14 +235,17 @@ export function createThreadRepository(deps: ThreadRepositoryDeps) {
     return dbGet(db.select().from(schema.threads).where(eq(schema.threads.sessionId, sessionId)));
   }
 
-  /** Insert a new thread */
+  /** Insert a new thread (atomic: thread insert + initial stage history) */
   async function createThread(data: typeof schema.threads.$inferInsert) {
-    await dbRun(db.insert(schema.threads).values(data));
-    const initialStage = data.stage ?? 'backlog';
-    await recordStageChange(data.id, null, initialStage);
+    await db.transaction(async (tx) => {
+      await dbRun(tx.insert(schema.threads).values(data));
+      const initialStage = data.stage ?? 'backlog';
+      await recordStageChange(data.id, null, initialStage, tx);
+    });
   }
 
-  /** Update thread fields by ID. Automatically bumps updatedAt. */
+  /** Update thread fields by ID. Automatically bumps updatedAt.
+   *  Wraps read-then-write + stage history in a transaction to prevent race conditions. */
   async function updateThread(
     id: string,
     updates: Partial<{
@@ -265,39 +268,56 @@ export function createThreadRepository(deps: ThreadRepositoryDeps) {
       initCwd: string;
     }>,
   ) {
-    if (updates.stage !== undefined) {
-      const currentThread = await dbGet<{ stage: string }>(
-        db
-          .select({ stage: schema.threads.stage })
-          .from(schema.threads)
-          .where(eq(schema.threads.id, id)),
-      );
+    const needsStageCheck = updates.stage !== undefined || updates.archived !== undefined;
 
-      if (currentThread && currentThread.stage !== updates.stage) {
-        await recordStageChange(id, currentThread.stage, updates.stage);
-      }
+    if (!needsStageCheck) {
+      // Simple update — no stage history needed, skip transaction overhead
+      const withTimestamp = { ...updates, updatedAt: new Date().toISOString() };
+      await dbRun(db.update(schema.threads).set(withTimestamp).where(eq(schema.threads.id, id)));
+      return;
     }
 
-    if (updates.archived !== undefined) {
-      const currentThread = await dbGet<{ stage: string; archived: number }>(
-        db
-          .select({ stage: schema.threads.stage, archived: schema.threads.archived })
-          .from(schema.threads)
-          .where(eq(schema.threads.id, id)),
-      );
+    // Wrap read + stage history + update in a transaction to prevent races
+    await db.transaction(async (tx) => {
+      if (updates.stage !== undefined) {
+        const currentThread = await dbGet<{ stage: string }>(
+          tx
+            .select({ stage: schema.threads.stage })
+            .from(schema.threads)
+            .where(eq(schema.threads.id, id)),
+        );
 
-      if (currentThread) {
-        if (updates.archived === 1 && currentThread.archived === 0) {
-          await recordStageChange(id, currentThread.stage, 'archived');
-        } else if (updates.archived === 0 && currentThread.archived === 1) {
-          await recordStageChange(id, 'archived', updates.stage ?? currentThread.stage);
+        if (currentThread && currentThread.stage !== updates.stage) {
+          await recordStageChange(id, currentThread.stage, updates.stage, tx as any);
         }
       }
-    }
 
-    // Always bump updatedAt on every thread update
-    const withTimestamp = { ...updates, updatedAt: new Date().toISOString() };
-    await dbRun(db.update(schema.threads).set(withTimestamp).where(eq(schema.threads.id, id)));
+      if (updates.archived !== undefined) {
+        const currentThread = await dbGet<{ stage: string; archived: number }>(
+          tx
+            .select({ stage: schema.threads.stage, archived: schema.threads.archived })
+            .from(schema.threads)
+            .where(eq(schema.threads.id, id)),
+        );
+
+        if (currentThread) {
+          if (updates.archived === 1 && currentThread.archived === 0) {
+            await recordStageChange(id, currentThread.stage, 'archived', tx as any);
+          } else if (updates.archived === 0 && currentThread.archived === 1) {
+            await recordStageChange(
+              id,
+              'archived',
+              updates.stage ?? currentThread.stage,
+              tx as any,
+            );
+          }
+        }
+      }
+
+      // Always bump updatedAt on every thread update
+      const withTimestamp = { ...updates, updatedAt: new Date().toISOString() };
+      await dbRun(tx.update(schema.threads).set(withTimestamp).where(eq(schema.threads.id, id)));
+    });
   }
 
   /** Delete a thread (cascade deletes messages + tool_calls) */

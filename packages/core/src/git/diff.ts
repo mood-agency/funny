@@ -69,11 +69,30 @@ function matchesAnyPattern(filePath: string, patterns: string[]): boolean {
   return false;
 }
 
+// ─── Size limits ───────────────────────────────────────
+
+/** Maximum diff content size per file in bytes (512 KB). Files exceeding this get a truncation notice. */
+const MAX_DIFF_BYTES_PER_FILE = 512 * 1024;
+/** Maximum total diff payload size in bytes (10 MB). Beyond this, remaining files get empty diffs. */
+const MAX_TOTAL_DIFF_BYTES = 10 * 1024 * 1024;
+
+function truncateDiff(diff: string): string {
+  if (Buffer.byteLength(diff, 'utf8') <= MAX_DIFF_BYTES_PER_FILE) return diff;
+  // Truncate to the byte limit, then find the last full line
+  const truncated = Buffer.from(diff, 'utf8').subarray(0, MAX_DIFF_BYTES_PER_FILE).toString('utf8');
+  const lastNewline = truncated.lastIndexOf('\n');
+  return (
+    (lastNewline > 0 ? truncated.slice(0, lastNewline) : truncated) +
+    '\n\n... [diff truncated — file too large] ...'
+  );
+}
+
 // ─── Public API ─────────────────────────────────────────
 
 /**
  * Get diff information for all changed files.
  * Uses only 4 git commands total (instead of N+3 per file).
+ * Applies per-file and total size limits to prevent OOM on large repos.
  */
 export function getDiff(cwd: string): ResultAsync<FileDiff[], DomainError> {
   return ResultAsync.fromPromise(
@@ -127,24 +146,29 @@ export function getDiff(cwd: string): ResultAsync<FileDiff[], DomainError> {
 
       const stagedPaths = new Set(stagedFiles.map((f) => f.path));
       const diffs: FileDiff[] = [];
+      let totalBytes = 0;
 
       for (const f of stagedFiles) {
-        diffs.push({
-          path: f.path,
-          status: f.status,
-          diff: stagedDiffMap.get(f.path) ?? '',
-          staged: true,
-        });
+        let diff = stagedDiffMap.get(f.path) ?? '';
+        if (totalBytes < MAX_TOTAL_DIFF_BYTES) {
+          diff = truncateDiff(diff);
+          totalBytes += Buffer.byteLength(diff, 'utf8');
+        } else {
+          diff = '... [diff omitted — total payload size limit reached] ...';
+        }
+        diffs.push({ path: f.path, status: f.status, diff, staged: true });
       }
 
       for (const f of allUnstaged) {
         if (stagedPaths.has(f.path)) continue;
-        diffs.push({
-          path: f.path,
-          status: f.status,
-          diff: unstagedDiffMap.get(f.path) ?? '',
-          staged: false,
-        });
+        let diff = unstagedDiffMap.get(f.path) ?? '';
+        if (totalBytes < MAX_TOTAL_DIFF_BYTES) {
+          diff = truncateDiff(diff);
+          totalBytes += Buffer.byteLength(diff, 'utf8');
+        } else {
+          diff = '... [diff omitted — total payload size limit reached] ...';
+        }
+        diffs.push({ path: f.path, status: f.status, diff, staged: false });
       }
 
       return diffs;

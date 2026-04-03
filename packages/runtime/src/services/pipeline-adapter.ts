@@ -124,18 +124,15 @@ export class RuntimeActionProvider implements ActionProvider {
   }
 
   async runCommand(opts: RunCommandOpts): Promise<ActionResult> {
-    try {
-      const result = await runHookCommand(opts.cwd, opts.command);
-      if (result.success) {
-        return { ok: true, output: result.output || '' };
-      }
-      return { ok: false, error: result.output || 'Command failed', output: result.output };
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+    const hookResult = await runHookCommand(opts.cwd, opts.command);
+    if (hookResult.isErr()) {
+      return { ok: false, error: hookResult.error.message };
     }
+    const { success, output } = hookResult.value;
+    if (success) {
+      return { ok: true, output: output || '' };
+    }
+    return { ok: false, error: output || 'Command failed', output };
   }
 
   async gitCommit(opts: GitCommitOpts): Promise<ActionResult> {

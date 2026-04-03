@@ -5,7 +5,12 @@ import { api } from '@/lib/api';
 
 import { useAuthStore } from './auth-store';
 import { useGitStatusStore } from './git-status-store';
-import { useThreadStore } from './thread-store';
+import {
+  batchUpdateThreads,
+  ensureThreadsLoaded,
+  clearProjectThreads,
+  registerProjectStore,
+} from './store-bridge';
 
 const EXPANDED_PROJECTS_KEY = 'funny_expanded_projects';
 
@@ -129,23 +134,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           }),
         )
           .then((results) => {
-            // Batch all thread data into a single store update, but only
-            // replace entries that actually changed to preserve referential
-            // identity for untouched projects (avoids cascading re-renders).
-            const prev = useThreadStore.getState().threadsByProject;
-            const prevTotals = useThreadStore.getState().threadTotalByProject;
-            let changed = false;
-            const next: Record<string, any[]> = { ...prev };
-            const nextTotals: Record<string, number> = { ...prevTotals };
-            for (const { projectId, threads, total } of results) {
-              if (threads && threads !== prev[projectId]) {
-                next[projectId] = threads;
-                nextTotals[projectId] = total;
-                changed = true;
-              }
-            }
-            if (changed)
-              useThreadStore.setState({ threadsByProject: next, threadTotalByProject: nextTotals });
+            batchUpdateThreads(results);
           })
           .catch(() => {});
       } finally {
@@ -164,10 +153,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } else {
       next.add(projectId);
       // Load threads for newly expanded project
-      const threadStore = useThreadStore.getState();
-      if (!threadStore.threadsByProject[projectId]) {
-        threadStore.loadThreadsForProject(projectId);
-      }
+      ensureThreadsLoaded(projectId);
       // Fetch branch name for the expanded project
       get().fetchBranch(projectId);
       // Defer git status fetch to avoid blocking the interaction (INP).
@@ -192,10 +178,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { selectedProjectId } = get();
     if (selectedProjectId === projectId) return;
     set({ selectedProjectId: projectId });
-    const threadStore = useThreadStore.getState();
-    if (!threadStore.threadsByProject[projectId]) {
-      threadStore.loadThreadsForProject(projectId);
-    }
+    ensureThreadsLoaded(projectId);
     // Fetch branch name for the selected project
     get().fetchBranch(projectId);
     // Defer git status fetch to avoid blocking the interaction (INP)
@@ -257,7 +240,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const nextExpanded = new Set(expandedProjects);
     nextExpanded.delete(projectId);
 
-    useThreadStore.getState().clearProjectThreads(projectId);
+    clearProjectThreads(projectId);
 
     set({
       projects: projects.filter((p) => p.id !== projectId),
@@ -295,3 +278,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 }));
+
+// Register with the bridge so thread-store can access project state without a direct import
+registerProjectStore(useProjectStore);

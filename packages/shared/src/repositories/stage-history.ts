@@ -22,11 +22,17 @@ export interface StageHistoryDeps {
 export function createStageHistoryRepository(deps: StageHistoryDeps) {
   const { db, schema, dbRun } = deps;
 
-  /** Record a stage transition in the history table */
-  async function recordStageChange(threadId: string, fromStage: string | null, toStage: string) {
+  /** Record a stage transition in the history table. Accepts an optional transaction context. */
+  async function recordStageChange(
+    threadId: string,
+    fromStage: string | null,
+    toStage: string,
+    tx?: AppDatabase,
+  ) {
     const id = nanoid();
+    const target = tx ?? db;
     await dbRun(
-      db.insert(schema.stageHistory).values({
+      target.insert(schema.stageHistory).values({
         id,
         threadId,
         fromStage,

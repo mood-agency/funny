@@ -45,7 +45,6 @@ describe('Skills Routes', () => {
     mockListProjectSkills.mockReset();
     mockListDirectClaudeSkills.mockReset();
     mockListPluginCommands.mockReset();
-    mockAddSkill.mockReset();
     mockRemoveSkill.mockReset();
 
     mockListSkills.mockReturnValue([

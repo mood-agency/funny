@@ -42,7 +42,12 @@ import { create } from 'zustand';
 
 import { api } from '@/lib/api';
 
-import { useProjectStore } from './project-store';
+import {
+  expandProject,
+  selectProject as bridgeSelectProject,
+  getProjectPath,
+  registerThreadStore,
+} from './store-bridge';
 import { transitionThreadStatus, cleanupThreadActor } from './thread-machine-bridge';
 import {
   nextSelectGeneration,
@@ -149,6 +154,26 @@ export interface ThreadState {
   refreshActiveThread: () => Promise<void>;
   refreshAllLoadedThreads: () => Promise<void>;
   clearProjectThreads: (projectId: string) => void;
+
+  // Agent lifecycle actions — centralize API calls that components previously made directly
+  sendMessage: (
+    threadId: string,
+    content: string,
+    options?: {
+      model?: AgentModel;
+      permissionMode?: PermissionMode;
+      images?: any[];
+    },
+  ) => Promise<boolean>;
+  stopThread: (threadId: string) => Promise<void>;
+  approveTool: (
+    threadId: string,
+    toolName: string,
+    approved: boolean,
+    allowedTools?: string[],
+    disallowedTools?: string[],
+  ) => Promise<boolean>;
+  searchThreadContent: (query: string, projectId?: string) => Promise<any>;
 
   // WebSocket event handlers
   handleWSInit: (threadId: string, data: AgentInitInfo) => void;
@@ -370,12 +395,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const projectId = thread.projectId;
 
       // Ensure project is expanded and threads are loaded
-      const projectStore = useProjectStore.getState();
-      if (!projectStore.expandedProjects.has(projectId)) {
-        const next = new Set(projectStore.expandedProjects);
-        next.add(projectId);
-        useProjectStore.setState({ expandedProjects: next });
-      }
+      expandProject(projectId);
       if (!get().threadsByProject[projectId]) {
         get().loadThreadsForProject(projectId);
       }
@@ -456,7 +476,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           compactionEvents: compactionEvents.length > 0 ? compactionEvents : undefined,
         },
       });
-      useProjectStore.setState({ selectedProjectId: projectId });
+      bridgeSelectProject(projectId);
 
       // Replay any WS events that arrived while activeThread was loading
       flushWSBuffer(threadId, get());
@@ -716,8 +736,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const initInfo =
         activeThread.initInfo ??
         (() => {
-          const project = useProjectStore.getState().projects.find((p) => p.id === pid);
-          const cwd = activeThread.worktreePath || project?.path || '';
+          const projectPath = getProjectPath(pid);
+          const cwd = activeThread.worktreePath || projectPath || '';
           return { model: model || activeThread.model, cwd, tools: [] as string[] };
         })();
 
@@ -1038,6 +1058,39 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     set(updates as any);
   },
 
+  // ── Agent lifecycle actions ──────────────────────────────────
+
+  sendMessage: async (threadId, content, options) => {
+    const result = await api.sendMessage(
+      threadId,
+      content,
+      options ? { model: options.model, permissionMode: options.permissionMode } : undefined,
+      options?.images,
+    );
+    if (result.isErr()) return false;
+    return true;
+  },
+
+  stopThread: async (threadId) => {
+    await api.stopThread(threadId);
+  },
+
+  approveTool: async (threadId, toolName, approved, allowedTools, disallowedTools) => {
+    const result = await api.approveTool(
+      threadId,
+      toolName,
+      approved,
+      allowedTools,
+      disallowedTools,
+    );
+    return result.isOk();
+  },
+
+  searchThreadContent: async (query, projectId) => {
+    const result = await api.searchThreadContent(query, projectId);
+    return result.isOk() ? result.value : null;
+  },
+
   handleWSWorktreeSetupComplete: (threadId, data) => {
     const { activeThread, loadThreadsForProject, setupProgressByThread } = get();
 
@@ -1065,6 +1118,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     }
   },
 }));
+
+// Register with the bridge so project-store can access thread state without a direct import
+registerThreadStore(useThreadStore);
 
 // ── Thread index subscriber ──────────────────────────────────
 // Keep the threadId→projectId index in sync with threadsByProject.

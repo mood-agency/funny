@@ -16,6 +16,14 @@ export default defineConfig({
     },
   },
   test: {
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/*.stories.{ts,tsx}', 'src/__tests__/**'],
+      thresholds: {
+        lines: 30,
+      },
+    },
     projects: [
       // Existing unit tests (jsdom)
       {

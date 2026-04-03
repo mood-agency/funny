@@ -10,6 +10,7 @@ import {
   getStatusSummary,
   listWorktrees,
   previewWorktree,
+  pruneOrphanWorktrees,
   removeBranch,
   removeWorktree,
 } from '@funny/core/git';
@@ -65,6 +66,9 @@ worktreeRoutes.get('/', async (c) => {
 
   const projectResult = await requireProject(projectId);
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
+
+  // Prune orphan worktrees before listing (best-effort, non-blocking on failure)
+  await pruneOrphanWorktrees(projectResult.value.path).catch(() => {});
 
   const worktreesResult = await listWorktrees(projectResult.value.path);
   if (worktreesResult.isErr()) return resultToResponse(c, worktreesResult);

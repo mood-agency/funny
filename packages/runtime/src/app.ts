@@ -33,7 +33,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { log } from './lib/logger.js';
 import { authMiddleware } from './middleware/auth.js';
 import { handleError } from './middleware/error-handler.js';
-import { rateLimit } from './middleware/rate-limit.js';
+import { defaultRateLimit, authRateLimit, mutationRateLimit } from './middleware/rate-limit.js';
 import { tracingMiddleware } from './middleware/tracing.js';
 import { arcRoutes, arcProjectRoutes } from './routes/arcs.js';
 import { automationRoutes } from './routes/automations.js';
@@ -120,7 +120,7 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
       credentials: true,
     }),
   );
-  app.use('/api/*', rateLimit({ windowMs: 60_000, max: 5000 }));
+  app.use('/api/*', defaultRateLimit());
   app.use('/api/*', tracingMiddleware);
   app.route('/api/ingest', ingestRoutes);
 
@@ -289,6 +289,12 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
   // Mount routes — only runner-specific operations
   // Server-only routes (analytics, pipelines, profile, team-projects, team-settings)
   // are handled by the server package directly.
+
+  // Tiered rate limits: stricter limits for mutation-heavy endpoints
+  app.use('/api/threads/*', mutationRateLimit());
+  app.use('/api/git/*', mutationRateLimit());
+  app.use('/api/worktrees/*', mutationRateLimit());
+
   app.route('/api/projects', projectRoutes);
   app.route('/api/threads', threadRoutes);
   app.route('/api/git', gitRoutes);

@@ -126,21 +126,14 @@ export async function addMember(
 ): Promise<ProjectMember> {
   const now = new Date().toISOString();
 
-  // Upsert
-  try {
-    await db.insert(projectMembers).values({
-      projectId,
-      userId,
-      role,
-      joinedAt: now,
+  // Upsert: insert or update role on conflict
+  await db
+    .insert(projectMembers)
+    .values({ projectId, userId, role, joinedAt: now })
+    .onConflictDoUpdate({
+      target: [projectMembers.projectId, projectMembers.userId],
+      set: { role },
     });
-  } catch {
-    // Already exists — update role
-    await db
-      .update(projectMembers)
-      .set({ role })
-      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
-  }
 
   log.info('Member added to project', { namespace: 'project', projectId, userId, role });
 

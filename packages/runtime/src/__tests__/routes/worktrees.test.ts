@@ -12,6 +12,7 @@ vi.mock('@funny/core/git', () => ({
   listWorktrees: mockListWorktrees,
   createWorktree: mockCreateWorktree,
   removeWorktree: mockRemoveWorktree,
+  pruneOrphanWorktrees: vi.fn().mockResolvedValue(0),
 }));
 
 const { mockRequireProject } = vi.hoisted(() => ({

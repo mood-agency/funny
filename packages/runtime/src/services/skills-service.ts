@@ -14,6 +14,8 @@ import { basename, join } from 'path';
 
 import { execute } from '@funny/core/git';
 import type { Skill } from '@funny/shared';
+import { type DomainError, processError } from '@funny/shared/errors';
+import { ResultAsync } from 'neverthrow';
 
 import { log } from '../lib/logger.js';
 
@@ -295,24 +297,25 @@ function stripAnsi(str: string): string {
  * Install a skill via `bunx skills add`.
  * Identifier format: owner/repo@skill-name
  */
-export async function addSkill(identifier: string): Promise<void> {
+export function addSkill(identifier: string): ResultAsync<void, DomainError> {
   log.info('Installing skill', { namespace: 'skills-service', identifier });
 
-  try {
-    await execute('bunx', ['skills', 'add', identifier, '-g', '-y'], {
+  return ResultAsync.fromPromise(
+    execute('bunx', ['skills', 'add', identifier, '-g', '-y'], {
       cwd: homedir(),
       timeout: 60_000,
-    });
-  } catch (err: any) {
-    const raw = stripAnsi(err?.stderr || err?.stdout || err?.message || String(err)).trim();
-    const lines = raw.split('\n').filter((l: string) => l.trim());
-    // Look for the most descriptive error line (e.g. "No matching skills found for: ...")
-    const errorLine = lines.find((l: string) =>
-      /no matching|not found|error|failed|invalid|does not exist/i.test(l),
-    );
-    const meaningful = errorLine || lines[0] || raw;
-    throw new Error(`Failed to install skill "${identifier}": ${meaningful}`, { cause: err });
-  }
+    }).then(() => {}),
+    (err: unknown) => {
+      const e = err as any;
+      const raw = stripAnsi(e?.stderr || e?.stdout || e?.message || String(e)).trim();
+      const lines = raw.split('\n').filter((l: string) => l.trim());
+      const errorLine = lines.find((l: string) =>
+        /no matching|not found|error|failed|invalid|does not exist/i.test(l),
+      );
+      const meaningful = errorLine || lines[0] || raw;
+      return processError(`Failed to install skill "${identifier}": ${meaningful}`, 1, '');
+    },
+  );
 }
 
 /**
