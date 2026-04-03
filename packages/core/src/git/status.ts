@@ -237,10 +237,12 @@ export function getStatusSummary(
             try {
               // Skip files marked as binary in .gitattributes
               if (attrBinaryPaths.has(relPath)) return 0;
-              const file = Bun.file(join(worktreeCwd, relPath));
-              const size = file.size;
+              const filePath = join(worktreeCwd, relPath);
+              const { stat: fsStat, readFile } = await import('fs/promises');
+              const st = await fsStat(filePath);
+              const size = st.size;
               if (size === 0 || size > MAX_UNTRACKED_FILE_SIZE) return 0;
-              const buffer = new Uint8Array(await file.arrayBuffer());
+              const buffer = new Uint8Array(await readFile(filePath));
               // Binary detection fallback: null bytes in first 8KB
               const checkLen = Math.min(buffer.length, 8192);
               for (let i = 0; i < checkLen; i++) {

@@ -7,6 +7,7 @@ const shared = path.resolve(__dirname, '../shared/src');
 export default defineConfig({
   resolve: {
     alias: {
+      'bun:test': 'vitest',
       '@funny/shared/errors': path.join(shared, 'errors.ts'),
       '@funny/shared/models': path.join(shared, 'models.ts'),
       '@funny/shared/thread-machine': path.join(shared, 'thread-machine.ts'),
@@ -18,8 +19,8 @@ export default defineConfig({
     },
   },
   test: {
-    // Only include tests that use vi.mock() and would pollute bun test's shared process.
-    // Integration tests that need Bun runtime APIs run via `bun test` separately.
-    include: ['src/**/*.vitest.ts'],
+    globals: true,
+    include: ['src/__tests__/*.test.ts'],
+    exclude: ['dist/**'],
   },
 });

@@ -7,6 +7,7 @@ import { describe, test, expect } from 'bun:test';
 
 import type { IAgentProcess, AgentProcessOptions } from '../agents/interfaces.js';
 import { defaultProcessFactory, registerProvider } from '../agents/process-factory.js';
+import { SDKClaudeProcess } from '../agents/sdk-claude.js';
 
 // Minimal mock process class for testing
 class MockProcess implements IAgentProcess {
@@ -101,8 +102,7 @@ describe('process-factory', () => {
     const process = defaultProcessFactory.create({ ...baseOpts, provider: 'claude' });
     expect(process.constructor.name).toBe('MockProcess');
 
-    // Restore original — re-import to reset
-    const { SDKClaudeProcess } = require('../agents/sdk-claude.js');
+    // Restore original
     registerProvider('claude', SDKClaudeProcess);
   });
 });

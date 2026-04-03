@@ -1,8 +1,12 @@
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 import { processError, internal, type DomainError } from '@funny/shared/errors';
 import { ResultAsync } from 'neverthrow';
 import pLimit from 'p-limit';
+
+/** Whether we're running under Bun (vs Node/vitest) */
+const hasBun = typeof globalThis.Bun !== 'undefined';
 
 export interface ProcessResult {
   stdout: string;
@@ -120,6 +124,16 @@ async function _executeRaw(
   args: string[],
   options: ProcessOptions,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  if (hasBun) return _executeRawBun(command, args, options);
+  return _executeRawNode(command, args, options);
+}
+
+/** Bun-optimized path using Bun.spawn */
+async function _executeRawBun(
+  command: string,
+  args: string[],
+  options: ProcessOptions,
+): Promise<ProcessResult> {
   const proc = Bun.spawn([command, ...args], {
     cwd: options.cwd,
     env: options.env ? { ...process.env, ...options.env } : undefined,
@@ -172,6 +186,69 @@ async function _executeRaw(
   }
 }
 
+/** Node.js fallback using child_process.spawn (used by vitest) */
+async function _executeRawNode(
+  command: string,
+  args: string[],
+  options: ProcessOptions,
+): Promise<ProcessResult> {
+  const timeoutMs = options.timeout ?? 30_000;
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : undefined,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (options.stdin != null) {
+      proc.stdin.write(options.stdin);
+      proc.stdin.end();
+    } else {
+      proc.stdin.end();
+    }
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.join(' ')}`));
+    }, timeoutMs);
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      const stdout = Buffer.concat(stdoutChunks).toString();
+      const stderr = Buffer.concat(stderrChunks).toString();
+      const exitCode = code ?? 1;
+
+      const shouldReject = options.reject ?? true;
+      if (shouldReject && exitCode !== 0) {
+        const reason = stderr.trim() || stdout.trim();
+        reject(
+          new ProcessExecutionError(
+            reason || `Command failed: ${command} ${args.join(' ')}`,
+            exitCode,
+            stdout,
+            stderr,
+            `${command} ${args.join(' ')}`,
+          ),
+        );
+        return;
+      }
+
+      resolve({ stdout, stderr, exitCode });
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
 /**
  * Execute a command synchronously (use sparingly, only for startup checks)
  */
@@ -180,16 +257,30 @@ export function executeSync(
   args: string[],
   options: ProcessOptions = {},
 ): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync([command, ...args], {
-    cwd: options.cwd,
-    env: options.env ? { ...process.env, ...options.env } : undefined,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
+  let stdout: string;
+  let stderr: string;
+  let exitCode: number;
 
-  const stdout = result.stdout.toString();
-  const stderr = result.stderr.toString();
-  const exitCode = result.exitCode;
+  if (hasBun) {
+    const result = Bun.spawnSync([command, ...args], {
+      cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : undefined,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    stdout = result.stdout.toString();
+    stderr = result.stderr.toString();
+    exitCode = result.exitCode;
+  } else {
+    const result = spawnSync(command, args, {
+      cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : undefined,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    stdout = result.stdout?.toString() ?? '';
+    stderr = result.stderr?.toString() ?? '';
+    exitCode = result.status ?? 1;
+  }
 
   const shouldReject = options.reject ?? true;
   if (shouldReject && exitCode !== 0) {

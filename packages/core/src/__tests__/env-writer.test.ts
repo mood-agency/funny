@@ -5,12 +5,14 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 import { copyAndOverrideEnv, readAllocatedPorts } from '../ports/env-writer.js';
 import type { PortAllocation } from '../ports/port-allocator.js';
 
-const TMP = resolve(import.meta.dir, '__tmp_env_writer_test__');
+const __dir = dirname(fileURLToPath(import.meta.url));
+const TMP = resolve(__dir, '__tmp_env_writer_test__');
 const PROJECT = resolve(TMP, 'project');
 const WORKTREE = resolve(TMP, 'worktree');
 

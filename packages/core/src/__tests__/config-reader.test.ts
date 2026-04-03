@@ -5,11 +5,13 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 import { readProjectConfig } from '../ports/config-reader.js';
 
-const TMP = resolve(import.meta.dir, '__tmp_config_test__');
+const __dir = dirname(fileURLToPath(import.meta.url));
+const TMP = resolve(__dir, '__tmp_config_test__');
 
 describe('config-reader', () => {
   beforeEach(() => {
