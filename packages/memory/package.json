@@ -11,7 +11,10 @@
   "scripts": {
     "test": "vitest run",
     "start": "bun src/server.ts",
-    "mcp": "bun src/mcp/server.ts"
+    "mcp": "bun src/mcp/server.ts",
+    "bench": "bun benchmark/src/cli.ts",
+    "bench:locomo": "bun benchmark/src/cli.ts locomo",
+    "bench:longmemeval": "bun benchmark/src/cli.ts longmemeval"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0",

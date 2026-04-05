@@ -1,6 +1,6 @@
 import type { AgentModel, PermissionMode } from '@funny/shared';
 import { FileText, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
-import { useState, useRef, useLayoutEffect, useMemo, type ReactNode } from 'react';
+import { useState, useRef, useLayoutEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge } from '@/components/ui/badge';
@@ -95,9 +95,18 @@ function UserMessageContent({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const inlineNodes = useMemo(() => renderInlineContent(content, fileMap), [content, fileMap]);
+
+  const checkScrollEnd = useCallback(() => {
+    const el = preRef.current;
+    if (!el) return;
+    const threshold = 4;
+    setIsScrolledToBottom(el.scrollHeight - el.scrollTop - el.clientHeight < threshold);
+  }, []);
 
   useLayoutEffect(() => {
     const el = preRef.current;
@@ -106,10 +115,15 @@ function UserMessageContent({
     }
   }, [content]);
 
+  useLayoutEffect(() => {
+    if (expanded) checkScrollEnd();
+  }, [expanded, checkScrollEnd]);
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <pre
         ref={preRef}
+        onScroll={expanded ? checkScrollEnd : undefined}
         className={cn(
           'whitespace-pre-wrap font-sans text-sm leading-relaxed break-words overflow-x-auto',
           !expanded && isOverflowing && 'overflow-hidden',
@@ -122,11 +136,20 @@ function UserMessageContent({
       {isOverflowing && !expanded && (
         <div className="pointer-events-none absolute bottom-6 left-0 right-0 h-10 bg-gradient-to-t from-foreground to-transparent" />
       )}
+      {expanded && !isScrolledToBottom && (
+        <div className="pointer-events-none absolute bottom-6 left-0 right-0 h-10 bg-gradient-to-t from-foreground to-transparent" />
+      )}
       {isOverflowing && (
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            if (expanded) {
+              // Reset scroll inside the pre element
+              preRef.current?.scrollTo(0, 0);
+              // Scroll the card into view so it's visible after collapsing
+              containerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
             setExpanded(!expanded);
           }}
           className="mt-1 flex items-center gap-1 text-[11px] font-medium text-background transition-colors hover:text-background/80"

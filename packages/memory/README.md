@@ -577,6 +577,83 @@ if (shouldRunGC()) {
 }
 ```
 
+## Benchmarks
+
+Paisley Park includes a benchmark suite to measure accuracy against published conversational memory benchmarks: [LOCOMO](https://arxiv.org/abs/2312.07023) and [LongMemEval](https://arxiv.org/abs/2407.15045).
+
+### Prerequisites
+
+- `OPENAI_API_KEY` environment variable set (used for extraction, answer generation, and LLM-as-Judge evaluation)
+- (Optional) Ollama running with `nomic-embed-text` for semantic search — falls back to keyword-only without it
+
+### Running
+
+From `packages/memory/`:
+
+```bash
+# Run LOCOMO benchmark (10 conversations, ~300 questions)
+bun run bench locomo
+
+# Run LongMemEval (multi-session memory, 5 complexity levels)
+bun run bench longmemeval --size S     # S = ~115k tokens
+bun run bench longmemeval --size M     # M = ~1.5M tokens
+
+# Dry run — ingest only, inspect extracted facts (no LLM eval cost)
+bun run bench locomo --dry-run
+
+# Tune parameters
+bun run bench locomo --model gpt-4o --recall-limit 20 --min-confidence 0.3
+
+# Use a different judge model
+bun run bench locomo --judge-model gpt-4o-mini
+```
+
+Or run directly:
+
+```bash
+bun benchmark/src/cli.ts locomo
+bun benchmark/src/cli.ts longmemeval --size S
+```
+
+### How it works
+
+1. **Extraction** — Conversation turns are chunked (20 turns, 5 overlap) and fed to an LLM that extracts personal facts as structured JSON
+2. **Ingestion** — Extracted facts are stored via `pp.add()` (no LLM config = admission filter bypassed, since personal facts like "I live in New York" would otherwise be rejected)
+3. **Query** — For each benchmark question, `pp.recall()` retrieves relevant facts, an LLM generates an answer from the retrieved context
+4. **Evaluation** — A GPT-4o judge classifies each answer as CORRECT or WRONG (same methodology as the original papers)
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model` | `gpt-4o-mini` | Model for extraction and answer generation |
+| `--judge-model` | `gpt-4o` | Model for LLM-as-Judge evaluation |
+| `--recall-limit` | `15` | Number of facts to retrieve per query |
+| `--min-confidence` | `0.3` | Minimum confidence threshold for recall |
+| `--size` | `S` | LongMemEval dataset size (`S`, `M`, or `L`) |
+| `--dry-run` | `false` | Ingest only, skip evaluation |
+
+### Comparison targets
+
+| System | LOCOMO | LongMemEval | Source |
+|--------|--------|-------------|--------|
+| Mem0 | 67.13% | — | ArXiv 2504.19413 |
+| Zep (Mem0 paper) | 65.99% | — | ArXiv 2504.19413 |
+| Zep (self-reported) | 75.14% | — | Zep blog |
+| LangMem | 58.10% | — | ArXiv 2504.19413 |
+| Hindsight | — | 91.4% | Hindsight paper |
+| Full-context GPT-4o | — | ~70% | LongMemEval paper |
+| **Paisley Park** | **?** | **?** | **This benchmark** |
+
+### Cost estimate
+
+A full run costs approximately $15–25 in API calls:
+- Extraction: ~$2–5 (GPT-4o-mini on conversation chunks)
+- Answer generation: ~$5–10 (~800 questions)
+- Evaluation: ~$3–5 (GPT-4o judge)
+
+Results are saved to `~/.funny/benchmark/data/results/` as JSON files with full per-question breakdowns.
+
 ## Dependencies
 
 | Package | Purpose |
