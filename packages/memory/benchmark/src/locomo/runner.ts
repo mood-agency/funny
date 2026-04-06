@@ -55,16 +55,6 @@ export async function runLocomoBenchmark(config: BenchmarkConfig): Promise<Locom
 
     const dbPath = join(config.dbDir, `locomo-${convo.conversation_id}.db`);
 
-    // Clean up existing DB for fresh run
-    try {
-      await rm(dbPath, { force: true });
-      await rm(`${dbPath}-journal`, { force: true });
-      await rm(`${dbPath}-wal`, { force: true });
-      await rm(`${dbPath}-shm`, { force: true });
-    } catch {
-      // ignore
-    }
-
     const ppConfig: StorageConfig = {
       url: `file:${dbPath}`,
       projectId: `locomo-${convo.conversation_id}`,
@@ -72,25 +62,58 @@ export async function runLocomoBenchmark(config: BenchmarkConfig): Promise<Locom
       // No LLM config — bypasses admission filter
     };
 
+    // Check if we can reuse cached ingestion
+    let cacheHit = false;
+    if (config.reuseCache) {
+      try {
+        const dbStat = await stat(dbPath);
+        if (dbStat.size > 0) {
+          cacheHit = true;
+        }
+      } catch {
+        // DB doesn't exist, will ingest
+      }
+    }
+
+    if (!cacheHit) {
+      // Clean up existing DB for fresh ingestion
+      try {
+        await rm(dbPath, { force: true });
+        await rm(`${dbPath}-journal`, { force: true });
+        await rm(`${dbPath}-wal`, { force: true });
+        await rm(`${dbPath}-shm`, { force: true });
+      } catch {
+        // ignore
+      }
+    }
+
     const pp = new PaisleyPark(ppConfig);
     await pp.init();
 
     try {
       // ─── Ingest ─────────────────────────────────────
-      const { factsCreated, factsAfterDedup, extractionTokens } = await ingestConversation(
-        config,
-        pp,
-        convo,
-      );
+      if (cacheHit) {
+        const cachedFacts = await pp.search('', { minConfidence: 0 });
+        const factCount = cachedFacts.length;
+        totalFactsCreated += factCount;
+        totalFactsAfterDedup += factCount;
+        console.log(`  Cache hit: ${factCount} facts already ingested, skipping extraction`);
+      } else {
+        const { factsCreated, factsAfterDedup, extractionTokens } = await ingestConversation(
+          config,
+          pp,
+          convo,
+        );
 
-      totalFactsCreated += factsCreated;
-      totalFactsAfterDedup += factsAfterDedup;
-      totalExtractionTokens += extractionTokens;
+        totalFactsCreated += factsCreated;
+        totalFactsAfterDedup += factsAfterDedup;
+        totalExtractionTokens += extractionTokens;
 
-      console.log(`  Ingested: ${factsCreated} facts extracted, ${factsAfterDedup} after dedup`);
+        console.log(`  Ingested: ${factsCreated} facts extracted, ${factsAfterDedup} after dedup`);
+      }
 
-      if (config.dryRun) {
-        console.log('  [dry-run] Skipping evaluation');
+      if (config.ingestOnly) {
+        console.log('  [ingest-only] Skipping evaluation');
         continue;
       }
 

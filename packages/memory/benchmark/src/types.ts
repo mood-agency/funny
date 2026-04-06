@@ -17,8 +17,10 @@ export interface BenchmarkConfig {
   dbDir: string;
   /** Directory for cached datasets */
   dataDir: string;
-  /** Dry run — ingest only, no evaluation */
-  dryRun: boolean;
+  /** Ingest only — extract and store facts, skip evaluation */
+  ingestOnly: boolean;
+  /** Reuse cached ingestion — skip extraction if DB already has facts */
+  reuseCache: boolean;
 }
 
 // ─── Extracted Fact ─────────────────────────────────────────

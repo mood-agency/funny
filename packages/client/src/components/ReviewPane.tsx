@@ -1203,7 +1203,7 @@ export function ReviewPane() {
         style={{ contain: 'strict' }}
       >
         {/* Header with tabs */}
-        <div className="flex items-center justify-between border-b border-sidebar-border px-2 py-1.5">
+        <div className="flex h-12 items-center justify-between border-b border-sidebar-border px-2">
           <TabsList className="h-7 bg-sidebar-accent/50 p-0.5">
             <TabsTrigger
               value="changes"

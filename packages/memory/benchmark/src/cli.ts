@@ -17,26 +17,33 @@ Benchmarks:
   longmemeval     Run LongMemEval benchmark (multi-session, 5 complexity levels)
 
 Options:
-  --model <name>         Extraction/answer model (default: gpt-4o-mini)
-  --judge-model <name>   Evaluation judge model (default: gpt-4o)
+  --model <name>         Extraction/answer model (default: claude-haiku)
+  --judge-model <name>   Evaluation judge model (default: claude-sonnet)
   --recall-limit <n>     Facts to retrieve per query (default: 15)
   --min-confidence <n>   Minimum confidence threshold (default: 0.3)
   --size <S|M|L>         LongMemEval dataset size (default: S)
-  --dry-run              Ingest only, skip evaluation
+  --ingest-only          Extract and store facts, skip evaluation (~1-2h)
+  --reuse-cache          Skip ingestion if DB already has facts (use with full eval)
   --help                 Show this help
 
 Environment variables:
-  OPENAI_API_KEY         Required: OpenAI API key
-  OPENAI_API_BASE_URL    API base URL (default: https://api.openai.com/v1)
+  OPENAI_API_BASE_URL    API base URL (default: http://localhost:4010/v1)
+  OPENAI_API_KEY         API key (not required for local api-acp)
   BENCH_MODEL            Default extraction model
   BENCH_JUDGE_MODEL      Default judge model
 
+Workflow:
+  1. bun run bench locomo --ingest-only       # First: extract facts (~1-2h)
+  2. bun run bench locomo --reuse-cache       # Then: evaluate using cached facts (~8-10h)
+
 Examples:
-  bun run bench locomo
-  bun run bench locomo --model gpt-4o-mini --recall-limit 20
+  bun run bench locomo                                    # Full run (ingest + eval)
+  bun run bench locomo --ingest-only                      # Extract facts only
+  bun run bench locomo --reuse-cache                      # Eval only (reuse cached facts)
+  bun run bench locomo --model claude-sonnet              # Use a different model
   bun run bench longmemeval --size S
-  bun run bench longmemeval --size M --model gpt-4o
-  bun run bench locomo --dry-run
+  OPENAI_API_BASE_URL=https://api.openai.com/v1 \\
+    OPENAI_API_KEY=sk-... bun run bench locomo            # Use OpenAI
 `);
 }
 
@@ -57,8 +64,13 @@ function parseArgs(args: string[]): {
       process.exit(0);
     }
 
-    if (arg === '--dry-run') {
-      options.dryRun = true;
+    if (arg === '--ingest-only' || arg === '--dry-run') {
+      options.ingestOnly = true;
+      continue;
+    }
+
+    if (arg === '--reuse-cache') {
+      options.reuseCache = true;
       continue;
     }
 
@@ -113,9 +125,13 @@ async function main(): Promise<void> {
 
   const config = createConfig(options);
 
-  // Validate API key
-  if (!config.apiKey) {
-    console.error('Error: OPENAI_API_KEY environment variable is required');
+  // Validate API key (not required for local servers)
+  const isLocalServer =
+    config.apiBaseUrl.includes('localhost') || config.apiBaseUrl.includes('127.0.0.1');
+  if (!config.apiKey && !isLocalServer) {
+    console.error(
+      'Error: OPENAI_API_KEY environment variable is required (or use a local API server)',
+    );
     process.exit(1);
   }
 
@@ -123,14 +139,15 @@ async function main(): Promise<void> {
   console.log(
     `Model: ${config.model} | Judge: ${config.judgeModel} | Recall limit: ${config.recallLimit}`,
   );
-  if (config.dryRun) console.log(`Mode: DRY RUN (ingest only)`);
+  if (config.ingestOnly) console.log(`Mode: INGEST ONLY (extract facts, skip evaluation)`);
+  if (config.reuseCache) console.log(`Mode: REUSE CACHE (skip ingestion, evaluate only)`);
   console.log('');
 
   switch (benchmark) {
     case 'locomo': {
       const result = await runLocomoBenchmark(config);
 
-      if (!config.dryRun && result.results.length > 0) {
+      if (!config.ingestOnly && result.results.length > 0) {
         const metrics = computeMetrics('LOCOMO', result.results, {
           model: config.model,
           recallLimit: config.recallLimit,
@@ -143,7 +160,7 @@ async function main(): Promise<void> {
         printReport(metrics);
         await writeJsonReport(config.dataDir, metrics, result.results);
       } else {
-        console.log(`\nDry run complete.`);
+        console.log(`\nIngestion complete.`);
         console.log(`  Facts created: ${result.totalFactsCreated}`);
         console.log(`  Facts after dedup: ${result.totalFactsAfterDedup}`);
         console.log(`  Extraction tokens: ${result.totalExtractionTokens}`);
@@ -155,7 +172,7 @@ async function main(): Promise<void> {
     case 'longmemeval': {
       const result = await runLongMemEvalBenchmark(config, size);
 
-      if (!config.dryRun && result.results.length > 0) {
+      if (!config.ingestOnly && result.results.length > 0) {
         const metrics = computeMetrics(`LongMemEval-${size}`, result.results, {
           model: config.model,
           recallLimit: config.recallLimit,
@@ -168,7 +185,7 @@ async function main(): Promise<void> {
         printReport(metrics);
         await writeJsonReport(config.dataDir, metrics, result.results);
       } else {
-        console.log(`\nDry run complete.`);
+        console.log(`\nIngestion complete.`);
         console.log(`  Facts created: ${result.totalFactsCreated}`);
         console.log(`  Facts after dedup: ${result.totalFactsAfterDedup}`);
         console.log(`  Extraction tokens: ${result.totalExtractionTokens}`);

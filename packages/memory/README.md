@@ -583,7 +583,9 @@ Paisley Park includes a benchmark suite to measure accuracy against published co
 
 ### Prerequisites
 
-- `OPENAI_API_KEY` environment variable set (used for extraction, answer generation, and LLM-as-Judge evaluation)
+- An LLM API server running. The benchmark supports two backends:
+  - **api-acp** (default) — the project's own LLM proxy at `http://localhost:4010`. Uses the `/v1/runs` endpoint. No API key needed.
+  - **OpenAI-compatible** — any server exposing `/v1/chat/completions` (OpenAI, Together, vLLM, etc.). Requires `OPENAI_API_KEY`.
 - (Optional) Ollama running with `nomic-embed-text` for semantic search — falls back to keyword-only without it
 
 ### Running
@@ -591,21 +593,24 @@ Paisley Park includes a benchmark suite to measure accuracy against published co
 From `packages/memory/`:
 
 ```bash
-# Run LOCOMO benchmark (10 conversations, ~300 questions)
+# Run LOCOMO benchmark (10 conversations, ~1,986 questions)
 bun run bench locomo
 
 # Run LongMemEval (multi-session memory, 5 complexity levels)
 bun run bench longmemeval --size S     # S = ~115k tokens
 bun run bench longmemeval --size M     # M = ~1.5M tokens
 
-# Dry run — ingest only, inspect extracted facts (no LLM eval cost)
-bun run bench locomo --dry-run
+# Ingest only — extract and store facts, skip evaluation (~1-2h)
+bun run bench locomo --ingest-only
+
+# Evaluate using cached ingestion — skip re-extraction (~8-10h)
+bun run bench locomo --reuse-cache
 
 # Tune parameters
-bun run bench locomo --model gpt-4o --recall-limit 20 --min-confidence 0.3
+bun run bench locomo --model claude-sonnet --recall-limit 20 --min-confidence 0.3
 
 # Use a different judge model
-bun run bench locomo --judge-model gpt-4o-mini
+bun run bench locomo --judge-model claude-opus
 ```
 
 Or run directly:
@@ -615,23 +620,69 @@ bun benchmark/src/cli.ts locomo
 bun benchmark/src/cli.ts longmemeval --size S
 ```
 
+#### Using api-acp (default)
+
+If you have api-acp running on `http://localhost:4010`, benchmarks work out of the box:
+
+```bash
+bun run bench locomo
+```
+
+Default models: `claude-haiku` (extraction/answers) and `claude-sonnet` (judge).
+
+#### Using OpenAI or other providers
+
+Point the benchmark to any OpenAI-compatible API:
+
+```bash
+OPENAI_API_BASE_URL=https://api.openai.com/v1 \
+OPENAI_API_KEY=sk-... \
+bun run bench locomo --model gpt-4o-mini --judge-model gpt-4o
+```
+
 ### How it works
 
 1. **Extraction** — Conversation turns are chunked (20 turns, 5 overlap) and fed to an LLM that extracts personal facts as structured JSON
 2. **Ingestion** — Extracted facts are stored via `pp.add()` (no LLM config = admission filter bypassed, since personal facts like "I live in New York" would otherwise be rejected)
 3. **Query** — For each benchmark question, `pp.recall()` retrieves relevant facts, an LLM generates an answer from the retrieved context
-4. **Evaluation** — A GPT-4o judge classifies each answer as CORRECT or WRONG (same methodology as the original papers)
+4. **Evaluation** — An LLM judge classifies each answer as CORRECT or WRONG (same methodology as the original papers)
 
 ### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--model` | `gpt-4o-mini` | Model for extraction and answer generation |
-| `--judge-model` | `gpt-4o` | Model for LLM-as-Judge evaluation |
+| `--model` | `claude-haiku` | Model for extraction and answer generation |
+| `--judge-model` | `claude-sonnet` | Model for LLM-as-Judge evaluation |
 | `--recall-limit` | `15` | Number of facts to retrieve per query |
 | `--min-confidence` | `0.3` | Minimum confidence threshold for recall |
 | `--size` | `S` | LongMemEval dataset size (`S`, `M`, or `L`) |
-| `--dry-run` | `false` | Ingest only, skip evaluation |
+| `--ingest-only` | `false` | Extract and store facts, skip evaluation |
+| `--reuse-cache` | `false` | Skip ingestion if DB already has facts |
+
+### Time estimates
+
+The LOCOMO benchmark processes 10 conversations (5,882 turns, 1,986 questions). All LLM calls are sequential.
+
+| Phase | LLM calls | Description | Est. time |
+|-------|-----------|-------------|-----------|
+| Extraction | ~392 | Chunk conversations → extract facts | ~1–2 hours |
+| Answer generation | 1,986 | Recall facts + generate answer per question | ~4–5 hours |
+| Judge evaluation | 1,986 | LLM-as-Judge scores each answer | ~5–7 hours |
+| **Full run** | **~4,364** | | **~10–14 hours** |
+| **`--ingest-only`** | **~392** | Extraction only, no evaluation | **~1–2 hours** |
+| **`--reuse-cache`** | **~3,972** | Evaluation only, reuses cached facts | **~8–12 hours** |
+
+**Recommended workflow:**
+
+```bash
+# Step 1: Extract and cache facts (~1-2h)
+bun run bench locomo --ingest-only
+
+# Step 2: Evaluate using cached facts (~8-12h)
+bun run bench locomo --reuse-cache
+```
+
+This lets you validate extraction quality before committing to the full evaluation, and avoids repeating the extraction if you need to re-run evaluation with different parameters (e.g. `--recall-limit`, `--judge-model`).
 
 ### Comparison targets
 
@@ -645,12 +696,23 @@ bun benchmark/src/cli.ts longmemeval --size S
 | Full-context GPT-4o | — | ~70% | LongMemEval paper |
 | **Paisley Park** | **?** | **?** | **This benchmark** |
 
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENAI_API_BASE_URL` | `http://localhost:4010/v1` | LLM API base URL |
+| `OPENAI_API_KEY` | `no-key-needed` | API key (not required for local api-acp) |
+| `BENCH_MODEL` | `claude-haiku` | Default extraction/answer model |
+| `BENCH_JUDGE_MODEL` | `claude-sonnet` | Default judge model |
+
 ### Cost estimate
 
-A full run costs approximately $15–25 in API calls:
+When using OpenAI, a full run costs approximately $15–25 in API calls:
 - Extraction: ~$2–5 (GPT-4o-mini on conversation chunks)
-- Answer generation: ~$5–10 (~800 questions)
+- Answer generation: ~$5–10 (~1,986 questions)
 - Evaluation: ~$3–5 (GPT-4o judge)
+
+When using api-acp with Anthropic models, costs depend on your Anthropic API pricing.
 
 Results are saved to `~/.funny/benchmark/data/results/` as JSON files with full per-question breakdowns.
 

@@ -47,16 +47,6 @@ export async function runLongMemEvalBenchmark(
 
   const dbPath = join(config.dbDir, `longmemeval-${size.toLowerCase()}.db`);
 
-  // Clean up existing DB
-  try {
-    await rm(dbPath, { force: true });
-    await rm(`${dbPath}-journal`, { force: true });
-    await rm(`${dbPath}-wal`, { force: true });
-    await rm(`${dbPath}-shm`, { force: true });
-  } catch {
-    // ignore
-  }
-
   const ppConfig: StorageConfig = {
     url: `file:${dbPath}`,
     projectId: `longmemeval-${size.toLowerCase()}`,
@@ -64,75 +54,109 @@ export async function runLongMemEvalBenchmark(
     // No LLM config — bypasses admission filter
   };
 
+  // Check if we can reuse cached ingestion
+  let cacheHit = false;
+  if (config.reuseCache) {
+    try {
+      const dbStat = await stat(dbPath);
+      if (dbStat.size > 0) {
+        cacheHit = true;
+      }
+    } catch {
+      // DB doesn't exist, will ingest
+    }
+  }
+
+  if (!cacheHit) {
+    // Clean up existing DB for fresh ingestion
+    try {
+      await rm(dbPath, { force: true });
+      await rm(`${dbPath}-journal`, { force: true });
+      await rm(`${dbPath}-wal`, { force: true });
+      await rm(`${dbPath}-shm`, { force: true });
+    } catch {
+      // ignore
+    }
+  }
+
   const pp = new PaisleyPark(ppConfig);
   await pp.init();
 
   let totalFactsCreated = 0;
+  let totalFactsAfterDedup = 0;
   let totalExtractionTokens = 0;
 
   try {
-    // ─── Ingest all sessions ────────────────────────
-    console.log('\nIngesting sessions...');
+    if (cacheHit) {
+      // ─── Reuse cached facts ─────────────────────────
+      const cachedFacts = await pp.search('', { minConfidence: 0 });
+      totalFactsCreated = cachedFacts.length;
+      totalFactsAfterDedup = cachedFacts.length;
+      console.log(`\nCache hit: ${cachedFacts.length} facts already ingested, skipping extraction`);
+    } else {
+      // ─── Ingest all sessions ────────────────────────
+      console.log('\nIngesting sessions...');
 
-    for (let i = 0; i < dataset.sessions.length; i++) {
-      const session = dataset.sessions[i];
-      const turns: ConversationTurn[] = session.turns.map((t) => ({
-        speaker: t.speaker,
-        text: t.text,
-        timestamp: session.timestamp,
-      }));
+      for (let i = 0; i < dataset.sessions.length; i++) {
+        const session = dataset.sessions[i];
+        const turns: ConversationTurn[] = session.turns.map((t) => ({
+          speaker: t.speaker,
+          text: t.text,
+          timestamp: session.timestamp,
+        }));
 
-      const chunks = chunkConversation(turns);
-      const { facts, totalTokensUsed } = await extractFactsFromConversation(
-        config,
-        chunks,
-        session.timestamp,
-      );
-      totalExtractionTokens += totalTokensUsed;
+        const chunks = chunkConversation(turns);
+        const { facts, totalTokensUsed } = await extractFactsFromConversation(
+          config,
+          chunks,
+          session.timestamp,
+        );
+        totalExtractionTokens += totalTokensUsed;
 
-      for (const fact of facts) {
-        try {
-          // For Level 3 (knowledge updates): use evolve when supersedes is present
-          if (fact.supersedes) {
-            const existing = await pp.search(fact.supersedes, { minConfidence: 0 });
-            if (existing.length > 0) {
-              // Evolve the most relevant existing fact
-              await pp.evolve(existing[0].id, fact.content);
-              totalFactsCreated++;
-              continue;
+        for (const fact of facts) {
+          try {
+            // For Level 3 (knowledge updates): use evolve when supersedes is present
+            if (fact.supersedes) {
+              const existing = await pp.search(fact.supersedes, { minConfidence: 0 });
+              if (existing.length > 0) {
+                // Evolve the most relevant existing fact
+                await pp.evolve(existing[0].id, fact.content);
+                totalFactsCreated++;
+                continue;
+              }
+            }
+
+            const addOptions: AddOptions = {
+              type: fact.type,
+              tags: fact.tags,
+              confidence: fact.confidence,
+              validFrom: fact.validFrom ?? session.timestamp,
+              sourceSession: session.session_id,
+            };
+
+            await pp.add(fact.content, addOptions);
+            totalFactsCreated++;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (!msg.includes('Fact rejected')) {
+              console.warn(`  Warning: failed to add fact: ${msg}`);
             }
           }
+        }
 
-          const addOptions: AddOptions = {
-            type: fact.type,
-            tags: fact.tags,
-            confidence: fact.confidence,
-            validFrom: fact.validFrom ?? session.timestamp,
-            sourceSession: session.session_id,
-          };
-
-          await pp.add(fact.content, addOptions);
-          totalFactsCreated++;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          if (!msg.includes('Fact rejected')) {
-            console.warn(`  Warning: failed to add fact: ${msg}`);
-          }
+        if ((i + 1) % 10 === 0 || i === dataset.sessions.length - 1) {
+          console.log(`  Ingested ${i + 1}/${dataset.sessions.length} sessions`);
         }
       }
 
-      if ((i + 1) % 10 === 0 || i === dataset.sessions.length - 1) {
-        console.log(`  Ingested ${i + 1}/${dataset.sessions.length} sessions`);
-      }
+      // Count stored facts
+      const allFacts = await pp.search('', { minConfidence: 0 });
+      totalFactsAfterDedup = allFacts.length;
+      console.log(`Total facts stored: ${totalFactsAfterDedup} (${totalFactsCreated} created)`);
     }
 
-    // Count stored facts
-    const allFacts = await pp.search('', { minConfidence: 0 });
-    const totalFactsAfterDedup = allFacts.length;
-    console.log(`Total facts stored: ${totalFactsAfterDedup} (${totalFactsCreated} created)`);
-
-    if (config.dryRun) {
-      console.log('[dry-run] Skipping evaluation');
+    if (config.ingestOnly) {
+      console.log('[ingest-only] Skipping evaluation');
       await pp.destroy();
       return {
         results: [],

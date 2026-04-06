@@ -729,7 +729,7 @@ export function ExpandedDiffView({
   return (
     <div className="flex h-full flex-col bg-background" data-testid="expanded-diff-view">
       {/* Header toolbar */}
-      <div className="flex flex-shrink-0 select-none items-center gap-2 border-b border-border px-4 py-2">
+      <div className="flex h-12 flex-shrink-0 select-none items-center gap-2 border-b border-border px-4">
         <Icon className="icon-base flex-shrink-0 text-muted-foreground" />
         <span
           className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs text-foreground"

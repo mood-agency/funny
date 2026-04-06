@@ -70,37 +70,81 @@ function parseLocomoData(data: unknown): LocomoDataset {
 }
 
 function parseConversation(raw: Record<string, unknown>, index: number): LocomoConversation {
-  const id = (raw.conversation_id as string) ?? `locomo-${index}`;
+  const id = (raw.sample_id as string) ?? (raw.conversation_id as string) ?? `locomo-${index}`;
 
-  // Parse turns — may be under "conversation", "turns", or "dialog"
-  const rawTurns = (raw.conversation ?? raw.turns ?? raw.dialog ?? []) as unknown[];
-  const turns: LocomoTurn[] = rawTurns.map((t, j) => {
-    const turn = t as Record<string, unknown>;
-    return {
-      speaker: (turn.speaker ?? turn.role ?? `Speaker${(j % 2) + 1}`) as string,
-      text: (turn.text ?? turn.content ?? turn.utterance ?? '') as string,
-      turn_number: (turn.turn_number ?? turn.turn_id ?? j) as number,
-    };
-  });
+  // LOCOMO format: conversation is a dict with session_1, session_2, ... arrays
+  const convObj = raw.conversation as Record<string, unknown> | undefined;
+  const turns: LocomoTurn[] = [];
+  let turnIndex = 0;
 
-  // Parse questions — may be under "questions", "qa_pairs", or "qas"
-  const rawQs = (raw.questions ?? raw.qa_pairs ?? raw.qas ?? []) as unknown[];
+  if (convObj && typeof convObj === 'object' && !Array.isArray(convObj)) {
+    // Extract sessions in order: session_1, session_2, ...
+    const sessionKeys = Object.keys(convObj)
+      .filter((k) => /^session_\d+$/.test(k))
+      .sort((a, b) => parseInt(a.split('_')[1]) - parseInt(b.split('_')[1]));
+
+    for (const key of sessionKeys) {
+      const sessionTurns = convObj[key];
+      if (!Array.isArray(sessionTurns)) continue;
+
+      for (const t of sessionTurns) {
+        const turn = t as Record<string, unknown>;
+        turns.push({
+          speaker: (turn.speaker ?? `Speaker${(turnIndex % 2) + 1}`) as string,
+          text: (turn.text ?? turn.content ?? '') as string,
+          turn_number: turnIndex,
+        });
+        turnIndex++;
+      }
+    }
+  } else if (Array.isArray(convObj)) {
+    // Fallback: flat array of turns
+    for (const t of convObj) {
+      const turn = t as Record<string, unknown>;
+      turns.push({
+        speaker: (turn.speaker ?? turn.role ?? `Speaker${(turnIndex % 2) + 1}`) as string,
+        text: (turn.text ?? turn.content ?? turn.utterance ?? '') as string,
+        turn_number: (turn.turn_number ?? turn.turn_id ?? turnIndex) as number,
+      });
+      turnIndex++;
+    }
+  }
+
+  // LOCOMO format: questions are under "qa"
+  const rawQs = (raw.qa ?? raw.questions ?? raw.qa_pairs ?? []) as unknown[];
+  const categoryMap: Record<number, LocomoCategory> = {
+    1: 'single-hop',
+    2: 'multi-hop',
+    3: 'temporal',
+    4: 'open-domain',
+    5: 'adversarial',
+  };
+
   const questions: LocomoQuestion[] = rawQs.map((q, j) => {
     const question = q as Record<string, unknown>;
+    const rawCat = question.category;
+    const category =
+      typeof rawCat === 'number'
+        ? (categoryMap[rawCat] ?? 'single-hop')
+        : normalizeCategory(String(rawCat ?? 'single-hop'));
+
     return {
       question_id: (question.question_id ?? question.id ?? `${id}-q${j}`) as string,
       question: (question.question ?? question.query ?? '') as string,
-      answer: (question.answer ?? question.ground_truth ?? '') as string,
-      category: normalizeCategory((question.category ?? question.type ?? 'single-hop') as string),
+      answer: String(question.answer ?? question.ground_truth ?? ''),
+      category,
       evidence_turn_numbers: question.evidence_turn_numbers as number[] | undefined,
     };
   });
+
+  // Get date from first session
+  const firstDate = convObj ? ((convObj.session_1_date_time as string) ?? undefined) : undefined;
 
   return {
     conversation_id: id,
     turns,
     questions,
-    date: raw.date as string | undefined,
+    date: firstDate ?? (raw.date as string | undefined),
   };
 }
 

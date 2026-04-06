@@ -63,10 +63,13 @@ export async function extractFactsFromConversation(
   const allFacts: ExtractedFact[] = [];
   let totalTokensUsed = 0;
 
-  for (const chunk of chunks) {
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    process.stdout.write(`  Extracting chunk ${i + 1}/${chunks.length}...`);
     const { facts, tokensUsed } = await extractFactsFromChunk(config, chunk, conversationDate);
     allFacts.push(...facts);
     totalTokensUsed += tokensUsed;
+    process.stdout.write(` ${facts.length} facts\n`);
   }
 
   // Deduplicate facts with very similar content
