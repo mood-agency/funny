@@ -2,7 +2,12 @@
  * Shared git-status helpers used by route handlers and event handlers.
  */
 
-import { invalidateStatusCache, getStatusSummary, getPRForBranch } from '@funny/core/git';
+import {
+  invalidateStatusCache,
+  getStatusSummary,
+  getPRForBranch,
+  getCurrentBranch,
+} from '@funny/core/git';
 
 import { deriveGitSyncState } from '../services/git-service.js';
 import type { HandlerServiceContext } from '../services/handlers/types.js';
@@ -56,6 +61,25 @@ export async function emitGitStatusForThread(
 
   const project = await ctx.getProject(thread.projectId);
   if (!project) return;
+
+  // ── Branch drift detection (local-mode threads only) ──────────
+  // Worktree threads have isolated directories — their branch is managed
+  // by the worktree lifecycle, not by agent tool calls.
+  if (!thread.worktreePath) {
+    const branchResult = await getCurrentBranch(effectiveCwd);
+    if (branchResult.isOk()) {
+      const currentBranch = branchResult.value;
+      if (currentBranch && currentBranch !== thread.branch) {
+        await ctx.updateThread(opts.threadId, { branch: currentBranch });
+        ctx.emitToUser(opts.userId, {
+          type: 'thread:updated',
+          threadId: opts.threadId,
+          data: { branch: currentBranch },
+        });
+        ctx.log(`Branch changed for thread ${opts.threadId}: ${thread.branch} → ${currentBranch}`);
+      }
+    }
+  }
 
   // Invalidate core-level cache so we get fresh data
   invalidateStatusCache(effectiveCwd);

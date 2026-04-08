@@ -231,6 +231,7 @@ function WebTerminalTabContent({
   restored,
   projectId,
   label,
+  initialCommand,
 }: {
   id: string;
   cwd: string;
@@ -240,6 +241,7 @@ function WebTerminalTabContent({
   restored?: boolean;
   projectId?: string;
   label?: string;
+  initialCommand?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<{ terminal: any; fitAddon: any } | null>(null);
@@ -259,6 +261,8 @@ function WebTerminalTabContent({
   const [wasAliveOnMount] = useState(
     () => useTerminalStore.getState().tabs.find((t) => t.id === id)?.alive ?? false,
   );
+  // Track whether the initial command (startup commands) was sent to avoid re-sending
+  const initialCommandSentRef = useRef(false);
   useThemeSync(termRef);
 
   useEffect(() => {
@@ -328,6 +332,14 @@ function WebTerminalTabContent({
           useTerminalStore.getState().markAlive(id);
         }
         terminal.write(data);
+        // Auto-execute initial command once the shell is ready (first output = prompt)
+        if (!initialCommandSentRef.current && initialCommand) {
+          initialCommandSentRef.current = true;
+          const ws = getActiveWS();
+          if (ws && ws.connected) {
+            ws.emit('pty:write', { id, data: initialCommand + '\n' });
+          }
+        }
       });
 
       const onDataDisposable = terminal.onData((data) => {
@@ -987,15 +999,7 @@ export function TerminalPanel() {
             </div>
           ) : (
             visibleTabs.map((tab) =>
-              tab.commandId ? (
-                <CommandTabContent
-                  key={tab.id}
-                  commandId={tab.commandId}
-                  projectId={tab.projectId}
-                  active={tab.id === effectiveActiveTabId}
-                  alive={tab.alive}
-                />
-              ) : tab.type === 'pty' ? (
+              tab.type === 'pty' ? (
                 <WebTerminalTabContent
                   key={tab.id}
                   id={tab.id}
@@ -1006,6 +1010,15 @@ export function TerminalPanel() {
                   restored={tab.restored}
                   projectId={tab.projectId}
                   label={tab.label}
+                  initialCommand={tab.initialCommand}
+                />
+              ) : tab.commandId ? (
+                <CommandTabContent
+                  key={tab.id}
+                  commandId={tab.commandId}
+                  projectId={tab.projectId}
+                  active={tab.id === effectiveActiveTabId}
+                  alive={tab.alive}
                 />
               ) : isTauri ? (
                 <TauriTerminalTabContent

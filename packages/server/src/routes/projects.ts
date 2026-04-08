@@ -2,9 +2,11 @@
  * Project + membership routes for the central server.
  *
  * Project CRUD (list, create, get, update, delete, reorder) is handled here
- * because these are server-only concerns (DB writes). Filesystem/git operations
- * (branches, checkout-preflight, commands, hooks, weave) fall through to the
- * catch-all proxy in index.ts which forwards them to the runner.
+ * because these are server-only concerns (DB writes). Startup command CRUD
+ * is also handled here (DB-backed). Filesystem/git operations
+ * (branches, checkout-preflight, hooks, weave) and command execution
+ * (start/stop/status) fall through to the catch-all proxy in index.ts
+ * which forwards them to the runner.
  */
 
 import { existsSync } from 'fs';
@@ -15,6 +17,7 @@ import { Hono } from 'hono';
 import type { ServerEnv } from '../lib/types.js';
 import * as pm from '../services/project-manager.js';
 import * as projectRepo from '../services/project-repository.js';
+import * as cmdRepo from '../services/startup-commands-repository.js';
 
 export const projectRoutes = new Hono<ServerEnv>();
 
@@ -249,5 +252,48 @@ projectRoutes.post('/:id/local-path', async (c) => {
   }
 
   await pm.setMemberLocalPath(projectId, userId, resolvedPath);
+  return c.json({ ok: true });
+});
+
+// ── Startup Commands CRUD (DB-backed, handled by server) ──
+
+/** GET /api/projects/:id/commands — list commands for a project */
+projectRoutes.get('/:id/commands', async (c) => {
+  const projectId = c.req.param('id');
+  const commands = await cmdRepo.listCommands(projectId);
+  return c.json(commands);
+});
+
+/** POST /api/projects/:id/commands — create a new command */
+projectRoutes.post('/:id/commands', async (c) => {
+  const projectId = c.req.param('id');
+  const { label, command } = await c.req.json<{ label: string; command: string }>();
+  if (!label || !command) {
+    return c.json({ error: 'label and command are required' }, 400);
+  }
+  const entry = await cmdRepo.createCommand({ projectId, label, command });
+  return c.json(entry, 201);
+});
+
+/** PUT /api/projects/:id/commands/:cmdId — update a command */
+projectRoutes.put('/:id/commands/:cmdId', async (c) => {
+  const cmdId = c.req.param('cmdId');
+  const { label, command, port, portEnvVar } = await c.req.json<{
+    label: string;
+    command: string;
+    port?: number;
+    portEnvVar?: string;
+  }>();
+  if (!label || !command) {
+    return c.json({ error: 'label and command are required' }, 400);
+  }
+  await cmdRepo.updateCommand(cmdId, { label, command, port, portEnvVar });
+  return c.json({ ok: true });
+});
+
+/** DELETE /api/projects/:id/commands/:cmdId — delete a command */
+projectRoutes.delete('/:id/commands/:cmdId', async (c) => {
+  const cmdId = c.req.param('cmdId');
+  await cmdRepo.deleteCommand(cmdId);
   return c.json({ ok: true });
 });

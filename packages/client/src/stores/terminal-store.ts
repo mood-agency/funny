@@ -24,6 +24,8 @@ export interface TerminalTab {
   restored?: boolean;
   /** True when a bell (\x07) was received while this tab was not active */
   hasBell?: boolean;
+  /** Command to auto-execute after the PTY shell is ready (startup commands) */
+  initialCommand?: string;
 }
 
 // Buffer for pty:data that arrives before a callback is registered.
@@ -278,7 +280,7 @@ export const useTerminalStore = create<TerminalState>()(
       name: 'funny-terminal-store',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        tabs: state.tabs.map((t) => ({ ...t, alive: false })), // Tabs are not "alive" until re-connected
+        tabs: state.tabs.map((t) => ({ ...t, alive: false, initialCommand: undefined })), // Tabs are not "alive" until re-connected
         activeTabId: state.activeTabId,
         panelVisible: state.panelVisible,
       }),

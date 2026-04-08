@@ -1,5 +1,5 @@
 import type { AgentModel, PermissionMode } from '@funny/shared';
-import { FileText, FolderOpen, ChevronRight, ChevronDown } from 'lucide-react';
+import { FileText, FolderOpen, ChevronRight, ChevronDown, Slash } from 'lucide-react';
 import { useState, useRef, useLayoutEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -47,37 +47,65 @@ function FileChip({ item }: { item: ReferencedItem }) {
   );
 }
 
+/** Renders a slash command chip inline */
+function SlashCommandChip({ name }: { name: string }) {
+  return (
+    <span
+      data-testid="user-message-slash-command"
+      className="mr-1 inline-flex items-center gap-0.5 rounded bg-background/20 px-1.5 py-0.5 align-middle font-mono text-xs font-medium text-background/70"
+    >
+      <Slash className="icon-xs shrink-0" />
+      {name}
+    </span>
+  );
+}
+
 /**
- * Splits text on @path mentions and replaces them with inline FileChip components.
- * Returns an array of ReactNode (strings and FileChip elements).
+ * Splits text on @path mentions and /slash-command prefixes, replacing them
+ * with inline FileChip / SlashCommandChip components.
+ * Returns an array of ReactNode (strings and chip elements).
  */
 function renderInlineContent(text: string, fileMap: Map<string, ReferencedItem>): ReactNode[] {
-  if (fileMap.size === 0) return [text];
+  // Build combined regex: slash commands (at start) + @path mentions
+  const regexParts: string[] = [];
 
-  // Build regex that matches any @path in the file map
-  const escapedPaths = Array.from(fileMap.keys())
-    .sort((a, b) => b.length - a.length) // longest first to avoid partial matches
-    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const pattern = new RegExp(`@(${escapedPaths.join('|')})`, 'g');
+  // Slash command: /name at the very beginning of the text
+  // Match /word characters, colons, dots, hyphens (e.g. /skill-creator:skill-creator)
+  regexParts.push('^\\/([\\w:.-]+)');
 
+  // @path mentions
+  if (fileMap.size > 0) {
+    const escapedPaths = Array.from(fileMap.keys())
+      .sort((a, b) => b.length - a.length)
+      .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    regexParts.push(`@(${escapedPaths.join('|')})`);
+  }
+
+  if (regexParts.length === 0) return [text];
+
+  const pattern = new RegExp(regexParts.join('|'), 'g');
   const parts: ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(text)) !== null) {
-    // Push text before this match
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
-    const path = match[1];
-    const item = fileMap.get(path);
-    if (item) {
-      parts.push(<FileChip key={`chip-${match.index}`} item={item} />);
+
+    if (match[1] !== undefined) {
+      // Slash command match (group 1)
+      parts.push(<SlashCommandChip key={`slash-${match.index}`} name={match[1]} />);
+    } else if (match[2] !== undefined) {
+      // @path mention match (group 2)
+      const item = fileMap.get(match[2]);
+      if (item) {
+        parts.push(<FileChip key={`chip-${match.index}`} item={item} />);
+      }
     }
     lastIndex = match.index + match[0].length;
   }
 
-  // Push remaining text
   if (lastIndex < text.length) {
     parts.push(text.slice(lastIndex));
   }

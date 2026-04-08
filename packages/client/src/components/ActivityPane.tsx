@@ -22,6 +22,7 @@ import { formatInput } from '@/components/tool-cards/utils';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useElementWidth } from '@/hooks/use-element-width';
 import { useTodoSnapshotsByAgent } from '@/hooks/use-todo-panel';
 import type { TodoSnapshot } from '@/hooks/use-todo-panel';
 import { api } from '@/lib/api';
@@ -402,7 +403,8 @@ function EmptyState({ message }: { message: string }) {
 
 export function ActivityPane() {
   const { t } = useTranslation();
-  const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelWidthPx = useElementWidth(panelRef);
 
   // Agents & todos grouped by agent
   const runningAgents = useRunningAgents();
@@ -519,7 +521,7 @@ export function ActivityPane() {
   }
 
   return (
-    <div data-testid="activity-pane" className="flex h-full flex-col">
+    <div ref={panelRef} data-testid="activity-pane" className="flex h-full flex-col">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-sidebar-border px-4 py-3">
         <div className="flex items-center gap-2">
@@ -615,10 +617,11 @@ export function ActivityPane() {
 
       {/* Diff viewer overlay — portal to body so it escapes contain:strict ancestors */}
       {expandedFile &&
+        panelWidthPx > 0 &&
         createPortal(
           <div
             className="fixed inset-0 z-40 bg-background"
-            style={{ right: `${reviewPaneWidth}vw` }}
+            style={{ right: `${panelWidthPx + 3}px` }}
             data-testid="activity-expanded-diff-overlay"
           >
             {(() => {

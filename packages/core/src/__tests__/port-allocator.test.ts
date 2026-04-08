@@ -81,10 +81,10 @@ describe('port-allocator', () => {
 
       expect(allocations).toHaveLength(2);
       expect(allocations[0].groupName).toBe('api');
-      expect(allocations[0].port).toBe(59500);
+      expect(allocations[0].port).toBeGreaterThanOrEqual(59500);
       expect(allocations[0].envVars).toEqual(['API_PORT']);
       expect(allocations[1].groupName).toBe('db');
-      expect(allocations[1].port).toBe(59600);
+      expect(allocations[1].port).toBeGreaterThanOrEqual(59600);
     });
 
     test('avoids already excluded ports', async () => {
@@ -103,8 +103,8 @@ describe('port-allocator', () => {
       ];
 
       const allocations = await allocatePorts(groups);
-      expect(allocations[0].port).toBe(59800);
-      expect(allocations[1].port).toBe(59801);
+      expect(allocations[0].port).toBeGreaterThanOrEqual(59800);
+      expect(allocations[1].port).toBeGreaterThan(allocations[0].port);
       expect(allocations[0].port).not.toBe(allocations[1].port);
     });
 

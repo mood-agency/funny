@@ -73,6 +73,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
+import { useElementWidth } from '@/hooks/use-element-width';
 import { api } from '@/lib/api';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import { openFileInExternalEditor, getEditorLabel } from '@/lib/editor-utils';
@@ -119,8 +120,9 @@ export function ReviewPane() {
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
   const reviewSubTab = useUIStore((s) => s.reviewSubTab);
   const setReviewSubTabStore = useUIStore((s) => s.setReviewSubTab);
-  const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelWidthPx = useElementWidth(panelRef);
 
   // Use selectedThreadId for git requests — it updates *immediately* when the
   // user clicks a thread in the sidebar (before the thread data loads from the
@@ -573,7 +575,8 @@ export function ReviewPane() {
   // Track when a dropdown menu closes so we can suppress the parent row click
   const dropdownCloseRef = useRef(0);
 
-  // Reset state and refresh when the active thread or project-mode changes.
+  // Reset state and refresh when the active thread or project-mode changes,
+  // or when the project branch changes (e.g. after a checkout from the BranchPicker).
   // Using effectiveThreadId (not just gitContextKey) ensures we refresh even
   // when switching between two local threads of the same project that share
   // the same git working directory.
@@ -609,7 +612,7 @@ export function ReviewPane() {
       needsRefreshRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset+refresh on context change only; refresh/reviewPaneOpen are read but not deps (handled separately)
-  }, [gitContextKey]);
+  }, [gitContextKey, currentBranch]);
 
   // Check if the project has a remote origin configured (for Publish vs Push UX).
   useEffect(() => {
@@ -1390,13 +1393,14 @@ export function ReviewPane() {
     : FileCode;
 
   return (
-    <>
+    <div ref={panelRef} className="flex h-full flex-col">
       {/* Diff viewer overlay — portal to body so it escapes contain:strict ancestors */}
       {expandedFile &&
+        panelWidthPx > 0 &&
         createPortal(
           <div
             className="fixed inset-0 z-40 bg-background"
-            style={{ right: `${reviewPaneWidth}vw` }}
+            style={{ right: `${panelWidthPx + 3}px` }}
             data-testid="expanded-diff-overlay"
           >
             <ExpandedDiffView
@@ -2715,6 +2719,6 @@ export function ReviewPane() {
           toast.success('Repository published');
         }}
       />
-    </>
+    </div>
   );
 }

@@ -164,12 +164,20 @@ function spawnSession(cmd: SpawnCmd): void {
     const serialize = new SerializeAddon();
     headless.loadAddon(serialize);
 
-    const ptyEnv = { ...process.env, ...(cmd.env || {}) } as Record<string, string>;
+    // Build a clean environment for user shell sessions.
+    // Remove node_modules/.bin entries from PATH — these leak from the Bun
+    // server/daemon process and can shadow user tools (e.g. npx → bunx shim).
+    const mergedEnv = { ...process.env, ...(cmd.env || {}) } as Record<string, string>;
+    if (mergedEnv.PATH) {
+      mergedEnv.PATH = mergedEnv.PATH.split(':')
+        .filter((p) => !p.includes('node_modules/.bin'))
+        .join(':');
+    }
 
     const id = cmd.id;
-    const proc = Bun.spawn([shell], {
+    const proc = Bun.spawn([shell, '-l'], {
       cwd,
-      env: ptyEnv,
+      env: mergedEnv,
       terminal: {
         cols,
         rows,

@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { useBranchSwitch } from '@/hooks/use-branch-switch';
 import { useNavigationBlock } from '@/hooks/use-navigation-block';
 import { api } from '@/lib/api';
 import { toastError } from '@/lib/toast-error';
@@ -78,6 +79,21 @@ export function NewThreadInput() {
   const branchPickerLoading = useBranchPickerStore((s) => s.loading);
   const branchPickerSelected = useBranchPickerStore((s) => s.selectedBranch);
   const branchPickerSetSelected = useBranchPickerStore((s) => s.setSelectedBranch);
+  const branchPickerCurrentBranch = useBranchPickerStore((s) => s.currentBranch);
+
+  // ── Branch switch on selection (checkout so ReviewPane shows accurate data) ──
+  const { ensureBranch, branchSwitchDialog } = useBranchSwitch();
+  const handleBranchChange = useCallback(
+    async (branch: string) => {
+      branchPickerSetSelected(branch);
+      // Checkout immediately so the ReviewPane can show the correct branch status.
+      // ensureBranch is a no-op if already on the target branch.
+      if (effectiveProjectId && branch !== branchPickerCurrentBranch) {
+        await ensureBranch(effectiveProjectId, branch);
+      }
+    },
+    [branchPickerSetSelected, effectiveProjectId, branchPickerCurrentBranch, ensureBranch],
+  );
 
   // ── Remote URL ──
   const projectPath = useMemo(() => project?.path ?? '', [project?.path]);
@@ -316,7 +332,7 @@ export function NewThreadInput() {
                   remoteBranches={branchPickerRemoteBranches}
                   defaultBranch={branchPickerDefaultBranch}
                   selected={branchPickerSelected}
-                  onChange={branchPickerSetSelected}
+                  onChange={handleBranchChange}
                   showCreateNew
                   testId="new-thread-branch-picker"
                 />
@@ -373,6 +389,7 @@ export function NewThreadInput() {
         onDiscard={handleDiscard}
         onCancel={handleCancel}
       />
+      {branchSwitchDialog}
     </div>
   );
 }

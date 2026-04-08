@@ -29,6 +29,7 @@ import { HighlightText } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useElementWidth } from '@/hooks/use-element-width';
 import { api } from '@/lib/api';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import { shortRelativeDate } from '@/lib/thread-utils';
@@ -72,7 +73,8 @@ interface CommitHistoryTabProps {
 
 export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
   const { t } = useTranslation();
-  const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const panelWidthPx = useElementWidth(panelRef);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   // Use selectedThreadId for git requests — it updates immediately on click,
   // before the thread data finishes loading from the API.
@@ -495,6 +497,7 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
 
   return (
     <div
+      ref={panelRef}
       className="flex h-full w-full min-w-0 flex-col overflow-hidden"
       data-testid="commit-history-tab"
     >
@@ -841,10 +844,11 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
 
       {/* Diff viewer overlay — portal to body so it escapes contain:strict ancestors */}
       {expandedFile &&
+        panelWidthPx > 0 &&
         createPortal(
           <div
             className="fixed inset-0 z-40 bg-background"
-            style={{ right: `${reviewPaneWidth}vw` }}
+            style={{ right: `${panelWidthPx + 3}px` }}
             data-testid="history-expanded-diff-overlay"
           >
             <ExpandedDiffView

@@ -8,13 +8,16 @@ import { CommandHighlight } from '@/components/CommandHighlight';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { getActiveWS } from '@/hooks/use-ws';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/app-store';
+import { useProjectStore } from '@/stores/project-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 
 export function StartupCommandsSettings() {
   const { t } = useTranslation();
   const selectedProjectId = useAppStore((s) => s.selectedProjectId);
+  const projects = useProjectStore((s) => s.projects);
   const [commands, setCommands] = useState<StartupCommand[]>([]);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -94,25 +97,33 @@ export function StartupCommandsSettings() {
     }
   };
 
-  const handleRun = async (cmd: StartupCommand) => {
+  const handleRun = (cmd: StartupCommand) => {
     if (!selectedProjectId) return;
+    const project = projects.find((p) => p.id === selectedProjectId);
+    if (!project) return;
     const store = useTerminalStore.getState();
     store.addTab({
       id: crypto.randomUUID(),
       label: cmd.label,
-      cwd: '',
+      cwd: project.path,
       alive: true,
       commandId: cmd.id,
       projectId: selectedProjectId,
+      type: 'pty',
+      initialCommand: cmd.command,
     });
-    await api.runCommand(selectedProjectId, cmd.id);
-    // ignore errors
   };
 
-  const handleStop = async (cmd: StartupCommand) => {
-    if (!selectedProjectId) return;
-    await api.stopCommand(selectedProjectId, cmd.id);
-    // ignore errors
+  const handleStop = (cmd: StartupCommand) => {
+    const store = useTerminalStore.getState();
+    const tab = store.tabs.find((t) => t.commandId === cmd.id && t.alive);
+    if (tab) {
+      const ws = getActiveWS();
+      if (ws && ws.connected) {
+        ws.emit('pty:kill', { id: tab.id });
+      }
+      store.removeTab(tab.id);
+    }
   };
 
   const startEditing = (cmd: StartupCommand) => {
@@ -143,21 +154,23 @@ export function StartupCommandsSettings() {
 
   return (
     <div className="space-y-4">
-      {/* Project indicator */}
-      <div className="flex items-center justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => {
-            cancelEdit();
-            setAdding(true);
-          }}
-        >
-          <Plus className="icon-sm" />
-          {t('startup.addCommand')}
-        </Button>
-      </div>
+      {/* Add button — hidden when empty state is shown */}
+      {(commands.length > 0 || adding) && (
+        <div className="flex items-center justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              cancelEdit();
+              setAdding(true);
+            }}
+          >
+            <Plus className="icon-sm" />
+            {t('startup.addCommand')}
+          </Button>
+        </div>
+      )}
 
       {/* Command list */}
       {commands.length === 0 && !adding && (

@@ -666,6 +666,17 @@ export const PromptInput = memo(function PromptInput({
     [effectiveProjectId, gitCurrentBranch, ensureBranch],
   );
 
+  // Checkout on follow-up branch change so ReviewPane refreshes immediately
+  const handleFollowUpBranchChange = useCallback(
+    async (branch: string) => {
+      setFollowUpSelectedBranch(branch);
+      if (effectiveProjectId && branch !== gitCurrentBranch) {
+        await ensureBranch(effectiveProjectId, branch);
+      }
+    },
+    [effectiveProjectId, gitCurrentBranch, ensureBranch],
+  );
+
   // ── Editor change handler (for content tracking) ──
   const handleEditorChange = useCallback(() => {
     if (onContentChange) {
@@ -736,7 +747,7 @@ export const PromptInput = memo(function PromptInput({
         followUpRemoteBranches={followUpRemoteBranches}
         followUpDefaultBranch={followUpDefaultBranch}
         followUpSelectedBranch={followUpSelectedBranch}
-        onFollowUpSelectedBranchChange={setFollowUpSelectedBranch}
+        onFollowUpSelectedBranchChange={handleFollowUpBranchChange}
         activeThreadBranch={activeThreadBranch}
         effectiveCwd={threadCwd}
         showBacklog={showBacklog}

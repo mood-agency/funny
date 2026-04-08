@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { SwitchBranchDialog } from '@/components/SwitchBranchDialog';
 import { api } from '@/lib/api';
 import { useBranchPickerStore } from '@/stores/branch-picker-store';
+import { useGitStatusStore } from '@/stores/git-status-store';
 import { useProjectStore } from '@/stores/project-store';
 
 interface DialogState {
@@ -77,6 +78,8 @@ export function useBranchSwitch() {
       }
       useProjectStore.getState().fetchBranch(projectId);
       useBranchPickerStore.getState().setCurrentBranch(targetBranch);
+      // Force-refresh git status so ReviewPane shows origin info for the new branch
+      useGitStatusStore.getState().fetchProjectStatus(projectId, true);
       return true;
     },
     [t],
@@ -93,6 +96,8 @@ export function useBranchSwitch() {
       if (result.isOk()) {
         useProjectStore.getState().fetchBranch(dialogState.projectId);
         useBranchPickerStore.getState().setCurrentBranch(dialogState.targetBranch);
+        // Force-refresh git status so ReviewPane shows origin info for the new branch
+        useGitStatusStore.getState().fetchProjectStatus(dialogState.projectId, true);
         setDialogState(null);
         resolverRef.current?.(true);
         resolverRef.current = null;
