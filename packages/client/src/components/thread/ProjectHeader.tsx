@@ -24,6 +24,7 @@ import {
   FlaskConical,
   ListChecks,
   Activity,
+  Sparkles,
 } from 'lucide-react';
 import { memo, useState, useEffect, useCallback, useRef, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -164,6 +165,19 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
   const [createBranchOpen, setCreateBranchOpen] = useState(false);
   const [branchName, setBranchName] = useState('');
   const [createBranchLoading, setCreateBranchLoading] = useState(false);
+
+  const handleSuggestBranchName = useCallback(() => {
+    const title = threadTitle;
+    if (!title) return;
+    const slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 60);
+    if (slug) setBranchName(slug);
+  }, [threadTitle]);
 
   const handleConvertToWorktree = useCallback(async () => {
     if (!threadId) return;
@@ -367,16 +381,35 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
           <DialogHeader>
             <DialogTitle>{t('dialog.createBranchTitle')}</DialogTitle>
           </DialogHeader>
-          <Input
-            data-testid="create-branch-input"
-            placeholder={t('dialog.createBranchPlaceholder')}
-            value={branchName}
-            onChange={(e) => setBranchName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && branchName.trim()) handleCreateBranch();
-            }}
-            autoFocus
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              data-testid="create-branch-input"
+              placeholder={t('dialog.createBranchPlaceholder')}
+              value={branchName}
+              onChange={(e) => setBranchName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && branchName.trim()) handleCreateBranch();
+              }}
+              autoFocus
+            />
+            {threadTitle && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    data-testid="create-branch-suggest"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={handleSuggestBranchName}
+                  >
+                    <Sparkles className="icon-base" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t('dialog.suggestBranchName', 'Suggest from title')}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
           <DialogFooter>
             <Button
               variant="ghost"

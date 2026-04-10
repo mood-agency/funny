@@ -180,6 +180,8 @@ export interface FileTreeProps {
   onToggleFile?: (path: string) => void;
   /** Revert/discard a file (enables discard menu item when provided) */
   onRevertFile?: (path: string) => void;
+  /** Custom label for the revert action (default: uses t('review.discardChanges')) */
+  revertLabel?: string;
   /** Add a pattern to .gitignore (enables ignore menu items when provided) */
   onIgnore?: (pattern: string) => void;
   /** Base path for constructing absolute file paths (for open-in-editor) */
@@ -211,6 +213,7 @@ export function FileTree({
   checkedFiles,
   onToggleFile,
   onRevertFile,
+  revertLabel,
   onIgnore,
   basePath,
   diffStatsSize = 'xs',
@@ -422,7 +425,7 @@ export function FileTree({
                   className="text-destructive focus:text-destructive"
                 >
                   <Undo2 />
-                  {t('review.discardChanges')}
+                  {revertLabel ?? t('review.discardChanges')}
                 </DropdownMenuItem>
               </>
             )}

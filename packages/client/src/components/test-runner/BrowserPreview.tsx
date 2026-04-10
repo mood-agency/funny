@@ -285,39 +285,39 @@ export function BrowserPreview({
             data-testid="browser-prev-action"
             tooltip="Previous action"
             disabled={!hasActions}
-            size="icon-xs"
+            size="icon-sm"
             onClick={prevAction}
           >
-            <ChevronLeft className="icon-sm" />
+            <ChevronLeft className="icon-base" />
           </TooltipIconButton>
           {isRunning ? (
             <TooltipIconButton
               data-testid="browser-stop"
               tooltip="Stop"
-              size="icon-xs"
+              size="icon-sm"
               onClick={onStop}
               className="text-destructive hover:text-destructive"
             >
-              <Square className="icon-sm fill-current" />
+              <Square className="icon-base fill-current" />
             </TooltipIconButton>
           ) : (
             <TooltipIconButton
               data-testid="browser-play"
               tooltip="Play"
               disabled={!isStreaming}
-              size="icon-xs"
+              size="icon-sm"
             >
-              <Play className="icon-sm" />
+              <Play className="icon-base" />
             </TooltipIconButton>
           )}
           <TooltipIconButton
             data-testid="browser-next-action"
             tooltip="Next action"
             disabled={!hasActions}
-            size="icon-xs"
+            size="icon-sm"
             onClick={nextAction}
           >
-            <ChevronRight className="icon-sm" />
+            <ChevronRight className="icon-base" />
           </TooltipIconButton>
 
           {/* Action counter */}
@@ -347,11 +347,11 @@ export function BrowserPreview({
           <TooltipIconButton
             data-testid="browser-zoom-out"
             tooltip="Zoom out"
-            size="icon-xs"
+            size="icon-sm"
             disabled={zoom <= ZOOM_LEVELS[0]}
             onClick={zoomOut}
           >
-            <ZoomOut className="icon-sm" />
+            <ZoomOut className="icon-base" />
           </TooltipIconButton>
           <button
             data-testid="browser-zoom-level"
@@ -364,19 +364,19 @@ export function BrowserPreview({
           <TooltipIconButton
             data-testid="browser-zoom-in"
             tooltip="Zoom in"
-            size="icon-xs"
+            size="icon-sm"
             disabled={zoom >= ZOOM_LEVELS[ZOOM_LEVELS.length - 1]}
             onClick={zoomIn}
           >
-            <ZoomIn className="icon-sm" />
+            <ZoomIn className="icon-base" />
           </TooltipIconButton>
           <TooltipIconButton
             data-testid="browser-fullscreen"
             tooltip={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            size="icon-xs"
+            size="icon-sm"
             onClick={toggleFullscreen}
           >
-            <Maximize2 className="icon-sm" />
+            <Maximize2 className="icon-base" />
           </TooltipIconButton>
         </div>
       </div>

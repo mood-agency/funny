@@ -56,7 +56,7 @@ function CheckIcon({ check }: { check: CICheck }) {
   }
 }
 
-function PRStateBadge({
+export function PRStateBadge({
   state,
   draft,
   merged,
@@ -67,7 +67,11 @@ function PRStateBadge({
 }) {
   if (merged) {
     return (
-      <Badge size="xxs" className="gap-1 border-purple-500/30 bg-purple-500/15 text-purple-400">
+      <Badge
+        variant="outline"
+        size="xxs"
+        className="gap-1 border-purple-500/30 bg-purple-500/15 text-purple-400"
+      >
         <GitMerge className="h-2.5 w-2.5" />
         Merged
       </Badge>
@@ -75,7 +79,11 @@ function PRStateBadge({
   }
   if (state === 'closed') {
     return (
-      <Badge size="xxs" className="gap-1 border-red-500/30 bg-red-500/15 text-red-400">
+      <Badge
+        variant="outline"
+        size="xxs"
+        className="gap-1 border-red-500/30 bg-red-500/15 text-red-400"
+      >
         <GitPullRequestClosed className="h-2.5 w-2.5" />
         Closed
       </Badge>
@@ -83,14 +91,22 @@ function PRStateBadge({
   }
   if (draft) {
     return (
-      <Badge size="xxs" className="gap-1 border-muted-foreground/30 bg-muted text-muted-foreground">
+      <Badge
+        variant="outline"
+        size="xxs"
+        className="gap-1 border-muted-foreground/30 bg-muted text-muted-foreground"
+      >
         <GitPullRequest className="h-2.5 w-2.5" />
         Draft
       </Badge>
     );
   }
   return (
-    <Badge size="xxs" className="gap-1 border-green-500/30 bg-green-500/15 text-green-400">
+    <Badge
+      variant="outline"
+      size="xxs"
+      className="gap-1 border-green-500/30 bg-green-500/15 text-green-400"
+    >
       <GitPullRequest className="h-2.5 w-2.5" />
       Open
     </Badge>

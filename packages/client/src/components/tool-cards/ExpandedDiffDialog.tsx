@@ -143,7 +143,7 @@ export interface ExpandedDiffViewProps {
   files?: FileDiffSummary[];
   onFileSelect?: (filePath: string) => void;
   diffCache?: Map<string, string>;
-  onClose: () => void;
+  onClose?: () => void;
   prReviewThreads?: PRReviewThread[];
   onResolveConflict?: (blockId: number, resolution: ConflictResolution) => void;
   onRequestFullDiff?: (
@@ -294,6 +294,16 @@ export function ExpandedDiffDialog({
 
   // ── Search handlers ──
   const openSearch = useCallback(() => setShowSearch(true), []);
+  const toggleSearch = useCallback(() => {
+    setShowSearch((prev) => {
+      if (prev) {
+        setSearchQuery('');
+        setCurrentMatchIndex(0);
+        setTotalMatches(0);
+      }
+      return !prev;
+    });
+  }, []);
 
   const closeSearch = useCallback(() => {
     setShowSearch(false);
@@ -481,7 +491,7 @@ export function ExpandedDiffDialog({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={openSearch}
+                onClick={toggleSearch}
                 className={cn(
                   'flex-shrink-0 text-muted-foreground',
                   showSearch && 'bg-accent text-accent-foreground',
@@ -655,6 +665,16 @@ export function ExpandedDiffView({
 
   // ── Search handlers ──
   const openSearch = useCallback(() => setShowSearch(true), []);
+  const toggleSearch = useCallback(() => {
+    setShowSearch((prev) => {
+      if (prev) {
+        setSearchQuery('');
+        setCurrentMatchIndex(0);
+        setTotalMatches(0);
+      }
+      return !prev;
+    });
+  }, []);
 
   const closeSearch = useCallback(() => {
     setShowSearch(false);
@@ -693,7 +713,7 @@ export function ExpandedDiffView({
           e.preventDefault();
           e.stopImmediatePropagation();
           closeSearch();
-        } else {
+        } else if (onClose) {
           onClose();
         }
       }
@@ -836,7 +856,7 @@ export function ExpandedDiffView({
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={openSearch}
+              onClick={toggleSearch}
               className={cn(
                 'flex-shrink-0 text-muted-foreground',
                 showSearch && 'bg-accent text-accent-foreground',
@@ -848,15 +868,17 @@ export function ExpandedDiffView({
           </TooltipTrigger>
           <TooltipContent side="bottom">Search (Ctrl+F)</TooltipContent>
         </Tooltip>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onClose}
-          className="flex-shrink-0 text-muted-foreground"
-          data-testid="expanded-diff-close"
-        >
-          <X className="icon-base" />
-        </Button>
+        {onClose && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            className="flex-shrink-0 text-muted-foreground"
+            data-testid="expanded-diff-close"
+          >
+            <X className="icon-base" />
+          </Button>
+        )}
       </div>
 
       {/* Diff content + review threads */}

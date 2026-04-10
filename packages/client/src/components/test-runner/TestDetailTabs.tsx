@@ -94,6 +94,17 @@ function LogTab({ outputLines }: { outputLines: OutputLine[] }) {
   const logRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
 
+  // Observe the <html> class attribute to detect theme changes so the ANSI
+  // converter re-creates with fresh CSS variable values after a theme switch.
+  const [themeKey, setThemeKey] = useState(() => document.documentElement.className);
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setThemeKey(document.documentElement.className);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
   const ansiConverter = useMemo(
     () =>
       new AnsiToHtml({
@@ -102,7 +113,7 @@ function LogTab({ outputLines }: { outputLines: OutputLine[] }) {
         newline: false,
         escapeXML: true,
       }),
-    [],
+    [themeKey],
   );
 
   useEffect(() => {
@@ -123,7 +134,7 @@ function LogTab({ outputLines }: { outputLines: OutputLine[] }) {
       className="h-full overflow-y-auto px-3 py-1 font-mono text-xs"
     >
       {outputLines.length === 0 ? (
-        <div className="py-4 text-center text-muted-foreground">
+        <div className="flex h-full items-center justify-center text-muted-foreground">
           Test output will appear here...
         </div>
       ) : (
@@ -161,7 +172,7 @@ function ConsoleTab({ entries }: { entries: WSTestConsoleData[] }) {
   return (
     <div ref={ref} onScroll={handleScroll} className="h-full overflow-y-auto font-mono text-xs">
       {entries.length === 0 ? (
-        <div className="py-4 text-center text-muted-foreground">
+        <div className="flex h-full items-center justify-center text-muted-foreground">
           Browser console messages will appear here...
         </div>
       ) : (
@@ -198,7 +209,9 @@ function ErrorsTab({ entries }: { entries: WSTestErrorData[] }) {
   return (
     <div className="h-full overflow-y-auto font-mono text-xs">
       {entries.length === 0 ? (
-        <div className="py-4 text-center text-muted-foreground">No errors captured</div>
+        <div className="flex h-full items-center justify-center text-muted-foreground">
+          No errors captured
+        </div>
       ) : (
         <div>
           {entries.map((entry, i) => (
@@ -317,7 +330,7 @@ function NetworkTab({ entries }: { entries: TestNetworkEntry[] }) {
           )}
         >
           {filtered.length === 0 ? (
-            <div className="py-4 text-center text-muted-foreground">
+            <div className="flex h-full items-center justify-center text-muted-foreground">
               {entries.length === 0
                 ? 'Network requests will appear here...'
                 : 'No matching requests'}
@@ -1017,7 +1030,9 @@ function AnnotationsTab({ outputLines }: { outputLines: OutputLine[] }) {
   return (
     <div className="h-full overflow-y-auto text-xs">
       {annotations.length === 0 ? (
-        <div className="py-4 text-center text-muted-foreground">No annotations found</div>
+        <div className="flex h-full items-center justify-center text-muted-foreground">
+          No annotations found
+        </div>
       ) : (
         <div>
           {annotations.map((anno, i) => (

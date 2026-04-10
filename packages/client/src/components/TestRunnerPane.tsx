@@ -89,6 +89,10 @@ export function TestRunnerPane() {
     stopRun(selectedProjectId);
   }, [selectedProjectId, stopRun]);
 
+  const handleClose = useCallback(() => {
+    useUIStore.getState().setTestRunnerOpen(false);
+  }, []);
+
   // --- Internal column resize ---
   const [splitPct, setSplitPct] = useState(() => {
     try {
@@ -129,20 +133,20 @@ export function TestRunnerPane() {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-sidebar-foreground">
+      <div className="flex h-12 items-center justify-between border-b border-sidebar-border px-2">
+        <h3 className="ml-2 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground">
           Test Runner
         </h3>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-xs"
-              onClick={() => useUIStore.getState().setTestRunnerOpen(false)}
+              size="icon-sm"
+              onClick={handleClose}
               className="text-muted-foreground"
               data-testid="test-runner-close"
             >
-              <PanelRightClose className="icon-sm" />
+              <PanelRightClose className="icon-base" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top">Close</TooltipContent>

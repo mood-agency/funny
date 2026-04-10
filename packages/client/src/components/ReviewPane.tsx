@@ -73,7 +73,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
-import { useElementWidth } from '@/hooks/use-element-width';
+import { useElementLeft } from '@/hooks/use-element-width';
 import { api } from '@/lib/api';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import { openFileInExternalEditor, getEditorLabel } from '@/lib/editor-utils';
@@ -122,7 +122,7 @@ export function ReviewPane() {
   const setReviewSubTabStore = useUIStore((s) => s.setReviewSubTab);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const panelRef = useRef<HTMLDivElement>(null);
-  const panelWidthPx = useElementWidth(panelRef);
+  const panelLeftPx = useElementLeft(panelRef);
 
   // Use selectedThreadId for git requests — it updates *immediately* when the
   // user clicks a thread in the sidebar (before the thread data loads from the
@@ -450,23 +450,50 @@ export function ReviewPane() {
 
     if (result.isOk()) {
       const data = result.value;
+
+      // Determine which file to load and whether it's cached BEFORE state
+      // updates so we can fire the diff request in parallel with React batching.
+      const newPaths = new Set(data.files.map((d) => d.path));
+      const fileToLoad = selectedFile ?? (data.files.length > 0 ? data.files[0].path : null);
+      const fileToLoadSummary = fileToLoad
+        ? data.files.find((s) => s.path === fileToLoad)
+        : undefined;
+
+      // Check the existing cache (pre-prune) — if the file survived the prune
+      // it will still be there, and if it didn't the fetch is needed regardless.
+      const needsFetch =
+        fileToLoad && fileToLoadSummary && !diffCache.get(fileToLoad) && !signal.aborted;
+
+      // Start diff fetch immediately — don't wait for state updates (parallel)
+      let diffPromise: Promise<void> | undefined;
+      if (needsFetch) {
+        setLoadingDiff(fileToLoad);
+        diffPromise = (async () => {
+          const diffResult = effectiveThreadId
+            ? await api.getFileDiff(effectiveThreadId, fileToLoad, fileToLoadSummary.staged, signal)
+            : await api.projectFileDiff(
+                projectModeId!,
+                fileToLoad,
+                fileToLoadSummary.staged,
+                signal,
+              );
+          if (refreshEpochRef.current === epoch && diffResult.isOk()) {
+            setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
+          }
+          setLoadingDiff((prev) => (prev === fileToLoad ? null : prev));
+        })();
+      }
+
+      // State updates run in parallel with the diff fetch above
       setSummaries(data.files);
       setTruncatedInfo({ total: data.total, truncated: data.truncated });
-      // Invalidate only stale cache entries instead of clearing the whole map
-      const newPaths = new Set(data.files.map((d) => d.path));
-      // Capture the filtered cache so we can use it below for the selected file
-      // check. Reading the closure `diffCache` after setDiffCache would be stale
-      // because React batches state updates.
-      const filteredCacheRef: { current: Map<string, string> } = { current: new Map() };
       setDiffCache((prev) => {
         const next = new Map<string, string>();
         for (const [k, v] of prev) {
           if (newPaths.has(k)) next.set(k, v);
         }
-        filteredCacheRef.current = next;
         return next;
       });
-      // Check all files by default, preserving existing selections
       setCheckedFiles((prev) => {
         const next = new Set(prev);
         const currentPaths = new Set(data.files.map((d) => d.path));
@@ -485,25 +512,9 @@ export function ReviewPane() {
       if (data.files.length > 0 && !selectedFile) {
         setSelectedFile(data.files[0].path);
       }
-      // Load diff for the currently selected file (uses filtered cache, not stale closure)
-      const fileToLoad = selectedFile ?? (data.files.length > 0 ? data.files[0].path : null);
-      if (fileToLoad && !signal.aborted) {
-        const summary = data.files.find((s) => s.path === fileToLoad);
-        if (summary) {
-          // Use the filtered cache we just computed (not the stale closure value)
-          const cachedDiff = filteredCacheRef.current.get(fileToLoad);
-          if (!cachedDiff) {
-            setLoadingDiff(fileToLoad);
-            const diffResult = effectiveThreadId
-              ? await api.getFileDiff(effectiveThreadId, fileToLoad, summary.staged, signal)
-              : await api.projectFileDiff(projectModeId!, fileToLoad, summary.staged, signal);
-            if (refreshEpochRef.current === epoch && diffResult.isOk()) {
-              setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
-            }
-            setLoadingDiff((prev) => (prev === fileToLoad ? null : prev));
-          }
-        }
-      }
+
+      // Wait for the in-flight diff fetch to complete before finishing refresh
+      if (diffPromise) await diffPromise;
     } else {
       // Don't log abort errors as failures
       if (!signal.aborted) {
@@ -516,20 +527,23 @@ export function ReviewPane() {
   };
 
   // Lazy load diff content for the selected file
-  const loadDiffForFile = async (filePath: string) => {
-    if (!hasGitContext || diffCache.has(filePath)) return;
-    const summary = summaries.find((s) => s.path === filePath);
-    if (!summary) return;
-    const signal = abortRef.current?.signal;
-    setLoadingDiff(filePath);
-    const result = effectiveThreadId
-      ? await api.getFileDiff(effectiveThreadId, filePath, summary.staged, signal)
-      : await api.projectFileDiff(projectModeId!, filePath, summary.staged, signal);
-    if (result.isOk() && !signal?.aborted) {
-      setDiffCache((prev) => new Map(prev).set(filePath, result.value.diff));
-    }
-    setLoadingDiff((prev) => (prev === filePath ? null : prev));
-  };
+  const loadDiffForFile = useCallback(
+    async (filePath: string) => {
+      if (!hasGitContext || diffCache.has(filePath)) return;
+      const summary = summaries.find((s) => s.path === filePath);
+      if (!summary) return;
+      const signal = abortRef.current?.signal;
+      setLoadingDiff(filePath);
+      const result = effectiveThreadId
+        ? await api.getFileDiff(effectiveThreadId, filePath, summary.staged, signal)
+        : await api.projectFileDiff(projectModeId!, filePath, summary.staged, signal);
+      if (result.isOk() && !signal?.aborted) {
+        setDiffCache((prev) => new Map(prev).set(filePath, result.value.diff));
+      }
+      setLoadingDiff((prev) => (prev === filePath ? null : prev));
+    },
+    [hasGitContext, diffCache, summaries, effectiveThreadId, projectModeId],
+  );
 
   // Fetch full-context diff for the "Show full file" toggle
   const requestFullDiff = async (
@@ -1385,6 +1399,18 @@ export function ReviewPane() {
     !actionInProgress &&
     (effectiveThreadId ? true : !isAgentRunning);
 
+  // Stable callbacks for ExpandedDiffView — avoids re-renders from new closures
+  const handleExpandedFileSelect = useCallback(
+    (path: string) => {
+      setExpandedFile(path);
+      setSelectedFile(path);
+      loadDiffForFile(path);
+    },
+    [loadDiffForFile],
+  );
+
+  const handleExpandedClose = useCallback(() => setExpandedFile(null), []);
+
   // Compute expanded diff props once (used in the overlay below)
   const expandedSummary = expandedFile ? summaries.find((s) => s.path === expandedFile) : undefined;
   const expandedDiffContent = expandedFile ? diffCache.get(expandedFile) : undefined;
@@ -1396,11 +1422,11 @@ export function ReviewPane() {
     <div ref={panelRef} className="flex h-full flex-col">
       {/* Diff viewer overlay — portal to body so it escapes contain:strict ancestors */}
       {expandedFile &&
-        panelWidthPx > 0 &&
+        panelLeftPx > 0 &&
         createPortal(
           <div
-            className="fixed inset-0 z-40 bg-background"
-            style={{ right: `${panelWidthPx + 3}px` }}
+            className="fixed bottom-0 left-0 top-0 z-40 bg-background"
+            style={{ width: `${panelLeftPx}px` }}
             data-testid="expanded-diff-overlay"
           >
             <ExpandedDiffView
@@ -1411,13 +1437,9 @@ export function ReviewPane() {
               loading={loadingDiff === expandedFile}
               rawDiff={expandedDiffContent}
               files={summaries}
-              onFileSelect={(path) => {
-                setExpandedFile(path);
-                setSelectedFile(path);
-                loadDiffForFile(path);
-              }}
+              onFileSelect={handleExpandedFileSelect}
               diffCache={diffCache}
-              onClose={() => setExpandedFile(null)}
+              onClose={handleExpandedClose}
               prReviewThreads={prThreads}
               onRequestFullDiff={requestFullDiff}
               onResolveConflict={handleResolveConflict}

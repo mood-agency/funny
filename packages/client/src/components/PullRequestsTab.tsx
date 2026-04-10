@@ -19,6 +19,8 @@ import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 
+import { PRDetailDialog } from './PRDetailDialog';
+
 // ── Helpers ──
 
 function timeAgo(dateStr: string): string {
@@ -56,6 +58,7 @@ export function PullRequestsTab({ visible }: PullRequestsTabProps) {
   const [state, setState] = useState<PRState>('open');
   const [repoInfo, setRepoInfo] = useState<{ owner: string; repo: string } | null>(null);
   const loadedRef = useRef(false);
+  const [selectedPR, setSelectedPR] = useState<GitHubPR | null>(null);
 
   const fetchPRs = useCallback(
     async (pageNum: number, append: boolean) => {
@@ -93,6 +96,7 @@ export function PullRequestsTab({ visible }: PullRequestsTabProps) {
       loadedRef.current = true;
     }
     setPage(1);
+    setPrs([]);
     fetchPRs(1, false);
   }, [visible, projectId, state, fetchPRs]);
 
@@ -235,12 +239,10 @@ export function PullRequestsTab({ visible }: PullRequestsTabProps) {
               const Icon = getPRIcon(pr);
               const color = getPRColor(pr);
               return (
-                <a
+                <button
                   key={pr.number}
-                  href={pr.html_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-start gap-2 px-3 py-2 text-xs transition-colors hover:bg-sidebar-accent/50"
+                  onClick={() => setSelectedPR(pr)}
+                  className="flex w-full items-start gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-sidebar-accent/50"
                   data-testid={`pr-item-${pr.number}`}
                 >
                   <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', color)} />
@@ -308,7 +310,7 @@ export function PullRequestsTab({ visible }: PullRequestsTabProps) {
                       </div>
                     )}
                   </div>
-                </a>
+                </button>
               );
             })}
             {hasMore && (
@@ -329,6 +331,18 @@ export function PullRequestsTab({ visible }: PullRequestsTabProps) {
           </div>
         )}
       </div>
+
+      {/* PR Detail Dialog */}
+      {selectedPR && projectId && (
+        <PRDetailDialog
+          open={!!selectedPR}
+          onOpenChange={(open) => {
+            if (!open) setSelectedPR(null);
+          }}
+          projectId={projectId}
+          pr={selectedPR}
+        />
+      )}
     </div>
   );
 }

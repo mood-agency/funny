@@ -9,56 +9,59 @@ import { useSettingsStore, editorLabels } from '@/stores/settings-store';
 // Regex to match file paths like /foo/bar.ts, C:\foo\bar.ts, or file_path:line_number patterns
 const FILE_PATH_RE = /(?:[A-Za-z]:[\\/]|\/)[^\s:*?"<>|,()]+(?::\d+)?/g;
 
+// Stable markdown component overrides — hoisted to module scope so ReactMarkdown
+// sees the same component identity across renders (avoids unmount/remount of <a>).
+// The `a` renderer reads the settings store imperatively, so no hooks are needed.
+const markdownComponents = {
+  ...baseMarkdownComponents,
+  a: ({ href, children }: any) => {
+    const text = String(children);
+    const isWebUrl = href && /^https?:\/\//.test(href);
+    const fileMatch = !isWebUrl && text.match(FILE_PATH_RE);
+    if (fileMatch) {
+      const editor = useSettingsStore.getState().defaultEditor;
+      const uri = toEditorUriWithLine(fileMatch[0], editor);
+      const label = editorLabels[editor];
+      if (uri) {
+        return (
+          <a
+            href={uri}
+            className="text-primary hover:underline"
+            title={`Open in ${label}: ${text}`}
+          >
+            {children}
+          </a>
+        );
+      }
+      return (
+        <button
+          onClick={() => openFileInEditor(fileMatch[0], editor)}
+          className="inline cursor-pointer text-primary hover:underline"
+          title={`Open in ${label}: ${text}`}
+        >
+          {children}
+        </button>
+      );
+    }
+    return (
+      <a
+        href={href}
+        className="text-primary hover:underline"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {children}
+      </a>
+    );
+  },
+};
+
 // Prefetch react-markdown immediately at module load time.
 // By the time ThreadView renders messages, the chunk is already downloaded.
 const _markdownImport = import('react-markdown');
 
 const LazyMarkdownRenderer = lazy(() =>
   _markdownImport.then(({ default: ReactMarkdown }) => {
-    const markdownComponents = {
-      ...baseMarkdownComponents,
-      a: ({ href, children }: any) => {
-        const text = String(children);
-        const isWebUrl = href && /^https?:\/\//.test(href);
-        const fileMatch = !isWebUrl && text.match(FILE_PATH_RE);
-        if (fileMatch) {
-          const editor = useSettingsStore.getState().defaultEditor;
-          const uri = toEditorUriWithLine(fileMatch[0], editor);
-          const label = editorLabels[editor];
-          if (uri) {
-            return (
-              <a
-                href={uri}
-                className="text-primary hover:underline"
-                title={`Open in ${label}: ${text}`}
-              >
-                {children}
-              </a>
-            );
-          }
-          return (
-            <button
-              onClick={() => openFileInEditor(fileMatch[0], editor)}
-              className="inline cursor-pointer text-primary hover:underline"
-              title={`Open in ${label}: ${text}`}
-            >
-              {children}
-            </button>
-          );
-        }
-        return (
-          <a
-            href={href}
-            className="text-primary hover:underline"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {children}
-          </a>
-        );
-      },
-    };
-
     function MarkdownRenderer({ content }: { content: string }) {
       return (
         <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>

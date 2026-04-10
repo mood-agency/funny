@@ -22,7 +22,7 @@ import { formatInput } from '@/components/tool-cards/utils';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useElementWidth } from '@/hooks/use-element-width';
+import { useElementLeft } from '@/hooks/use-element-width';
 import { useTodoSnapshotsByAgent } from '@/hooks/use-todo-panel';
 import type { TodoSnapshot } from '@/hooks/use-todo-panel';
 import { api } from '@/lib/api';
@@ -404,7 +404,7 @@ function EmptyState({ message }: { message: string }) {
 export function ActivityPane() {
   const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
-  const panelWidthPx = useElementWidth(panelRef);
+  const panelLeftPx = useElementLeft(panelRef);
 
   // Agents & todos grouped by agent
   const runningAgents = useRunningAgents();
@@ -617,11 +617,11 @@ export function ActivityPane() {
 
       {/* Diff viewer overlay — portal to body so it escapes contain:strict ancestors */}
       {expandedFile &&
-        panelWidthPx > 0 &&
+        panelLeftPx > 0 &&
         createPortal(
           <div
-            className="fixed inset-0 z-40 bg-background"
-            style={{ right: `${panelWidthPx + 3}px` }}
+            className="fixed bottom-0 left-0 top-0 z-40 bg-background"
+            style={{ width: `${panelLeftPx}px` }}
             data-testid="activity-expanded-diff-overlay"
           >
             {(() => {

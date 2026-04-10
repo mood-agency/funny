@@ -2,6 +2,7 @@ import type { FileDiffSummary, FileStatus } from '@funny/shared';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ArrowUp,
+  FileCode,
   GitCommit,
   GitMerge,
   GitPullRequest,
@@ -11,7 +12,6 @@ import {
   X,
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -27,9 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { HighlightText } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useElementWidth } from '@/hooks/use-element-width';
 import { api } from '@/lib/api';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import { shortRelativeDate } from '@/lib/thread-utils';
@@ -73,8 +71,6 @@ interface CommitHistoryTabProps {
 
 export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
   const { t } = useTranslation();
-  const panelRef = useRef<HTMLDivElement>(null);
-  const panelWidthPx = useElementWidth(panelRef);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   // Use selectedThreadId for git requests — it updates immediately on click,
   // before the thread data finishes loading from the API.
@@ -259,6 +255,20 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
       if (cancelled) return;
       if (filesResult.isOk()) {
         setCommitFiles(filesResult.value.files);
+        // Auto-select first file for diff preview
+        if (filesResult.value.files.length > 0) {
+          const firstPath = filesResult.value.files[0].path;
+          setExpandedFile(firstPath);
+          setDiffLoading(true);
+          setDiffContent(null);
+          const diffResult = effectiveThreadId
+            ? await api.getCommitFileDiff(effectiveThreadId, selectedHash, firstPath)
+            : await api.projectCommitFileDiff(projectModeId!, selectedHash, firstPath);
+          if (!cancelled && diffResult.isOk()) {
+            setDiffContent(diffResult.value.diff);
+          }
+          if (!cancelled) setDiffLoading(false);
+        }
       } else {
         toast.error(
           t('review.logFailed', {
@@ -497,7 +507,6 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
 
   return (
     <div
-      ref={panelRef}
       className="flex h-full w-full min-w-0 flex-col overflow-hidden"
       data-testid="commit-history-tab"
     >
@@ -610,16 +619,10 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
         </div>
       )}
 
-      {/* Main content: split between commit list and file list */}
+      {/* Main content: commit list (full height) */}
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Commit list (virtualized) */}
-        <div
-          className={cn(
-            'overflow-y-auto border-b border-sidebar-border',
-            selectedHash ? 'h-[40%] min-h-[120px]' : 'flex-1',
-          )}
-          ref={commitScrollRef}
-        >
+        <div className="flex-1 overflow-y-auto" ref={commitScrollRef}>
           {logLoading && logEntries.length === 0 ? (
             <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
               <Loader2 className="icon-sm animate-spin" />
@@ -743,54 +746,90 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
             </div>
           )}
         </div>
+      </div>
 
-        {/* Commit detail: file list */}
-        {selectedHash && (
-          <div className="flex min-h-0 flex-1 flex-col">
-            {/* Commit header */}
+      {/* Commit detail dialog */}
+      <Dialog
+        open={!!selectedHash}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedHash(null);
+            setExpandedFile(null);
+            setDiffContent(null);
+          }
+        }}
+      >
+        <DialogContent
+          className="flex h-[85vh] max-w-[90vw] flex-col gap-0 p-0"
+          data-testid="commit-detail-dialog"
+        >
+          {/* Header */}
+          <div className="shrink-0 border-b border-border px-4 py-3">
+            <div className="flex items-start justify-between gap-2">
+              <DialogTitle className="text-sm font-semibold leading-tight">
+                {selectedCommit?.message ?? 'Commit details'}
+              </DialogTitle>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => {
+                  setSelectedHash(null);
+                  setExpandedFile(null);
+                  setDiffContent(null);
+                }}
+                className="shrink-0 text-muted-foreground"
+                data-testid="commit-detail-close"
+              >
+                <X className="icon-xs" />
+              </Button>
+            </div>
+            <DialogDescription className="sr-only">
+              Commit detail with file changes and diffs
+            </DialogDescription>
             {selectedCommit && (
-              <div className="max-h-[140px] overflow-y-auto border-b border-sidebar-border bg-sidebar-accent/30 px-3 py-2">
-                <p className="text-xs font-medium text-foreground">{selectedCommit.message}</p>
-                {commitBody && (
-                  <p className="mt-1 whitespace-pre-wrap text-[11px] text-muted-foreground">
-                    {commitBody}
-                  </p>
-                )}
-                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-                  <GitCommit className="icon-xs flex-shrink-0" />
-                  <code className="flex-shrink-0 font-mono text-primary">
-                    {selectedCommit.shortHash}
-                  </code>
-                  <span className="min-w-0 truncate">{selectedCommit.author}</span>
-                  <span className="flex-shrink-0 text-muted-foreground">
-                    {shortRelativeDate(selectedCommit.relativeDate)}
-                  </span>
-                </div>
+              <div className="flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground">
+                <GitCommit className="icon-xs flex-shrink-0" />
+                <code className="flex-shrink-0 font-mono text-primary">
+                  {selectedCommit.shortHash}
+                </code>
+                <span className="min-w-0 truncate">{selectedCommit.author}</span>
+                <span className="flex-shrink-0">
+                  {shortRelativeDate(selectedCommit.relativeDate)}
+                </span>
+                <span className="flex-shrink-0 text-muted-foreground">
+                  &middot; {commitFiles.length} file{commitFiles.length !== 1 ? 's' : ''}
+                </span>
               </div>
             )}
+            {commitBody && (
+              <p className="mt-1.5 max-h-[80px] overflow-y-auto whitespace-pre-wrap text-[11px] text-muted-foreground">
+                {commitBody}
+              </p>
+            )}
+          </div>
 
-            {/* File list (tree view) */}
-            <div className="flex min-h-0 flex-1 flex-col">
-              {filesLoading ? (
-                <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                  <Loader2 className="icon-sm animate-spin" />
-                  {t('review.loading', 'Loading changes\u2026')}
-                </div>
-              ) : commitFiles.length === 0 ? (
-                <p className="p-3 text-xs text-muted-foreground">
-                  {t('history.noFiles', 'No files changed')}
-                </p>
-              ) : (
-                <>
-                  {/* File search */}
-                  <div className="border-b border-sidebar-border px-2 py-2">
+          {/* Body */}
+          {filesLoading ? (
+            <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('review.loading', 'Loading changes\u2026')}
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1">
+              {/* File tree sidebar */}
+              <div
+                className="flex w-[280px] shrink-0 flex-col border-r border-border"
+                data-testid="commit-detail-file-tree"
+              >
+                {commitFiles.length > 0 && (
+                  <div className="shrink-0 border-b border-sidebar-border px-2 py-2">
                     <div className="relative">
                       <Search className="icon-sm pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         type="text"
                         placeholder={t('review.searchFiles', 'Filter files\u2026')}
                         aria-label={t('review.searchFiles', 'Filter files')}
-                        data-testid="history-file-search"
+                        data-testid="commit-detail-file-filter"
                         value={fileSearch}
                         onChange={(e) => setFileSearch(e.target.value)}
                         className="h-7 pl-7 pr-7 text-xs md:text-xs"
@@ -801,7 +840,7 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
                           size="icon-xs"
                           onClick={() => setFileSearch('')}
                           aria-label={t('review.clearSearch', 'Clear search')}
-                          data-testid="history-file-search-clear"
+                          data-testid="commit-detail-file-filter-clear"
                           className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
                         >
                           <X className="icon-xs" />
@@ -809,65 +848,54 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
                       )}
                     </div>
                   </div>
-
-                  {/* File count */}
-                  <div className="flex items-center gap-1.5 border-b border-sidebar-border px-3 py-1.5">
-                    <span className="text-xs text-muted-foreground">
-                      {fileSearch.trim() && treeFiles.length !== commitFiles.length
-                        ? `${treeFiles.length}/${commitFiles.length}`
-                        : `${commitFiles.length}`}{' '}
-                      {t('history.files', 'file(s)')}
-                    </span>
-                  </div>
-
-                  {treeFiles.length === 0 ? (
-                    <p className="p-3 text-xs text-muted-foreground">
+                )}
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {commitFiles.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-muted-foreground">
+                      {t('history.noFiles', 'No files changed')}
+                    </div>
+                  ) : treeFiles.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-muted-foreground">
                       {t('history.noMatchingFiles', 'No matching files')}
-                    </p>
+                    </div>
                   ) : (
-                    <ScrollArea className="flex-1">
-                      <FileTree
-                        files={treeFiles}
-                        selectedFile={expandedFile}
-                        onFileClick={handleFileClick}
-                        testIdPrefix="history-file"
-                        searchQuery={fileSearch || undefined}
-                      />
-                    </ScrollArea>
+                    <FileTree
+                      files={treeFiles}
+                      selectedFile={expandedFile}
+                      onFileClick={handleFileClick}
+                      testIdPrefix="commit-detail"
+                      searchQuery={fileSearch || undefined}
+                    />
                   )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+                </div>
+              </div>
 
-      {/* Diff viewer overlay — portal to body so it escapes contain:strict ancestors */}
-      {expandedFile &&
-        panelWidthPx > 0 &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-40 bg-background"
-            style={{ right: `${panelWidthPx + 3}px` }}
-            data-testid="history-expanded-diff-overlay"
-          >
-            <ExpandedDiffView
-              filePath={expandedFile}
-              oldValue={diffContent ? parseDiffOld(diffContent) : ''}
-              newValue={diffContent ? parseDiffNew(diffContent) : ''}
-              loading={diffLoading}
-              rawDiff={diffContent ?? undefined}
-              files={treeFiles}
-              onFileSelect={handleOverlayFileSelect}
-              diffCache={historyDiffCache}
-              onClose={() => {
-                setExpandedFile(null);
-                setDiffContent(null);
-              }}
-            />
-          </div>,
-          document.body,
-        )}
+              {/* Diff viewer */}
+              <div className="flex min-w-0 flex-1 flex-col" data-testid="commit-detail-diff-pane">
+                {!expandedFile ? (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <FileCode className="h-8 w-8 opacity-30" />
+                    <p className="text-xs">
+                      {t('history.selectFile', 'Select a file to view changes')}
+                    </p>
+                  </div>
+                ) : (
+                  <ExpandedDiffView
+                    filePath={expandedFile}
+                    oldValue={diffContent ? parseDiffOld(diffContent) : ''}
+                    newValue={diffContent ? parseDiffNew(diffContent) : ''}
+                    loading={diffLoading}
+                    rawDiff={diffContent ?? undefined}
+                    files={treeFiles}
+                    onFileSelect={handleOverlayFileSelect}
+                    diffCache={historyDiffCache}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Create PR dialog */}
       <Dialog
