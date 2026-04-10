@@ -1489,4 +1489,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
+
+  // GitHub PR files & commits
+  githubPRFiles: (projectId: string, prNumber: number, commitSha?: string) => {
+    const p = new URLSearchParams({ projectId, prNumber: String(prNumber) });
+    if (commitSha) p.set('commitSha', commitSha);
+    return request<{ files: import('@funny/shared').PRFile[] }>(`/github/pr-files?${p.toString()}`);
+  },
+  githubPRCommits: (projectId: string, prNumber: number) =>
+    request<{ commits: import('@funny/shared').PRCommit[] }>(
+      `/github/pr-commits?projectId=${projectId}&prNumber=${prNumber}`,
+    ),
+  githubPRRevertFile: (projectId: string, prNumber: number, filePath: string) =>
+    request<{ ok: boolean; action: 'reverted' | 'deleted' }>('/github/pr-revert-file', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, prNumber, filePath }),
+    }),
+  githubPRFileContent: (projectId: string, prNumber: number, filePath: string) => {
+    const p = new URLSearchParams({ projectId, prNumber: String(prNumber), filePath });
+    return request<{ baseContent: string; headContent: string }>(
+      `/github/pr-file-content?${p.toString()}`,
+    );
+  },
 };

@@ -41,12 +41,13 @@ export default defineConfig(({ mode }) => {
             if (id.includes('@monaco-editor/react')) return 'monaco';
             if (id.includes('/mermaid/')) return 'mermaid';
             if (id.includes('@tiptap/react') || id.includes('@tiptap/core')) return 'tiptap';
+            if (id.includes('lucide-react')) return 'icons';
           },
         },
       },
     },
     optimizeDeps: {
-      include: ['decimal.js-light', 'socket.io-client'],
+      include: ['decimal.js-light', 'socket.io-client', 'lucide-react'],
     },
     server: {
       host: viteHost,
