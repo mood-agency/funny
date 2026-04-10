@@ -4,3 +4,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 # Run tests before push (use workspace-scoped script, not bare bun test)
 bun run test
+
+# Verify Storybook stories compile without errors
+echo "Checking Storybook build..."
+(cd packages/client && bun run build-storybook) || { echo "Storybook build failed — fix story errors before pushing."; exit 1; }
