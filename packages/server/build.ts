@@ -18,7 +18,6 @@ await Bun.build({
     'nanoid',
     'neverthrow',
     'nodemailer',
-    '@funny/podman-chrome-streaming',
     'playwright',
   ],
 });
