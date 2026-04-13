@@ -614,6 +614,34 @@ async function handleTunnelRequest(data: {
 // ── Data Persistence (Runner → Server) ──────────────────
 
 /**
+ * Simple concurrency limiter for WebSocket data requests.
+ * Prevents overwhelming the data channel with hundreds of simultaneous requests
+ * (e.g., when git watcher fires for all threads at once).
+ */
+const MAX_CONCURRENT_DATA_REQUESTS = 20;
+let activeDataRequests = 0;
+const dataRequestQueue: Array<() => void> = [];
+
+function acquireDataSlot(): Promise<void> {
+  if (activeDataRequests < MAX_CONCURRENT_DATA_REQUESTS) {
+    activeDataRequests++;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    dataRequestQueue.push(() => {
+      activeDataRequests++;
+      resolve();
+    });
+  });
+}
+
+function releaseDataSlot(): void {
+  activeDataRequests--;
+  const next = dataRequestQueue.shift();
+  if (next) next();
+}
+
+/**
  * Send a data message to the server using event-based request/response.
  *
  * Uses a unique requestId to correlate requests with responses. The server
@@ -621,52 +649,59 @@ async function handleTunnelRequest(data: {
  * callbacks. This avoids a deadlock where ack packets can't be delivered
  * while the runner is processing a tunnel:request on the same connection
  * (Bun's WebSocket / @socket.io/bun-engine limitation).
+ *
+ * Concurrency-limited to MAX_CONCURRENT_DATA_REQUESTS to prevent channel saturation.
  */
 async function sendDataMessage(eventType: string, payload: Record<string, any>): Promise<any> {
-  if (!state.socket?.connected) {
-    // Wait briefly for reconnection (Socket.IO handles this automatically)
-    await new Promise<void>((resolve, reject) => {
-      if (!state.socket) {
-        reject(new Error('Socket.IO not initialized'));
-        return;
-      }
-      const timeout = setTimeout(() => {
-        reject(new Error('Socket.IO not connected to central server'));
-      }, 5_000);
+  await acquireDataSlot();
+  try {
+    if (!state.socket?.connected) {
+      // Wait briefly for reconnection (Socket.IO handles this automatically)
+      await new Promise<void>((resolve, reject) => {
+        if (!state.socket) {
+          reject(new Error('Socket.IO not initialized'));
+          return;
+        }
+        const timeout = setTimeout(() => {
+          reject(new Error('Socket.IO not connected to central server'));
+        }, 5_000);
 
-      if (state.socket.connected) {
-        clearTimeout(timeout);
-        resolve();
-      } else {
-        state.socket.once('connect', () => {
+        if (state.socket.connected) {
           clearTimeout(timeout);
           resolve();
-        });
-      }
+        } else {
+          state.socket.once('connect', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        }
+      });
+    }
+
+    const requestId = nanoid();
+    const responseEvent = `data:response:${requestId}`;
+
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        state.socket!.off(responseEvent, handler);
+        reject(new Error(`Data request timed out (${eventType})`));
+      }, DATA_REQUEST_TIMEOUT);
+
+      const handler = (response: any) => {
+        clearTimeout(timeout);
+        if (response?.success === false && response?.error) {
+          reject(new Error(response.error));
+        } else {
+          resolve(response);
+        }
+      };
+
+      state.socket!.once(responseEvent, handler);
+      state.socket!.emit(eventType, { ...payload, _requestId: requestId });
     });
+  } finally {
+    releaseDataSlot();
   }
-
-  const requestId = nanoid();
-  const responseEvent = `data:response:${requestId}`;
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      state.socket!.off(responseEvent, handler);
-      reject(new Error(`Data request timed out (${eventType})`));
-    }, DATA_REQUEST_TIMEOUT);
-
-    const handler = (response: any) => {
-      clearTimeout(timeout);
-      if (response?.success === false && response?.error) {
-        reject(new Error(response.error));
-      } else {
-        resolve(response);
-      }
-    };
-
-    state.socket!.once(responseEvent, handler);
-    state.socket!.emit(eventType, { ...payload, _requestId: requestId });
-  });
 }
 
 /** Insert a message on the server, returns the server-generated messageId */
@@ -686,6 +721,7 @@ export async function remoteUpdateThread(
   threadId: string,
   updates: Record<string, any>,
 ): Promise<void> {
+  invalidateThreadCache(threadId);
   await sendDataMessage('data:update_thread', { payload: { threadId, updates } });
 }
 
@@ -714,10 +750,44 @@ export async function remoteUpdateToolCallOutput(
   state.socket.emit('data:update_tool_call_output', { payload: { toolCallId, output } });
 }
 
-/** Get a thread from the server by ID */
+/**
+ * In-flight + short-TTL cache for getThread to avoid hammering the server.
+ * Multiple callers requesting the same thread within a short window share
+ * a single WebSocket round-trip instead of each creating their own.
+ */
+const threadCache = new Map<string, { value: any; expiry: number }>();
+const threadInflight = new Map<string, Promise<any>>();
+const THREAD_CACHE_TTL = 3_000; // 3 seconds
+
+/** Get a thread from the server by ID (deduplicated + cached) */
 export async function remoteGetThread(threadId: string): Promise<any> {
-  const response = await sendDataMessage('data:get_thread', { threadId });
-  return response?.thread ?? null;
+  // Check TTL cache first
+  const cached = threadCache.get(threadId);
+  if (cached && Date.now() < cached.expiry) {
+    return cached.value;
+  }
+
+  // Deduplicate in-flight requests
+  const inflight = threadInflight.get(threadId);
+  if (inflight) return inflight;
+
+  const promise = sendDataMessage('data:get_thread', { threadId })
+    .then((response) => {
+      const thread = response?.thread ?? null;
+      threadCache.set(threadId, { value: thread, expiry: Date.now() + THREAD_CACHE_TTL });
+      return thread;
+    })
+    .finally(() => {
+      threadInflight.delete(threadId);
+    });
+
+  threadInflight.set(threadId, promise);
+  return promise;
+}
+
+/** Invalidate the thread cache (call after updates) */
+export function invalidateThreadCache(threadId: string): void {
+  threadCache.delete(threadId);
 }
 
 /** Get a tool call from the server by ID */
@@ -750,10 +820,41 @@ export async function remoteFindLastUnansweredInteractiveToolCall(
 
 // ── Project operations ──────────────────────────────────
 
-/** Get a project from the server by ID */
+/**
+ * In-flight + TTL cache for getProject.
+ * Projects change very rarely, so a longer TTL (30s) is safe.
+ */
+const projectCache = new Map<string, { value: any; expiry: number }>();
+const projectInflight = new Map<string, Promise<any>>();
+const PROJECT_CACHE_TTL = 30_000; // 30 seconds
+
+/** Get a project from the server by ID (deduplicated + cached) */
 export async function remoteGetProject(projectId: string): Promise<any> {
-  const response = await sendDataMessage('data:get_project', { projectId });
-  return response?.project ?? null;
+  const cached = projectCache.get(projectId);
+  if (cached && Date.now() < cached.expiry) {
+    return cached.value;
+  }
+
+  const inflight = projectInflight.get(projectId);
+  if (inflight) return inflight;
+
+  const promise = sendDataMessage('data:get_project', { projectId })
+    .then((response) => {
+      const project = response?.project ?? null;
+      projectCache.set(projectId, { value: project, expiry: Date.now() + PROJECT_CACHE_TTL });
+      return project;
+    })
+    .finally(() => {
+      projectInflight.delete(projectId);
+    });
+
+  projectInflight.set(projectId, promise);
+  return promise;
+}
+
+/** Invalidate the project cache (call after updates) */
+export function invalidateProjectCache(projectId: string): void {
+  projectCache.delete(projectId);
 }
 
 /** Get an arc from the server by ID */
@@ -766,6 +867,12 @@ export async function remoteGetArc(arcId: string): Promise<any> {
 export async function remoteListProjects(userId: string): Promise<any[]> {
   const result = await sendDataMessage('data:list_projects', { userId });
   return result?.projects ?? result ?? [];
+}
+
+/** List all non-archived threads for a project (system call, no userId filter) */
+export async function remoteListProjectThreads(projectId: string): Promise<any[]> {
+  const result = await sendDataMessage('data:list_project_threads', { projectId });
+  return result?.threads ?? [];
 }
 
 /** Resolve project path for a user on the server */

@@ -32,8 +32,6 @@ import { SlideUpPrompt } from './SlideUpPrompt';
 import { MessageStream, type MessageStreamHandle } from './thread/MessageStream';
 import { ThreadPickerDialog } from './ThreadPickerDialog';
 
-const ACTIVE_STATUSES = new Set(['running', 'waiting', 'pending']);
-
 const MAX_GRID_COLS = 5;
 const MAX_GRID_ROWS = 5;
 
@@ -142,18 +140,17 @@ const ThreadColumn = memo(function ThreadColumn({
     };
   }, [threadId]);
 
-  // Poll for updates every 3 seconds to get streaming content (only for active threads)
-  const isActive = liveStatus ? ACTIVE_STATUSES.has(liveStatus) : true;
+  // Refresh thread data when status changes (driven by WS events, no polling needed)
+  const prevStatusRef = useRef(liveStatus);
   useEffect(() => {
-    if (!isActive) return;
-    const interval = setInterval(async () => {
-      const result = await api.getThread(threadId, 50);
+    if (liveStatus === prevStatusRef.current) return;
+    prevStatusRef.current = liveStatus;
+    api.getThread(threadId, 50).then((result) => {
       if (result.isOk()) {
         setThread(result.value as ThreadWithMessages);
       }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [threadId, isActive]);
+    });
+  }, [threadId, liveStatus]);
 
   const threadProjectId = thread?.projectId;
   const threadProject = useMemo(() => {
@@ -419,17 +416,19 @@ export function LiveColumnsView() {
     ? projects.filter((p) => p.name.toLowerCase().includes(projectSearch.toLowerCase()))
     : projects;
 
-  // Ensure threads are loaded for all projects and refresh periodically
+  // Load threads once for any project that hasn't been loaded yet (no polling —
+  // WS events like thread:created, thread:updated, and agent:status keep the
+  // store in sync after the initial load).
+  const projectIdsKey = useMemo(() => projects.map((p) => p.id).join(','), [projects]);
   useEffect(() => {
-    const load = () => {
-      for (const project of projects) {
+    const state = useThreadStore.getState();
+    for (const project of projects) {
+      if (!state.threadsByProject[project.id]) {
         loadThreadsForProject(project.id);
       }
-    };
-    load();
-    const interval = setInterval(load, 5000);
-    return () => clearInterval(interval);
-  }, [projects, loadThreadsForProject]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectIdsKey]);
 
   // --- Grid cell assignments (manual selection) ---
   const [gridCells, setGridCells] = useState<GridCellAssignments>(getGridCells);

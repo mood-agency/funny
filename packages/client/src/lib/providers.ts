@@ -127,6 +127,36 @@ export const PROVIDER_MODELS: Record<string, ModelConfig[]> = {
       fallback: 'Gemini 3 Pro',
       contextWindow: 1_000_000,
     },
+    {
+      value: 'deepagent-grok-3',
+      i18nKey: 'deepagentGrok3',
+      fallback: 'Grok 3',
+      contextWindow: 131_072,
+    },
+    {
+      value: 'deepagent-grok-3-mini',
+      i18nKey: 'deepagentGrok3mini',
+      fallback: 'Grok 3 Mini',
+      contextWindow: 131_072,
+    },
+    {
+      value: 'deepagent-glm-5.1',
+      i18nKey: 'deepagentGlm51',
+      fallback: 'GLM-5.1',
+      contextWindow: 128_000,
+    },
+    {
+      value: 'deepagent-glm-5-turbo',
+      i18nKey: 'deepagentGlm5turbo',
+      fallback: 'GLM-5 Turbo',
+      contextWindow: 128_000,
+    },
+    {
+      value: 'deepagent-glm-5v-turbo',
+      i18nKey: 'deepagentGlm5vturbo',
+      fallback: 'GLM-5V Turbo',
+      contextWindow: 128_000,
+    },
   ],
   openswe: [
     {

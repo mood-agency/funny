@@ -33,7 +33,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { log } from './lib/logger.js';
 import { authMiddleware } from './middleware/auth.js';
 import { handleError } from './middleware/error-handler.js';
-import { defaultRateLimit, authRateLimit, mutationRateLimit } from './middleware/rate-limit.js';
+import { defaultRateLimit, mutationRateLimit } from './middleware/rate-limit.js';
 import { tracingMiddleware } from './middleware/tracing.js';
 import { arcRoutes, arcProjectRoutes } from './routes/arcs.js';
 import { automationRoutes } from './routes/automations.js';
@@ -51,6 +51,7 @@ import { testRoutes } from './routes/tests.js';
 import { threadRoutes } from './routes/threads.js';
 import { worktreeRoutes } from './routes/worktrees.js';
 import { startAgent } from './services/agent-runner.js';
+import { rehydrateWatchers } from './services/git-watcher-service.js';
 import { registerAllHandlers } from './services/handlers/handler-registry.js';
 import type { HandlerServiceContext } from './services/handlers/types.js';
 import * as ptyManager from './services/pty-manager.js';
@@ -397,6 +398,14 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
       const parsed = data as { type: string; data: any };
       if (!parsed?.type) return;
       handlePtyMessage(parsed.type, parsed.data, userId, (msg) => respond(msg));
+    });
+
+    // Rehydrate git file watchers for existing threads
+    rehydrateWatchers().catch((err) => {
+      log.error('Failed to rehydrate git watchers', {
+        namespace: 'server',
+        error: (err as Error).message,
+      });
     });
 
     // Auto-resume threads that were running when the runtime crashed

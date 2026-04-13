@@ -17,13 +17,11 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, symlinkSync } from 'fs';
-import { createRequire } from 'module';
 import { dirname, join as pathJoin, resolve as pathResolve } from 'path';
 import { Readable, Writable } from 'stream';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
 
 import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
@@ -59,6 +57,11 @@ export class DeepAgentProcess extends BaseAgentProcess {
   private accumulatedThought = '';
   private thinkToolCallId: string | null = null;
 
+  // Track whether the last emitted event was a tool_call so that
+  // consecutive tool calls share the same assistantMsgId (and thus the
+  // same parent DB message), while new text after tool calls starts fresh.
+  private lastEmittedToolCall = false;
+
   // ── Overrides ──────────────────────────────────────────────────
 
   async kill(): Promise<void> {
@@ -92,10 +95,19 @@ export class DeepAgentProcess extends BaseAgentProcess {
     if (this.options.model) {
       args.push('--model', this.options.model);
     }
+    // Pass workspace root explicitly so the custom server knows the project dir
+    if (this.options.cwd) {
+      args.push('--workspace', this.options.cwd);
+    }
 
     // Build env — alias provider API keys so that LangChain integrations
     // (used internally by deepagents-acp) can find them.
     const spawnEnv = { ...process.env, ...this.options.env };
+
+    // Pass system prompt via env var (CLI args have length limits)
+    if (this.options.systemPrefix) {
+      spawnEnv.DEEPAGENT_SYSTEM_PROMPT = this.options.systemPrefix;
+    }
 
     // Increase Node.js heap limit for the subprocess to prevent OOM crashes
     // during long-running sessions. Default Node limit (~2GB) is too low.
@@ -117,6 +129,30 @@ export class DeepAgentProcess extends BaseAgentProcess {
       }
       if (!spawnEnv.OPENAI_BASE_URL) {
         spawnEnv.OPENAI_BASE_URL = 'https://api.minimax.io/v1';
+      }
+    }
+
+    // xAI Grok models use the OpenAI-compatible API via openai: prefix.
+    // Route XAI_API_KEY → OPENAI_API_KEY and set the xAI base URL.
+    const isXai = resolvedModel.includes('grok');
+    if (isXai) {
+      if (spawnEnv.XAI_API_KEY && !spawnEnv.OPENAI_API_KEY) {
+        spawnEnv.OPENAI_API_KEY = spawnEnv.XAI_API_KEY;
+      }
+      if (!spawnEnv.OPENAI_BASE_URL) {
+        spawnEnv.OPENAI_BASE_URL = 'https://api.x.ai/v1';
+      }
+    }
+
+    // Zhipu AI GLM models use the OpenAI-compatible API via openai: prefix.
+    // Route ZHIPUAI_API_KEY → OPENAI_API_KEY and set the Z.AI base URL.
+    const isGlm = resolvedModel.includes('glm');
+    if (isGlm) {
+      if (spawnEnv.ZHIPUAI_API_KEY && !spawnEnv.OPENAI_API_KEY) {
+        spawnEnv.OPENAI_API_KEY = spawnEnv.ZHIPUAI_API_KEY;
+      }
+      if (!spawnEnv.OPENAI_BASE_URL) {
+        spawnEnv.OPENAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4';
       }
     }
 
@@ -197,9 +233,10 @@ export class DeepAgentProcess extends BaseAgentProcess {
     // Accumulate text chunks so we emit the full content, not just deltas
     let accumulatedText = '';
 
-    // Reset thought accumulation for this run
+    // Reset thought accumulation and tool-call grouping for this run
     this.accumulatedThought = '';
     this.thinkToolCallId = null;
+    this.lastEmittedToolCall = false;
 
     // Track tool calls for deduplication and pending state.
     // Value: tool name while pending, 'done' after result emitted.
@@ -351,6 +388,13 @@ export class DeepAgentProcess extends BaseAgentProcess {
 
     switch (update.sessionUpdate) {
       case 'agent_message_chunk': {
+        // After tool calls, start a new message so new text doesn't merge
+        // with the tool-call parent message from the previous turn.
+        if (this.lastEmittedToolCall) {
+          assistantMsgId = randomUUID();
+          accumulatedText = '';
+          this.lastEmittedToolCall = false;
+        }
         const content = update.content;
         if (content.type === 'text' && content.text) {
           accumulatedText += content.text;
@@ -422,6 +466,12 @@ export class DeepAgentProcess extends BaseAgentProcess {
       }
 
       case 'agent_thought_chunk': {
+        // After tool calls, start a new message for new thoughts.
+        if (this.lastEmittedToolCall) {
+          assistantMsgId = randomUUID();
+          accumulatedText = '';
+          this.lastEmittedToolCall = false;
+        }
         // Emit thoughts as a dedicated Think tool call so they render
         // in a collapsible ThinkCard instead of mixing with assistant text.
         const content = update.content;
@@ -499,10 +549,12 @@ export class DeepAgentProcess extends BaseAgentProcess {
           locations,
         });
 
+        // Reuse the current assistantMsgId so consecutive tool calls share
+        // the same parent message in the DB (avoids empty message rows).
         const msg: CLIMessage = {
           type: 'assistant',
           message: {
-            id: randomUUID(),
+            id: assistantMsgId,
             content: [
               {
                 type: 'tool_use',
@@ -514,6 +566,7 @@ export class DeepAgentProcess extends BaseAgentProcess {
           },
         };
         this.emit('message', msg);
+        this.lastEmittedToolCall = true;
 
         // If tool_call already carries a completed result, emit it immediately
         const tcStatus = (update as any).status as string | undefined;
@@ -534,7 +587,9 @@ export class DeepAgentProcess extends BaseAgentProcess {
           } as CLIMessage);
         }
 
-        return ret('', randomUUID());
+        // Keep the same assistantMsgId — consecutive tool calls will share
+        // this parent. A new ID is generated when text/thought arrives next.
+        return ret('', assistantMsgId);
       }
 
       case 'tool_call_update': {
@@ -568,6 +623,11 @@ export class DeepAgentProcess extends BaseAgentProcess {
       }
 
       case 'plan': {
+        if (this.lastEmittedToolCall) {
+          assistantMsgId = randomUUID();
+          accumulatedText = '';
+          this.lastEmittedToolCall = false;
+        }
         const entries = update.entries ?? [];
         if (entries.length > 0) {
           const planText = entries
@@ -652,7 +712,19 @@ export class DeepAgentProcess extends BaseAgentProcess {
     const acpEnvPath = process.env.DEEPAGENT_ACP_BIN;
     if (acpEnvPath) return { command: acpEnvPath };
 
-    // 3. Try locally installed deepagents-acp binary (from node_modules/.bin)
+    // 3. Custom funny deep agent server (co-located with this file)
+    //    Uses LocalShellBackend + coding-oriented defaults
+    const customServer = pathResolve(__dirname, 'deepagent-server.ts');
+    if (existsSync(customServer)) {
+      return { command: 'bun', args: [customServer] };
+    }
+    // Also check for compiled .js version (production builds)
+    const customServerJs = pathResolve(__dirname, 'deepagent-server.js');
+    if (existsSync(customServerJs)) {
+      return { command: 'bun', args: [customServerJs] };
+    }
+
+    // 4. Try locally installed deepagents-acp binary (from node_modules/.bin)
     const rootNodeModules = this.findRootNodeModules();
     if (rootNodeModules) {
       const localBin = pathJoin(rootNodeModules, '.bin', 'deepagents-acp');
@@ -661,7 +733,7 @@ export class DeepAgentProcess extends BaseAgentProcess {
       }
     }
 
-    // 4. Default: use npx to run deepagents-acp
+    // 5. Default: use npx to run deepagents-acp
     return { command: 'npx', args: ['deepagents-acp'] };
   }
 

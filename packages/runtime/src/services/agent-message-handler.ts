@@ -231,6 +231,15 @@ export class AgentMessageHandler {
       toolNames: toolUseBlocks.map((b: any) => b.name).join(','),
     });
 
+    // Log the raw CLIMessage to Abbacchio for debugging — captures the
+    // original content array with mixed text/tool_use blocks from the model.
+    log.debug('raw assistant CLIMessage', {
+      namespace: 'agent',
+      threadId,
+      cliMsgId,
+      raw: JSON.stringify(msg.message),
+    });
+
     if (textContent) {
       let msgId = this.state.currentAssistantMsgId.get(threadId) || cliMap.get(cliMsgId);
       if (msgId) {
@@ -498,6 +507,14 @@ export class AgentMessageHandler {
     if (!seen || !msg.message.content) return;
 
     const resultBlocks = msg.message.content.filter((b: any) => b.type === 'tool_result');
+
+    // Log raw tool_result CLIMessage to Abbacchio for debugging
+    log.debug('raw tool_result CLIMessage', {
+      namespace: 'agent',
+      threadId,
+      raw: JSON.stringify(msg.message),
+    });
+
     log.info('user message (tool_results)', {
       ...(await this.threadCtx(threadId)),
       resultCount: String(resultBlocks.length),

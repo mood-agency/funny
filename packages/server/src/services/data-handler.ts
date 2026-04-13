@@ -18,6 +18,7 @@ import {
   createStageHistoryRepository,
   createArcRepository,
 } from '@funny/shared/repositories';
+import { and, eq } from 'drizzle-orm';
 
 import { db, dbAll, dbGet, dbRun } from '../db/index.js';
 import * as schema from '../db/schema.js';
@@ -163,6 +164,22 @@ export async function handleDataMessageWithAck(runnerId: string, data: any): Pro
       case 'data:list_projects': {
         const projects = await projectRepo.listProjects(data.userId);
         return { type: 'data:list_projects_response', projects };
+      }
+      case 'data:list_project_threads': {
+        const threads = await dbAll(
+          db
+            .select({
+              id: schema.threads.id,
+              userId: schema.threads.userId,
+              worktreePath: schema.threads.worktreePath,
+              status: schema.threads.status,
+            })
+            .from(schema.threads)
+            .where(
+              and(eq(schema.threads.projectId, data.projectId), eq(schema.threads.archived, 0)),
+            ),
+        );
+        return { type: 'data:list_project_threads_response', threads };
       }
       case 'data:resolve_project_path': {
         const result = await projectRepo.resolveProjectPath(data.projectId, data.userId);
@@ -414,6 +431,28 @@ export async function handleDataMessage(runnerId: string, data: any): Promise<vo
           type: 'data:list_projects_response',
           requestId: data.requestId,
           projects,
+        });
+        break;
+      }
+
+      case 'data:list_project_threads': {
+        const threads = await dbAll(
+          db
+            .select({
+              id: schema.threads.id,
+              userId: schema.threads.userId,
+              worktreePath: schema.threads.worktreePath,
+              status: schema.threads.status,
+            })
+            .from(schema.threads)
+            .where(
+              and(eq(schema.threads.projectId, data.projectId), eq(schema.threads.archived, 0)),
+            ),
+        );
+        sendToRunner(runnerId, {
+          type: 'data:list_project_threads_response',
+          requestId: data.requestId,
+          threads,
         });
         break;
       }

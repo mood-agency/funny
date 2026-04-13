@@ -487,6 +487,7 @@ function setupRunnerDataHandlers(socket: Socket, runnerId: string): void {
     'data:find_last_unanswered_interactive_tool_call',
     'data:get_project',
     'data:list_projects',
+    'data:list_project_threads',
     'data:resolve_project_path',
     'data:create_project',
     'data:create_thread',

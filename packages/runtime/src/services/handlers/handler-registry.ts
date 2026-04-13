@@ -26,7 +26,12 @@ import {
   gitResetSoftPersistenceHandler,
 } from './git-event-persistence-handler.js';
 import { gitStatusHandler } from './git-status-handler.js';
-import { gitWatcherStartHandler, gitWatcherStopHandler } from './git-watcher-lifecycle-handler.js';
+import {
+  gitWatcherStartHandler,
+  gitWatcherStopHandler,
+  gitWatcherStartOnAgentStartHandler,
+  gitWatcherStopOnAgentCompletedHandler,
+} from './git-watcher-lifecycle-handler.js';
 import { memoryGCHandler } from './memory-gc-handler.js';
 import { pipelineTriggerHandler } from './pipeline-trigger-handler.js';
 import { stageTransitionOnAgentStartHandler } from './stage-transition-on-agent-start-handler.js';
@@ -68,6 +73,8 @@ const allHandlers: EventHandler<any>[] = [
   threadStageChangedWsHandler,
   gitWatcherStartHandler,
   gitWatcherStopHandler,
+  gitWatcherStartOnAgentStartHandler,
+  gitWatcherStopOnAgentCompletedHandler,
   // Pipeline
   pipelineTriggerHandler,
   // Memory

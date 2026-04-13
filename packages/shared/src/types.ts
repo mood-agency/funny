@@ -374,7 +374,12 @@ export type DeepAgentModel =
   | 'deepagent-gemini-2.5-flash'
   | 'deepagent-gemini-2.5-pro'
   | 'deepagent-gemini-3-flash'
-  | 'deepagent-gemini-3-pro';
+  | 'deepagent-gemini-3-pro'
+  | 'deepagent-grok-3'
+  | 'deepagent-grok-3-mini'
+  | 'deepagent-glm-5.1'
+  | 'deepagent-glm-5-turbo'
+  | 'deepagent-glm-5v-turbo';
 export type OpenSWEModel = 'openswe-default';
 export type AgentModel = ClaudeModel | CodexModel | GeminiModel | DeepAgentModel | OpenSWEModel;
 export type PermissionMode = 'plan' | 'auto' | 'autoEdit' | 'confirmEdit' | 'ask';

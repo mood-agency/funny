@@ -19,13 +19,17 @@ import { log } from '../lib/logger.js';
 import { getServices } from './service-registry.js';
 import { shutdownManager, ShutdownPhase } from './shutdown-manager.js';
 import { threadEventBus } from './thread-event-bus.js';
-import { listThreads } from './thread-manager.js';
 
 const DEBOUNCE_MS = 300;
 
+interface ThreadMeta {
+  userId: string;
+  worktreePath: string | null;
+}
+
 interface ProjectWatcher {
-  /** Thread IDs that requested watching for this project */
-  threadIds: Set<string>;
+  /** Thread metadata keyed by thread ID */
+  threads: Map<string, ThreadMeta>;
   /** Active FSWatcher instances */
   watchers: FSWatcher[];
   /** Debounce timer for batching rapid changes */
@@ -40,13 +44,19 @@ const projectWatchers = new Map<string, ProjectWatcher>();
  * Start watching a project's .git/ directory for external changes.
  * If the project is already being watched, just registers the thread.
  */
-export function startWatching(projectId: string, projectPath: string, threadId: string): void {
+export function startWatching(
+  projectId: string,
+  projectPath: string,
+  threadId: string,
+  userId: string,
+  worktreePath: string | null,
+): void {
   let pw = projectWatchers.get(projectId);
 
   if (pw) {
-    pw.threadIds.add(threadId);
+    pw.threads.set(threadId, { userId, worktreePath });
     log.debug(
-      `Git watcher: added thread ${threadId} to project ${projectId} (${pw.threadIds.size} threads)`,
+      `Git watcher: added thread ${threadId} to project ${projectId} (${pw.threads.size} threads)`,
       {
         namespace: 'git-watcher',
       },
@@ -56,7 +66,7 @@ export function startWatching(projectId: string, projectPath: string, threadId: 
 
   // First thread for this project — create watchers
   pw = {
-    threadIds: new Set([threadId]),
+    threads: new Map([[threadId, { userId, worktreePath }]]),
     watchers: [],
     debounceTimer: null,
     projectPath,
@@ -107,15 +117,15 @@ export function stopWatching(projectId: string, threadId: string): void {
   const pw = projectWatchers.get(projectId);
   if (!pw) return;
 
-  pw.threadIds.delete(threadId);
+  pw.threads.delete(threadId);
   log.debug(
-    `Git watcher: removed thread ${threadId} from project ${projectId} (${pw.threadIds.size} remaining)`,
+    `Git watcher: removed thread ${threadId} from project ${projectId} (${pw.threads.size} remaining)`,
     {
       namespace: 'git-watcher',
     },
   );
 
-  if (pw.threadIds.size === 0) {
+  if (pw.threads.size === 0) {
     closeWatcher(projectId, pw);
   }
 }
@@ -129,35 +139,61 @@ function onGitChange(projectId: string): void {
 
   pw.debounceTimer = setTimeout(() => {
     pw.debounceTimer = null;
-    void emitForAllThreads(projectId, pw);
+    emitForAllThreads(projectId, pw);
   }, DEBOUNCE_MS);
 }
 
-/** Emit `git:changed` for every non-archived thread in this project */
-async function emitForAllThreads(projectId: string, pw: ProjectWatcher): Promise<void> {
-  // Query all active threads for this project once
-  const { threads } = await listThreads({ projectId, userId: '', includeArchived: false });
-  const threadMap = new Map(threads.map((t) => [t.id, t]));
+/**
+ * Emit `git:changed` for every thread registered in this project watcher.
+ * Staggers emissions in batches to avoid a thundering herd when projects
+ * have hundreds of threads — each batch is offset by STAGGER_MS so the
+ * downstream per-thread debounce timers don't all fire simultaneously.
+ */
+const BATCH_SIZE = 10;
+const STAGGER_MS = 100;
 
-  let emitted = 0;
-  for (const threadId of pw.threadIds) {
-    const thread = threadMap.get(threadId);
-    if (!thread) continue;
+function emitForAllThreads(projectId: string, pw: ProjectWatcher): void {
+  const entries = Array.from(pw.threads.entries());
 
-    threadEventBus.emit('git:changed', {
-      threadId,
-      projectId,
-      userId: thread.userId,
-      worktreePath: thread.worktreePath,
-      cwd: thread.worktreePath ?? pw.projectPath,
-      toolName: 'external',
-    });
-    emitted++;
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = entries.slice(i, i + BATCH_SIZE);
+    const delay = (i / BATCH_SIZE) * STAGGER_MS;
+
+    if (delay === 0) {
+      // First batch — emit immediately
+      for (const [threadId, meta] of batch) {
+        threadEventBus.emit('git:changed', {
+          threadId,
+          projectId,
+          userId: meta.userId,
+          worktreePath: meta.worktreePath,
+          cwd: meta.worktreePath ?? pw.projectPath,
+          toolName: 'external',
+        });
+      }
+    } else {
+      // Subsequent batches — stagger
+      setTimeout(() => {
+        // Guard: project may have been unwatched while stagger timers were pending
+        if (!projectWatchers.has(projectId)) return;
+        for (const [threadId, meta] of batch) {
+          threadEventBus.emit('git:changed', {
+            threadId,
+            projectId,
+            userId: meta.userId,
+            worktreePath: meta.worktreePath,
+            cwd: meta.worktreePath ?? pw.projectPath,
+            toolName: 'external',
+          });
+        }
+      }, delay);
+    }
   }
 
-  log.debug(`Git watcher: emitted git:changed for ${emitted} thread(s) in project ${projectId}`, {
-    namespace: 'git-watcher',
-  });
+  log.debug(
+    `Git watcher: emitted git:changed for ${entries.length} thread(s) in project ${projectId} (${Math.ceil(entries.length / BATCH_SIZE)} batches)`,
+    { namespace: 'git-watcher' },
+  );
 }
 
 /** Close all watchers for a project and clean up */
@@ -189,26 +225,38 @@ export function closeAllWatchers(): void {
  * Re-register existing active threads with the git watcher on server startup.
  * After a restart, the in-memory projectWatchers map is empty so external git
  * changes would go unnoticed for all pre-existing threads.
+ *
+ * Only threads with an active status (running/waiting/pending) are registered —
+ * completed/idle threads don't need real-time git status updates. This avoids
+ * a thundering-herd problem when projects accumulate hundreds of threads.
+ * Threads are re-registered when an agent starts via the agent:started handler.
  */
+const ACTIVE_STATUSES = new Set(['running', 'waiting', 'pending']);
+
 export async function rehydrateWatchers(): Promise<void> {
   const projects = await getServices().projects.listProjects('');
+  const { remoteListProjectThreads } = await import('./team-client.js');
 
   // Fetch threads for all projects in parallel
   const projectThreads = await Promise.all(
     projects.map(async (project) => {
-      const result = await listThreads({
-        projectId: project.id,
-        userId: '',
-        includeArchived: false,
-      });
-      return { project, threads: result.threads };
+      const threads = await remoteListProjectThreads(project.id);
+      return { project, threads };
     }),
   );
 
   let total = 0;
   for (const { project, threads } of projectThreads) {
     for (const thread of threads) {
-      startWatching(project.id, project.path, thread.id);
+      // Only watch threads that have an active agent run
+      if (!ACTIVE_STATUSES.has(thread.status ?? '')) continue;
+      startWatching(
+        project.id,
+        project.path,
+        thread.id,
+        thread.userId,
+        thread.worktreePath ?? null,
+      );
       total++;
     }
   }

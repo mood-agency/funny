@@ -59,6 +59,11 @@ const DEEPAGENT_MODEL_IDS: Record<DeepAgentModel, string> = {
   'deepagent-gemini-2.5-pro': 'google-genai:gemini-2.5-pro',
   'deepagent-gemini-3-flash': 'google-genai:gemini-3-flash-preview',
   'deepagent-gemini-3-pro': 'google-genai:gemini-3-pro-preview',
+  'deepagent-grok-3': 'openai:grok-3',
+  'deepagent-grok-3-mini': 'openai:grok-3-mini',
+  'deepagent-glm-5.1': 'openai:glm-5.1',
+  'deepagent-glm-5-turbo': 'openai:glm-5-turbo',
+  'deepagent-glm-5v-turbo': 'openai:glm-5v-turbo',
 };
 
 // ── Model display labels ────────────────────────────────────────
@@ -102,6 +107,11 @@ const DEEPAGENT_MODEL_LABELS: Record<DeepAgentModel, string> = {
   'deepagent-gemini-2.5-pro': 'Gemini 2.5 Pro',
   'deepagent-gemini-3-flash': 'Gemini 3 Flash',
   'deepagent-gemini-3-pro': 'Gemini 3 Pro',
+  'deepagent-grok-3': 'Grok 3',
+  'deepagent-grok-3-mini': 'Grok 3 Mini',
+  'deepagent-glm-5.1': 'GLM-5.1',
+  'deepagent-glm-5-turbo': 'GLM-5 Turbo',
+  'deepagent-glm-5v-turbo': 'GLM-5V Turbo',
 };
 
 // ── Provider labels ─────────────────────────────────────────────
@@ -198,6 +208,22 @@ export const PROVIDER_KEY_REGISTRY: ProviderKeyConfig[] = [
     helpUrl: 'https://platform.minimax.io',
     description: 'Required by Deep Agent when selecting MiniMax M2.7 models.',
     envVar: 'MINIMAX_API_KEY',
+    requiredByProviders: ['deepagent'],
+  },
+  {
+    id: 'zhipuai',
+    label: 'zAI API Key',
+    helpUrl: 'https://z.ai/manage-apikey/apikey-list',
+    description: 'Required by Deep Agent when selecting GLM models.',
+    envVar: 'ZHIPUAI_API_KEY',
+    requiredByProviders: ['deepagent'],
+  },
+  {
+    id: 'xai',
+    label: 'xAI API Key',
+    helpUrl: 'https://console.x.ai/',
+    description: 'Required by Deep Agent when selecting Grok models.',
+    envVar: 'XAI_API_KEY',
     requiredByProviders: ['deepagent'],
   },
   {

@@ -114,8 +114,10 @@ app.use('/api/auth/get-session', rateLimit({ windowMs: 60_000, max: 120 }));
 app.use('/api/auth/*', rateLimit({ windowMs: 60_000, max: 10 }));
 // Strict rate limit on invite link registration: 5 per minute per IP
 app.use('/api/invite-links/register', rateLimit({ windowMs: 60_000, max: 5 }));
+// Runner endpoints are high-frequency (heartbeat + task polling) — give them a generous limit
+app.use('/api/runners/*', rateLimit({ windowMs: 60_000, max: 600 }));
 // Per-user rate limit on authenticated API endpoints
-app.use('/api/*', rateLimit({ windowMs: 60_000, max: 300, perUser: true }));
+app.use('/api/*', rateLimit({ windowMs: 60_000, max: 600, perUser: true }));
 
 // ── Public routes (before auth middleware) ────────────────
 const { inviteLinkPublicRoutes, inviteLinkRoutes } = await import('./routes/invite-links.js');

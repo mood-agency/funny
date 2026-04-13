@@ -49,9 +49,21 @@ if (!result.success) {
 // and references import.meta.dir at runtime (which resolves to dist/)
 await cp(join(ROOT, 'src', 'services', 'pty-helper.mjs'), join(DIST, 'pty-helper.mjs'));
 
+// Copy deepagent-server.ts to dist/ — it's spawned as a subprocess by DeepAgentProcess
+// and resolved via __dirname (which points to dist/ in production)
+const coreAgentsDir = join(ROOT, '..', 'core', 'src', 'agents');
+await cp(join(coreAgentsDir, 'deepagent-server.ts'), join(DIST, 'deepagent-server.ts'));
+
+// Copy built-in deep agent skills to dist/ — loaded by deepagent-server.ts at runtime
+await cp(join(coreAgentsDir, 'deepagent-skills'), join(DIST, 'deepagent-skills'), {
+  recursive: true,
+});
+
 console.info('Server build complete!');
 for (const output of result.outputs) {
   const size = (output.size / 1024).toFixed(1);
   console.info(`  ${output.path} (${size} KB)`);
 }
 console.info(`  ${join(DIST, 'pty-helper.mjs')} (copied)`);
+console.info(`  ${join(DIST, 'deepagent-server.ts')} (copied)`);
+console.info(`  ${join(DIST, 'deepagent-skills/')} (copied)`);

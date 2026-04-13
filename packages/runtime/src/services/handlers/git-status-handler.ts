@@ -12,7 +12,7 @@
 
 import { emitGitStatusForThread } from '../../utils/git-status-helpers.js';
 import type { GitChangedEvent } from '../thread-event-bus.js';
-import type { EventHandler, HandlerServiceContext } from './types.js';
+import type { EventHandler } from './types.js';
 
 // Per-thread debounce state
 const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -35,7 +35,9 @@ export const gitStatusHandler: EventHandler<'git:changed'> = {
       setTimeout(() => {
         pendingTimers.delete(threadId);
         ctx.log(`Emitting git status for thread ${threadId} (debounced, tool: ${event.toolName})`);
-        void emitGitStatusForThread(event, ctx);
+        emitGitStatusForThread(event, ctx).catch((err) => {
+          ctx.log(`Failed to emit git status for thread ${threadId}: ${err?.message ?? err}`);
+        });
       }, DEBOUNCE_MS),
     );
   },

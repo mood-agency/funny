@@ -223,6 +223,24 @@ export function App() {
     loadProjects();
   }, [loadProjects]);
 
+  // Update browser tab title with selected project name
+  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const selectedProjectName = useProjectStore(
+    (s) => s.projects.find((p) => p.id === s.selectedProjectId)?.name,
+  );
+  const selectedProjectBranch = useProjectStore((s) =>
+    s.selectedProjectId ? s.branchByProject[s.selectedProjectId] : undefined,
+  );
+  useEffect(() => {
+    if (selectedProjectName && selectedProjectBranch) {
+      document.title = `${selectedProjectName} [${selectedProjectBranch}] — funny`;
+    } else if (selectedProjectName) {
+      document.title = `${selectedProjectName} — funny`;
+    } else {
+      document.title = 'funny';
+    }
+  }, [selectedProjectId, selectedProjectName, selectedProjectBranch]);
+
   // Global keyboard shortcuts (extracted to dedicated hook)
   const toggleCommandPalette = useCallback(() => {
     setCommandPaletteOpen((prev) => !prev);
