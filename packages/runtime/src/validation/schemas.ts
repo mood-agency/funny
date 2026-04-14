@@ -140,6 +140,8 @@ export const createThreadSchema = z.object({
   parentThreadId: z.string().optional(),
   arcId: z.string().optional(),
   purpose: threadPurposeSchema.optional().default('implement'),
+  agentTemplateId: z.string().optional(),
+  templateVariables: z.record(z.string(), z.string()).optional(),
 });
 
 export const createIdleThreadSchema = z.object({

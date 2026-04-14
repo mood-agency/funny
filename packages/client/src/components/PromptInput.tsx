@@ -776,6 +776,7 @@ export const PromptInput = memo(function PromptInput({
         effort={effortOptions.length > 0 ? effort : undefined}
         onEffortChange={effortOptions.length > 0 ? setEffort : undefined}
         effortOptions={effortOptions.length > 0 ? effortOptions : undefined}
+        defaultTemplateId={effectiveProject?.defaultAgentTemplateId}
       />
 
       {branchSwitchDialog}

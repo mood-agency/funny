@@ -90,6 +90,14 @@ export interface ClaudeProcessOptions {
   effort?: string;
   /** Additional environment variables to pass to the agent subprocess (e.g., API keys). */
   env?: Record<string, string>;
+  /** Built-in skill names to disable (Deep Agent only, e.g., ['planning', 'code-review']) */
+  builtinSkillsDisabled?: string[];
+  /** Additional skill directory paths (Deep Agent only) */
+  customSkillPaths?: string[];
+  /** Custom agent name (Deep Agent only, default: 'funny-coding-assistant') */
+  agentName?: string;
+  /** Custom memory file paths (Deep Agent only, overrides workspace defaults) */
+  customMemoryPaths?: string[];
   /** Custom spawn function for sandboxed execution (e.g., Podman container) */
   spawnClaudeCodeProcess?: (options: {
     command: string;

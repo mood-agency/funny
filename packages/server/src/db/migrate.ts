@@ -958,6 +958,48 @@ const migrations: Migration[] = [
       await ctx().addColumn('projects', 'memory_enabled', 'INTEGER NOT NULL', '0');
     },
   },
+  {
+    name: '039_agent_templates',
+    async up() {
+      await ctx().exec(sql`
+        CREATE TABLE IF NOT EXISTS agent_templates (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          icon TEXT,
+          color TEXT,
+          model TEXT,
+          system_prompt_mode TEXT NOT NULL DEFAULT 'prepend',
+          system_prompt TEXT,
+          disallowed_tools TEXT,
+          mcp_servers TEXT,
+          builtin_skills_disabled TEXT,
+          custom_skill_paths TEXT,
+          memory_override INTEGER,
+          custom_memory_paths TEXT,
+          agent_name TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+      await ctx().addColumn('threads', 'agent_template_id', 'TEXT');
+    },
+  },
+  {
+    name: '040_projects_default_agent_template',
+    async up() {
+      await ctx().addColumn('projects', 'default_agent_template_id', 'TEXT');
+    },
+  },
+  {
+    name: '041_agent_templates_shared_and_variables',
+    async up() {
+      await ctx().addColumn('agent_templates', 'shared', 'INTEGER NOT NULL', '0');
+      await ctx().addColumn('agent_templates', 'variables', 'TEXT');
+      await ctx().addColumn('threads', 'template_variables', 'TEXT');
+    },
+  },
 ];
 
 export async function autoMigrate() {

@@ -12,6 +12,7 @@ import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
 import { useRouteSync } from '@/hooks/use-route-sync';
 import { useWS } from '@/hooks/use-ws';
 import { TOAST_DURATION } from '@/lib/utils';
+import { useAgentTemplateStore } from '@/stores/agent-template-store';
 import { useInternalEditorStore } from '@/stores/internal-editor-store';
 import { useProjectStore } from '@/stores/project-store';
 import { setAppNavigate } from '@/stores/thread-store';
@@ -129,6 +130,7 @@ const MonacoEditorDialog = lazy(() =>
 
 export function App() {
   const loadProjects = useProjectStore((s) => s.loadProjects);
+  const loadTemplates = useAgentTemplateStore((s) => s.loadTemplates);
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
   const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
   const setReviewPaneWidth = useUIStore((s) => s.setReviewPaneWidth);
@@ -218,10 +220,11 @@ export function App() {
   // Sync URL ↔ store
   useRouteSync();
 
-  // Load projects on mount (auth already initialized by AuthGate)
+  // Load projects and agent templates on mount (auth already initialized by AuthGate)
   useEffect(() => {
     loadProjects();
-  }, [loadProjects]);
+    loadTemplates();
+  }, [loadProjects, loadTemplates]);
 
   // Update browser tab title with selected project name
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);

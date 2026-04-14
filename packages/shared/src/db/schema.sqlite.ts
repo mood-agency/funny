@@ -48,6 +48,7 @@ export const projects = sqliteTable('projects', {
   systemPrompt: text('system_prompt'),
   launcherUrl: text('launcher_url'),
   memoryEnabled: integer('memory_enabled', { mode: 'boolean' }).notNull().default(false),
+  defaultAgentTemplateId: text('default_agent_template_id'), // default template for new threads
   userId: text('user_id').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
@@ -98,6 +99,8 @@ export const threads = sqliteTable('threads', {
   runnerId: text('runner_id'), // which runner handles this thread (multi/team mode)
   mergedAt: text('merged_at'), // set when worktree is merged+cleaned — explicit post-merge signal
   contextRecoveryReason: text('context_recovery_reason'), // why context recovery is needed (model_changed, provider_changed)
+  agentTemplateId: text('agent_template_id'), // agent template used (Deep Agent only)
+  templateVariables: text('template_variables'), // JSON: filled variable values
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
@@ -485,6 +488,30 @@ export const member = sqliteTable('member', {
     .references(() => user.id, { onDelete: 'cascade' }),
   role: text('role').notNull(),
   createdAt: dateText('created_at').notNull(),
+});
+
+// ── Agent Templates (global, per-user) ──────────────────
+export const agentTemplates = sqliteTable('agent_templates', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  icon: text('icon'),
+  color: text('color'),
+  model: text('model'),
+  systemPromptMode: text('system_prompt_mode').notNull().default('prepend'),
+  systemPrompt: text('system_prompt'),
+  disallowedTools: text('disallowed_tools'), // JSON array
+  mcpServers: text('mcp_servers'), // JSON array
+  builtinSkillsDisabled: text('builtin_skills_disabled'), // JSON array
+  customSkillPaths: text('custom_skill_paths'), // JSON array
+  memoryOverride: integer('memory_override'), // null/0/1
+  customMemoryPaths: text('custom_memory_paths'), // JSON array
+  agentName: text('agent_name'),
+  shared: integer('shared', { mode: 'boolean' }).notNull().default(false), // visible to all users
+  variables: text('variables'), // JSON array of template variables
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });
 
 export const invitation = sqliteTable('invitation', {

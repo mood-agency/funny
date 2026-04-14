@@ -161,6 +161,23 @@ export async function handleDataMessageWithAck(runnerId: string, data: any): Pro
         const project = await projectRepo.getProject(data.projectId);
         return { type: 'data:get_project_response', project: project ?? null };
       }
+      case 'data:get_agent_template': {
+        // Check builtin templates first
+        const { BUILTIN_AGENT_TEMPLATES } = await import('@funny/shared');
+        const builtin = BUILTIN_AGENT_TEMPLATES.find(
+          (t: { id: string }) => t.id === data.templateId,
+        );
+        if (builtin) {
+          return { type: 'data:get_agent_template_response', template: builtin };
+        }
+        const row = await dbGet(
+          db
+            .select()
+            .from(schema.agentTemplates)
+            .where(eq(schema.agentTemplates.id, data.templateId)),
+        );
+        return { type: 'data:get_agent_template_response', template: row ?? null };
+      }
       case 'data:list_projects': {
         const projects = await projectRepo.listProjects(data.userId);
         return { type: 'data:list_projects_response', projects };
@@ -409,6 +426,34 @@ export async function handleDataMessage(runnerId: string, data: any): Promise<vo
           type: 'data:find_last_unanswered_interactive_tool_call_response',
           requestId: data.requestId,
           toolCall: tc ?? null,
+        });
+        break;
+      }
+
+      // ── Agent template operations ─────────────────────────────
+
+      case 'data:get_agent_template': {
+        // Check builtin templates first
+        const { BUILTIN_AGENT_TEMPLATES: builtins } = await import('@funny/shared');
+        const builtinTpl = builtins.find((t: { id: string }) => t.id === data.templateId);
+        if (builtinTpl) {
+          sendToRunner(runnerId, {
+            type: 'data:get_agent_template_response',
+            requestId: data.requestId,
+            template: builtinTpl,
+          });
+          break;
+        }
+        const row = await dbGet(
+          db
+            .select()
+            .from(schema.agentTemplates)
+            .where(eq(schema.agentTemplates.id, data.templateId)),
+        );
+        sendToRunner(runnerId, {
+          type: 'data:get_agent_template_response',
+          requestId: data.requestId,
+          template: row ?? null,
         });
         break;
       }

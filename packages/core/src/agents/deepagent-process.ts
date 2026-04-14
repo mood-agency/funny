@@ -100,6 +100,17 @@ export class DeepAgentProcess extends BaseAgentProcess {
       args.push('--workspace', this.options.cwd);
     }
 
+    // Pass agent template fields as CLI args
+    if (this.options.agentName) {
+      args.push('--name', this.options.agentName);
+    }
+    if (this.options.customSkillPaths?.length) {
+      args.push('--skills', this.options.customSkillPaths.join(','));
+    }
+    if (this.options.customMemoryPaths?.length) {
+      args.push('--memory', this.options.customMemoryPaths.join(','));
+    }
+
     // Build env — alias provider API keys so that LangChain integrations
     // (used internally by deepagents-acp) can find them.
     const spawnEnv = { ...process.env, ...this.options.env };
@@ -107,6 +118,11 @@ export class DeepAgentProcess extends BaseAgentProcess {
     // Pass system prompt via env var (CLI args have length limits)
     if (this.options.systemPrefix) {
       spawnEnv.DEEPAGENT_SYSTEM_PROMPT = this.options.systemPrefix;
+    }
+
+    // Pass disabled built-in skills as env var (comma-separated)
+    if (this.options.builtinSkillsDisabled?.length) {
+      spawnEnv.DEEPAGENT_DISABLED_SKILLS = this.options.builtinSkillsDisabled.join(',');
     }
 
     // Increase Node.js heap limit for the subprocess to prevent OOM crashes
@@ -299,9 +315,11 @@ export class DeepAgentProcess extends BaseAgentProcess {
       });
 
       // Step 2: Create a new session
+      // MCP servers can be injected via agent templates or project config
+      const mcpServerList = this.options.mcpServers ? Object.values(this.options.mcpServers) : [];
       const sessionResponse = await connection.newSession({
         cwd: this.options.cwd,
-        mcpServers: [],
+        mcpServers: mcpServerList,
       });
 
       // Step 3: Send the prompt

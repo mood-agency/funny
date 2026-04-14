@@ -52,6 +52,7 @@ import {
 } from '@/stores/settings-store';
 import { useUIStore } from '@/stores/ui-store';
 
+import { AgentTemplateSettings } from './settings/AgentTemplateSettings';
 import { OrganizationManagement } from './settings/OrganizationManagement';
 import { RunnersSettings } from './settings/RunnersSettings';
 import { SettingRow } from './settings/SettingRow';
@@ -66,7 +67,8 @@ type GeneralPage =
   | 'email'
   | 'organizations'
   | 'runners'
-  | 'system';
+  | 'system'
+  | 'agent-templates';
 
 const NAV_ITEMS: Array<{ id: GeneralPage; label: string; icon: typeof SlidersHorizontal }> = [
   { id: 'general', label: 'settings.general', icon: SlidersHorizontal },
@@ -77,6 +79,7 @@ const NAV_ITEMS: Array<{ id: GeneralPage; label: string; icon: typeof SlidersHor
   { id: 'email', label: 'Email (SMTP)', icon: Mail },
   { id: 'organizations', label: 'Organizations', icon: Building2 },
   { id: 'runners', label: 'Runners', icon: Server },
+  { id: 'agent-templates', label: 'Agent Templates', icon: Bot },
   { id: 'system', label: 'System', icon: Cpu },
 ];
 
@@ -685,6 +688,8 @@ export function GeneralSettingsView() {
         {activePreferencesPage === 'organizations' && <OrganizationManagement />}
 
         {activePreferencesPage === 'runners' && <RunnersSettings />}
+
+        {activePreferencesPage === 'agent-templates' && <AgentTemplateSettings />}
 
         {activePreferencesPage === 'system' && <SystemSettings />}
 

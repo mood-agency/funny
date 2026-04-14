@@ -365,10 +365,8 @@ export function AllThreadsView() {
 
     // Sort by selected field and direction
     result = [...result].sort((a, b) => {
-      const dateA =
-        sortField === 'updated' ? (a.updatedAt ?? a.completedAt ?? a.createdAt) : a.createdAt;
-      const dateB =
-        sortField === 'updated' ? (b.updatedAt ?? b.completedAt ?? b.createdAt) : b.createdAt;
+      const dateA = sortField === 'updated' ? (a.completedAt ?? a.createdAt) : a.createdAt;
+      const dateB = sortField === 'updated' ? (b.completedAt ?? b.createdAt) : b.createdAt;
       const diff = new Date(dateA).getTime() - new Date(dateB).getTime();
       return sortDir === 'desc' ? -diff : diff;
     });

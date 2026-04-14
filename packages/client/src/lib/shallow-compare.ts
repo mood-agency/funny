@@ -24,6 +24,7 @@ const THREAD_VISUAL_KEYS: readonly (keyof Thread)[] = [
   'lastAssistantMessage',
   'arcId',
   'purpose',
+  'agentTemplateId',
 ] as const;
 
 /**

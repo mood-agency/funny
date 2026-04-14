@@ -41,6 +41,7 @@ import { threadsVisuallyEqual } from '@/lib/shallow-compare';
 import { statusConfig, timeAgo } from '@/lib/thread-utils';
 import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
+import { useAgentTemplateStore } from '@/stores/agent-template-store';
 
 export interface ThreadItemProps {
   thread: Thread;
@@ -96,6 +97,11 @@ export const ThreadItem = memo(function ThreadItem({
   // Rename dialog state
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+
+  // Agent template lookup for badge display
+  const agentTemplate = useAgentTemplateStore((s) =>
+    thread.agentTemplateId ? s.templates.find((t) => t.id === thread.agentTemplateId) : undefined,
+  );
 
   // Create Branch dialog state
   const [isCreateBranchOpen, setIsCreateBranchOpen] = useState(false);
@@ -243,6 +249,34 @@ export const ThreadItem = memo(function ThreadItem({
             <span className="flex-shrink-0 rounded bg-violet-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-violet-500">
               Remote
             </span>
+          )}
+          {/* Agent template badge */}
+          {agentTemplate && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium leading-none"
+                  style={{
+                    backgroundColor: agentTemplate.color
+                      ? `${agentTemplate.color}22`
+                      : 'hsl(var(--muted))',
+                    color: agentTemplate.color ?? 'hsl(var(--muted-foreground))',
+                  }}
+                  data-testid={`thread-template-badge-${thread.id}`}
+                >
+                  {agentTemplate.color && (
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: agentTemplate.color }}
+                    />
+                  )}
+                  {agentTemplate.name}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                {agentTemplate.description || agentTemplate.name}
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
 

@@ -42,6 +42,7 @@ import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { PROVIDERS, getModelOptions } from '@/lib/providers';
 import { cn } from '@/lib/utils';
+import { useAgentTemplateStore } from '@/stores/agent-template-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useSettingsStore, ALL_STANDARD_TOOLS, TOOL_LABELS } from '@/stores/settings-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -450,6 +451,48 @@ function LauncherUrlSetting({
 }
 
 /* ── Weave semantic merge status ── */
+function DefaultTemplateSetting({
+  projectId,
+  currentTemplateId,
+  onSave,
+}: {
+  projectId: string;
+  currentTemplateId?: string;
+  onSave: (id: string, data: Record<string, unknown>) => void;
+}) {
+  const { templates, initialized, loadTemplates } = useAgentTemplateStore();
+
+  useEffect(() => {
+    if (!initialized) loadTemplates();
+  }, [initialized, loadTemplates]);
+
+  const currentTemplate = templates.find((t) => t.id === currentTemplateId);
+
+  return (
+    <SettingRow
+      title="Default Agent Template"
+      description="Auto-select this template when creating new Deep Agent threads in this project."
+    >
+      <select
+        className="h-9 rounded-md border border-input bg-background px-3 text-xs"
+        value={currentTemplateId ?? ''}
+        onChange={(e) => {
+          const val = e.target.value || null;
+          onSave(projectId, { defaultAgentTemplateId: val });
+        }}
+        data-testid="settings-default-agent-template"
+      >
+        <option value="">None</option>
+        {templates.map((tpl) => (
+          <option key={tpl.id} value={tpl.id}>
+            {tpl.id.startsWith('__builtin__') ? `[Built-in] ${tpl.name}` : tpl.name}
+          </option>
+        ))}
+      </select>
+    </SettingRow>
+  );
+}
+
 function WeaveStatusSetting({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<import('@funny/shared').WeaveStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -790,6 +833,11 @@ function GeneralSettings() {
               />
             </SettingRow>
             <WeaveStatusSetting projectId={selectedProject.id} />
+            <DefaultTemplateSetting
+              projectId={selectedProject.id}
+              currentTemplateId={selectedProject.defaultAgentTemplateId}
+              onSave={saveProject}
+            />
           </div>
         </>
       )}

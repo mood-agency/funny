@@ -26,6 +26,9 @@ import type {
   Arc,
   ArcArtifacts,
   PaginatedThreadsResponse,
+  AgentTemplate,
+  CreateAgentTemplateRequest,
+  UpdateAgentTemplateRequest,
 } from '@funny/shared';
 import type { DomainError } from '@funny/shared/errors';
 import { internal, processError } from '@funny/shared/errors';
@@ -247,6 +250,7 @@ export const api = {
       systemPrompt?: string | null;
       launcherUrl?: string | null;
       memoryEnabled?: boolean;
+      defaultAgentTemplateId?: string | null;
     },
   ) => request<Project>(`/projects/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteProject: (id: string) => request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
@@ -356,6 +360,8 @@ export const api = {
     parentThreadId?: string;
     arcId?: string;
     purpose?: 'explore' | 'plan' | 'implement';
+    agentTemplateId?: string;
+    templateVariables?: Record<string, string>;
   }) => request<Thread>('/threads', { method: 'POST', body: JSON.stringify(data) }),
   createIdleThread: (data: {
     projectId: string;
@@ -1062,6 +1068,22 @@ export const api = {
     request<{ ok: boolean }>(`/pipelines/${id}`, { method: 'DELETE' }),
   listPipelineRuns: (threadId: string) =>
     request<PipelineRun[]>(`/pipelines/runs/thread/${threadId}`),
+
+  // Agent Templates (global, per-user — Deep Agent only)
+  listAgentTemplates: () => request<AgentTemplate[]>('/agent-templates'),
+  getAgentTemplate: (id: string) => request<AgentTemplate>(`/agent-templates/${id}`),
+  createAgentTemplate: (data: CreateAgentTemplateRequest) =>
+    request<AgentTemplate>('/agent-templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateAgentTemplate: (id: string, data: UpdateAgentTemplateRequest) =>
+    request<AgentTemplate>(`/agent-templates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteAgentTemplate: (id: string) =>
+    request<{ ok: boolean }>(`/agent-templates/${id}`, { method: 'DELETE' }),
+  duplicateAgentTemplate: (id: string) =>
+    request<AgentTemplate>(`/agent-templates/${id}/duplicate`, { method: 'POST' }),
+  getAgentTemplateUsageStats: () => request<Record<string, number>>('/agent-templates/stats/usage'),
 
   // Browse (filesystem)
   browseRoots: () => request<{ roots: string[]; home: string }>('/browse/roots'),

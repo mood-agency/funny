@@ -59,6 +59,7 @@ export const projects = pgTable('projects', {
   systemPrompt: text('system_prompt'),
   launcherUrl: text('launcher_url'),
   memoryEnabled: integer('memory_enabled').notNull().default(0),
+  defaultAgentTemplateId: text('default_agent_template_id'),
   userId: text('user_id').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
@@ -109,6 +110,8 @@ export const threads = pgTable('threads', {
   runnerId: text('runner_id'),
   mergedAt: text('merged_at'),
   contextRecoveryReason: text('context_recovery_reason'),
+  agentTemplateId: text('agent_template_id'), // agent template used (Deep Agent only)
+  templateVariables: text('template_variables'), // JSON: filled variable values
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
   completedAt: text('completed_at'),
@@ -494,6 +497,30 @@ export const member = pgTable('member', {
     .references(() => user.id, { onDelete: 'cascade' }),
   role: text('role').notNull(),
   createdAt: dateText('created_at').notNull(),
+});
+
+// ── Agent Templates (global, per-user) ──────────────────
+export const agentTemplates = pgTable('agent_templates', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  icon: text('icon'),
+  color: text('color'),
+  model: text('model'),
+  systemPromptMode: text('system_prompt_mode').notNull().default('prepend'),
+  systemPrompt: text('system_prompt'),
+  disallowedTools: text('disallowed_tools'), // JSON array
+  mcpServers: text('mcp_servers'), // JSON array
+  builtinSkillsDisabled: text('builtin_skills_disabled'), // JSON array
+  customSkillPaths: text('custom_skill_paths'), // JSON array
+  memoryOverride: integer('memory_override'), // null/0/1
+  customMemoryPaths: text('custom_memory_paths'), // JSON array
+  agentName: text('agent_name'),
+  shared: integer('shared').notNull().default(0),
+  variables: text('variables'), // JSON array
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });
 
 export const invitation = pgTable('invitation', {

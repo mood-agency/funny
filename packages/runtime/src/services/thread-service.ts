@@ -122,6 +122,8 @@ export interface CreateIdleThreadParams {
   stage?: 'backlog' | 'planning';
   arcId?: string;
   purpose?: 'explore' | 'plan' | 'implement';
+  agentTemplateId?: string;
+  templateVariables?: Record<string, string>;
 }
 
 export async function createIdleThread(params: CreateIdleThreadParams) {
@@ -171,12 +173,16 @@ export async function createIdleThread(params: CreateIdleThreadParams) {
     initialPrompt: params.prompt,
     arcId: params.arcId,
     purpose: params.purpose || 'implement',
+    agentTemplateId: params.agentTemplateId,
+    templateVariables: params.templateVariables
+      ? JSON.stringify(params.templateVariables)
+      : undefined,
     cost: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
-  await tm.createThread(thread);
+  await tm.createThread(thread as any);
 
   if (params.prompt) {
     await tm.insertMessage({
@@ -225,6 +231,8 @@ export interface CreateAndStartThreadParams {
   parentThreadId?: string;
   arcId?: string;
   purpose?: 'explore' | 'plan' | 'implement';
+  agentTemplateId?: string;
+  templateVariables?: Record<string, string>;
 }
 
 export async function createAndStartThread(params: CreateAndStartThreadParams) {
@@ -287,12 +295,16 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
       parentThreadId: params.parentThreadId,
       arcId: params.arcId,
       purpose: params.purpose || 'implement',
+      agentTemplateId: params.agentTemplateId,
+      templateVariables: params.templateVariables
+        ? JSON.stringify(params.templateVariables)
+        : undefined,
       cost: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    await tm.createThread(thread);
+    await tm.createThread(thread as any);
 
     if (params.prompt) {
       // Augment prompt with file/symbol contents so the stored message includes context XML
@@ -468,12 +480,16 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     parentThreadId: params.parentThreadId,
     arcId: params.arcId,
     purpose: params.purpose || 'implement',
+    agentTemplateId: params.agentTemplateId,
+    templateVariables: params.templateVariables
+      ? JSON.stringify(params.templateVariables)
+      : undefined,
     cost: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
-  await tm.createThread(thread);
+  await tm.createThread(thread as any);
 
   const cwd = worktreePath ?? projectPath;
 

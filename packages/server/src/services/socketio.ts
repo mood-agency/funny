@@ -507,6 +507,7 @@ function setupRunnerDataHandlers(socket: Socket, runnerId: string): void {
     'data:update_profile',
     'data:get_arc',
     'data:mark_and_list_stale_threads',
+    'data:get_agent_template',
   ];
 
   // Regex to validate requestId is a safe identifier (UUID or nanoid-like)

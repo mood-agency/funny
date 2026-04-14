@@ -49,6 +49,14 @@ export interface StartAgentOptions {
   env?: Record<string, string>;
   /** Effort level for Claude SDK — controls thinking depth ('low' | 'medium' | 'high' | 'max') */
   effort?: string;
+  /** Built-in skill names to disable (Deep Agent only) */
+  builtinSkillsDisabled?: string[];
+  /** Additional skill directory paths (Deep Agent only) */
+  customSkillPaths?: string[];
+  /** Custom agent name (Deep Agent only) */
+  agentName?: string;
+  /** Custom memory file paths (Deep Agent only) */
+  customMemoryPaths?: string[];
 }
 
 export interface OrchestratorEvents {
@@ -92,6 +100,10 @@ export class AgentOrchestrator extends EventEmitter {
       systemPrefix,
       env,
       effort,
+      builtinSkillsDisabled,
+      customSkillPaths,
+      agentName,
+      customMemoryPaths,
     } = options;
 
     dlog.info('startAgent', {
@@ -160,6 +172,10 @@ export class AgentOrchestrator extends EventEmitter {
       systemPrefix,
       env,
       effort,
+      builtinSkillsDisabled,
+      customSkillPaths,
+      agentName,
+      customMemoryPaths,
     };
 
     dlog.info('processOpts systemPrefix', {

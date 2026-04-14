@@ -146,7 +146,7 @@ export function createThreadRepository(deps: ThreadRepositoryDeps) {
       db.select({ total: drizzleCount() }).from(schema.threads).where(condition),
     );
 
-    const activityTime = sql`COALESCE(${schema.threads.updatedAt}, ${schema.threads.completedAt}, ${schema.threads.createdAt})`;
+    const activityTime = sql`COALESCE(${schema.threads.completedAt}, ${schema.threads.createdAt})`;
     const threads = await dbAll(
       db
         .select()

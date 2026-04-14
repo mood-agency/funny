@@ -92,10 +92,13 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
       }
     }
 
-    // Sort by most recent activity descending (no sticky status priority)
+    // Sort by most recent activity descending (no sticky status priority).
+    // Use completedAt ?? createdAt (not updatedAt) so the sort matches the
+    // displayed time — updatedAt gets bumped on metadata changes, which would
+    // cause old threads to sort above newer ones while showing stale times.
     result.sort((a, b) => {
-      const dateA = a.updatedAt ?? a.completedAt ?? a.createdAt;
-      const dateB = b.updatedAt ?? b.completedAt ?? b.createdAt;
+      const dateA = a.completedAt ?? a.createdAt;
+      const dateB = b.completedAt ?? b.createdAt;
       return new Date(dateB).getTime() - new Date(dateA).getTime();
     });
 

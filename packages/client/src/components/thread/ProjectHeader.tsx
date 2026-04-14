@@ -74,6 +74,7 @@ import { getEditorLabel } from '@/lib/editor-utils';
 import { stageConfig } from '@/lib/thread-utils';
 import { buildPath } from '@/lib/url';
 import { resolveThreadBranch } from '@/lib/utils';
+import { useAgentTemplateStore } from '@/stores/agent-template-store';
 import { useGitStatusStore, useGitStatusForThread } from '@/stores/git-status-store';
 import { useProjectStore } from '@/stores/project-store';
 import { editorLabels, type Editor } from '@/stores/settings-store';
@@ -597,6 +598,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
     activeThreadWorktreePath,
     activeThreadParentId,
     activeThreadArcId,
+    activeThreadTemplateId,
   } = useThreadStore(
     useShallow((s) => ({
       activeThreadId: s.activeThread?.id,
@@ -607,7 +609,11 @@ export const ProjectHeader = memo(function ProjectHeader() {
       activeThreadWorktreePath: s.activeThread?.worktreePath,
       activeThreadParentId: s.activeThread?.parentThreadId,
       activeThreadArcId: s.activeThread?.arcId,
+      activeThreadTemplateId: s.activeThread?.agentTemplateId,
     })),
+  );
+  const activeTemplate = useAgentTemplateStore((s) =>
+    activeThreadTemplateId ? s.templates.find((t) => t.id === activeThreadTemplateId) : undefined,
   );
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const projects = useProjectStore((s) => s.projects);
@@ -778,6 +784,31 @@ export const ProjectHeader = memo(function ProjectHeader() {
                     {activeThreadTitle}
                   </span>
                 </BreadcrumbItem>
+              )}
+              {activeTemplate && (
+                <>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem className="flex-shrink-0">
+                    <span
+                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                      style={{
+                        backgroundColor: activeTemplate.color
+                          ? `${activeTemplate.color}22`
+                          : 'hsl(var(--muted))',
+                        color: activeTemplate.color ?? 'hsl(var(--muted-foreground))',
+                      }}
+                      data-testid="project-header-template-badge"
+                    >
+                      {activeTemplate.color && (
+                        <span
+                          className="inline-block h-2 w-2 rounded-full"
+                          style={{ backgroundColor: activeTemplate.color }}
+                        />
+                      )}
+                      {activeTemplate.name}
+                    </span>
+                  </BreadcrumbItem>
+                </>
               )}
             </BreadcrumbList>
           </Breadcrumb>

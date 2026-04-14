@@ -31,8 +31,8 @@
  *   DEEPAGENT_MEMORY          Comma-separated memory paths
  */
 
-import { existsSync } from 'fs';
-import { dirname, join as pathJoin } from 'path';
+import { existsSync, readdirSync, statSync } from 'fs';
+import { dirname, join as pathJoin, basename } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -86,8 +86,30 @@ const userSkillPaths = resolvePaths(
   [pathJoin(workspaceRoot, '.deepagents', 'skills'), pathJoin(workspaceRoot, 'skills')],
 );
 
-// Built-in skills ship with funny — always included (user skills override by name)
-const builtinSkillPaths = existsSync(BUILTIN_SKILLS_DIR) ? [BUILTIN_SKILLS_DIR] : [];
+// Built-in skills ship with funny — filter out any disabled via DEEPAGENT_DISABLED_SKILLS env var
+const disabledSkills = (process.env.DEEPAGENT_DISABLED_SKILLS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+let builtinSkillPaths: string[] = [];
+if (existsSync(BUILTIN_SKILLS_DIR)) {
+  if (disabledSkills.length > 0) {
+    // Enumerate subdirectories and exclude disabled ones
+    try {
+      builtinSkillPaths = readdirSync(BUILTIN_SKILLS_DIR)
+        .filter((entry) => {
+          const fullPath = pathJoin(BUILTIN_SKILLS_DIR, entry);
+          return statSync(fullPath).isDirectory() && !disabledSkills.includes(entry);
+        })
+        .map((entry) => pathJoin(BUILTIN_SKILLS_DIR, entry));
+    } catch {
+      builtinSkillPaths = [BUILTIN_SKILLS_DIR];
+    }
+  } else {
+    builtinSkillPaths = [BUILTIN_SKILLS_DIR];
+  }
+}
 const skillPaths = [...builtinSkillPaths, ...userSkillPaths];
 
 const memoryPaths = resolvePaths(args.memory as string | undefined, process.env.DEEPAGENT_MEMORY, [

@@ -790,6 +790,12 @@ export function invalidateThreadCache(threadId: string): void {
   threadCache.delete(threadId);
 }
 
+/** Get an agent template from the server by ID */
+export async function remoteGetAgentTemplate(templateId: string): Promise<any> {
+  const response = await sendDataMessage('data:get_agent_template', { templateId });
+  return response?.template ?? null;
+}
+
 /** Get a tool call from the server by ID */
 export async function remoteGetToolCall(toolCallId: string): Promise<any> {
   const response = await sendDataMessage('data:get_tool_call', { toolCallId });

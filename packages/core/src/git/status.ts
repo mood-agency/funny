@@ -95,24 +95,26 @@ export function getStatusSummary(
     return ResultAsync.fromSafePromise(Promise.resolve(cached.data));
   }
 
-  // Try native module first
+  // Try native module first, fall back to CLI
   const native = getNativeGit();
-  if (native) {
-    return ResultAsync.fromPromise(
-      native
-        .getStatusSummary(worktreeCwd, baseBranch ?? null, projectCwd ?? null)
-        .then((result) => {
+
+  return ResultAsync.fromPromise(
+    (async () => {
+      if (native) {
+        try {
+          const result = await native.getStatusSummary(
+            worktreeCwd,
+            baseBranch ?? null,
+            projectCwd ?? null,
+          );
           statusCache.set(cacheKey, { data: result, ts: Date.now() });
           evictStatusCacheIfNeeded();
           return result;
-        }),
-      (error) => processError(String(error), 1, ''),
-    );
-  }
+        } catch {
+          // Native module failed (e.g., empty repo with no HEAD) — fall through to CLI
+        }
+      }
 
-  // Fallback: CLI-based implementation
-  return ResultAsync.fromPromise(
-    (async () => {
       // Phase 1: three git commands
       //   - `status --porcelain -b`              → branch name + tracked dirty files
       //   - `diff HEAD --numstat`                 → staged + unstaged line stats combined

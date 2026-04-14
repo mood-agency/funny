@@ -1,4 +1,10 @@
-import type { ImageAttachment, QueuedMessage, Skill, ThreadPurpose } from '@funny/shared';
+import type {
+  AgentTemplate,
+  ImageAttachment,
+  QueuedMessage,
+  Skill,
+  ThreadPurpose,
+} from '@funny/shared';
 import {
   ArrowUp,
   ArrowLeft,
@@ -19,8 +25,9 @@ import {
   Compass,
   Map,
   Hammer,
+  Bot,
 } from 'lucide-react';
-import { useState, useRef, useCallback, useMemo, memo } from 'react';
+import { useState, useRef, useCallback, useMemo, memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -39,6 +46,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useAgentTemplateStore } from '@/stores/agent-template-store';
 
 import { ImageLightbox } from './ImageLightbox';
 import type { PromptEditorHandle } from './prompt-editor/PromptEditor';
@@ -160,6 +168,89 @@ export const PurposeSelect = memo(function PurposeSelect({
   );
 });
 
+export const TemplateSelect = memo(function TemplateSelect({
+  value,
+  onChange,
+  templates,
+}: {
+  value: string | undefined;
+  onChange: (v: string | undefined) => void;
+  templates: AgentTemplate[];
+}) {
+  const userTemplates = templates.filter((t) => !t.id.startsWith('__builtin__') && !t.shared);
+  const sharedTemplates = templates.filter((t) => !t.id.startsWith('__builtin__') && t.shared);
+  const builtinTemplates = templates.filter((t) => t.id.startsWith('__builtin__'));
+
+  const renderItem = (tpl: AgentTemplate) => (
+    <SelectItem key={tpl.id} value={tpl.id} size="xs">
+      <span className="flex items-center gap-1.5">
+        {tpl.color && (
+          <span
+            className="inline-block h-2 w-2 flex-shrink-0 rounded-full"
+            style={{ backgroundColor: tpl.color }}
+          />
+        )}
+        <span className="truncate">{tpl.name}</span>
+        {tpl.model && (
+          <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+            {tpl.model}
+          </span>
+        )}
+      </span>
+      {tpl.description && (
+        <span className="block truncate pl-3.5 text-[10px] text-muted-foreground">
+          {tpl.description}
+        </span>
+      )}
+    </SelectItem>
+  );
+
+  return (
+    <Select
+      value={value ?? '__none__'}
+      onValueChange={(v) => onChange(v === '__none__' ? undefined : v)}
+    >
+      <SelectTrigger
+        data-testid="prompt-template-select"
+        tabIndex={-1}
+        size="xs"
+        className="w-auto border-none bg-transparent shadow-none"
+      >
+        <span className="flex items-center gap-1">
+          <Bot className="icon-xs" />
+          <SelectValue placeholder="Template" />
+        </span>
+      </SelectTrigger>
+      <SelectContent side="top" align="start">
+        <SelectItem value="__none__" size="xs">
+          No template
+        </SelectItem>
+        {userTemplates.length > 0 && (
+          <SelectGroup>
+            <SelectSeparator />
+            <SelectLabel className="text-[10px]">My Templates</SelectLabel>
+            {userTemplates.map(renderItem)}
+          </SelectGroup>
+        )}
+        {sharedTemplates.length > 0 && (
+          <SelectGroup>
+            <SelectSeparator />
+            <SelectLabel className="text-[10px]">Shared</SelectLabel>
+            {sharedTemplates.map(renderItem)}
+          </SelectGroup>
+        )}
+        {builtinTemplates.length > 0 && (
+          <SelectGroup>
+            <SelectSeparator />
+            <SelectLabel className="text-[10px]">Built-in</SelectLabel>
+            {builtinTemplates.map(renderItem)}
+          </SelectGroup>
+        )}
+      </SelectContent>
+    </Select>
+  );
+});
+
 export const EffortSelect = memo(function EffortSelect({
   value,
   onChange,
@@ -228,6 +319,8 @@ export interface PromptInputUIProps {
         endLine?: number;
       }[];
       purpose?: ThreadPurpose;
+      agentTemplateId?: string;
+      templateVariables?: Record<string, string>;
     },
     images?: ImageAttachment[],
   ) => Promise<boolean | void> | boolean | void;
@@ -313,6 +406,9 @@ export interface PromptInputUIProps {
   effort?: string;
   onEffortChange?: (v: string) => void;
   effortOptions?: { value: string; label: string; description: string }[];
+
+  // ── Default template (from project settings) ──
+  defaultTemplateId?: string;
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -374,6 +470,7 @@ export const PromptInputUI = memo(function PromptInputUI({
   effort,
   onEffortChange,
   effortOptions,
+  defaultTemplateId,
 }: PromptInputUIProps) {
   const { t } = useTranslation();
 
@@ -404,9 +501,27 @@ export const PromptInputUI = memo(function PromptInputUI({
     };
   }
 
+  // ── Agent template (Deep Agent only) ──
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(
+    defaultTemplateId,
+  );
+  const [templateVarValues, setTemplateVarValues] = useState<Record<string, string>>({});
+  const { templates, initialized: templatesLoaded, loadTemplates } = useAgentTemplateStore();
+  const selectedTemplate = useMemo(
+    () => (selectedTemplateId ? templates.find((t) => t.id === selectedTemplateId) : undefined),
+    [selectedTemplateId, templates],
+  );
+  const templateVars = selectedTemplate?.variables ?? [];
+
   // ── Provider/model from unified string ──
   const provider = useMemo(() => unifiedModel.split(':')[0], [unifiedModel]);
   const model = useMemo(() => unifiedModel.split(':').slice(1).join(':'), [unifiedModel]);
+
+  // Load templates when provider is deepagent and creating a new thread
+  const isDeepAgent = provider === 'deepagent';
+  useEffect(() => {
+    if (isDeepAgent && isNewThread && !templatesLoaded) loadTemplates();
+  }, [isDeepAgent, isNewThread, templatesLoaded, loadTemplates]);
 
   // ── Submit handler ──
   const handleSubmit = useCallback(async () => {
@@ -456,6 +571,16 @@ export const PromptInputUI = memo(function PromptInputUI({
               baseBranch: selectedBranch || undefined,
               sendToBacklog,
               purpose,
+              agentTemplateId: isDeepAgent ? selectedTemplateId : undefined,
+              templateVariables:
+                isDeepAgent && selectedTemplateId && templateVars.length > 0
+                  ? Object.fromEntries(
+                      templateVars.map((v) => [
+                        v.name,
+                        templateVarValues[v.name] || v.defaultValue || '',
+                      ]),
+                    )
+                  : undefined,
             }
           : { baseBranch: followUpSelectedBranch || undefined }),
         fileReferences: submittedFiles,
@@ -487,6 +612,8 @@ export const PromptInputUI = memo(function PromptInputUI({
     followUpSelectedBranch,
     editorRef,
     purpose,
+    isDeepAgent,
+    selectedTemplateId,
   ]);
 
   // ── Editor callbacks ──
@@ -855,6 +982,32 @@ export const PromptInputUI = memo(function PromptInputUI({
               containerRef={promptBoxRef}
             />
           </div>
+          {/* Template variable inputs */}
+          {isNewThread && isDeepAgent && templateVars.length > 0 && (
+            <div className="border-t px-3 py-2">
+              <div className="flex flex-wrap gap-2">
+                {templateVars.map((v) => (
+                  <div key={v.name} className="flex items-center gap-1.5">
+                    <label
+                      className="text-[10px] font-medium text-muted-foreground"
+                      title={v.description || v.name}
+                    >
+                      {v.name}
+                    </label>
+                    <Input
+                      value={templateVarValues[v.name] ?? v.defaultValue ?? ''}
+                      onChange={(e) =>
+                        setTemplateVarValues((prev) => ({ ...prev, [v.name]: e.target.value }))
+                      }
+                      placeholder={v.description || v.name}
+                      className="h-6 w-40 text-xs"
+                      data-testid={`prompt-template-var-${v.name}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {/* Bottom toolbar */}
           <input
             ref={fileInputRef}
@@ -890,6 +1043,16 @@ export const PromptInputUI = memo(function PromptInputUI({
                 <PurposeSelect
                   value={purpose}
                   onChange={(v) => onPhaseTransition?.(v as ThreadPurpose)}
+                />
+              )}
+              {isNewThread && isDeepAgent && templates.length > 0 && (
+                <TemplateSelect
+                  value={selectedTemplateId}
+                  onChange={(v) => {
+                    setSelectedTemplateId(v);
+                    setTemplateVarValues({});
+                  }}
+                  templates={templates}
                 />
               )}
               <ModeSelect value={mode} onChange={onModeChange} modes={modes} />

@@ -30,4 +30,5 @@ export {
   runnerTasks,
   projectMembers,
   inviteLinks,
+  agentTemplates,
 } from '@funny/shared/db/schema-sqlite';

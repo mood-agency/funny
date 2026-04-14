@@ -199,20 +199,27 @@ export function getDiffSummary(
       let total = 0;
       let truncated = false;
 
+      let usedNative = false;
       if (native) {
-        const r = await native.getDiffSummary(
-          cwd,
-          exclude.length > 0 ? exclude : null,
-          maxFiles > 0 ? maxFiles : null,
-        );
-        baseFiles = r.files.map((f) => ({
-          path: f.path,
-          status: f.status as FileDiffSummary['status'],
-          staged: f.staged,
-        }));
-        total = r.total;
-        truncated = r.truncated;
-      } else {
+        try {
+          const r = await native.getDiffSummary(
+            cwd,
+            exclude.length > 0 ? exclude : null,
+            maxFiles > 0 ? maxFiles : null,
+          );
+          baseFiles = r.files.map((f) => ({
+            path: f.path,
+            status: f.status as FileDiffSummary['status'],
+            staged: f.staged,
+          }));
+          total = r.total;
+          truncated = r.truncated;
+          usedNative = true;
+        } catch {
+          // Native module failed (e.g., empty repo with no HEAD) — fall through to CLI
+        }
+      }
+      if (!usedNative) {
         const [stagedStatusResult, unstagedStatusResult, untrackedResult] = await Promise.all([
           gitRead(['diff', '--staged', '--name-status'], { cwd, reject: false }),
           gitRead(['diff', '--name-status'], { cwd, reject: false }),
@@ -316,13 +323,18 @@ export function getSingleFileDiff(
   staged: boolean,
 ): ResultAsync<string, DomainError> {
   const native = getNativeGit();
-  if (native) {
-    return ResultAsync.fromPromise(native.getSingleFileDiff(cwd, filePath, staged), (error) =>
-      processError(String(error), 1, ''),
-    );
-  }
   return ResultAsync.fromPromise(
     (async () => {
+      // Try native module first
+      if (native) {
+        try {
+          const diff = await native.getSingleFileDiff(cwd, filePath, staged);
+          if (diff) return diff;
+          // Native returned empty — may be an untracked file; fall through to CLI
+        } catch {
+          // Native module failed — fall through to CLI
+        }
+      }
       if (staged) {
         const result = await gitRead(['diff', '--staged', '--', filePath], {
           cwd,

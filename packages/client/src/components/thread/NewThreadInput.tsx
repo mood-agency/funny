@@ -198,6 +198,8 @@ export function NewThreadInput() {
         endLine?: number;
       }[];
       purpose?: ThreadPurpose;
+      agentTemplateId?: string;
+      templateVariables?: Record<string, string>;
     },
     images?: any[],
   ): Promise<boolean> => {
@@ -272,6 +274,8 @@ export function NewThreadInput() {
       symbolReferences: opts.symbolReferences,
       arcId,
       purpose,
+      agentTemplateId: opts.agentTemplateId,
+      templateVariables: opts.templateVariables,
     });
 
     if (result.isErr()) {

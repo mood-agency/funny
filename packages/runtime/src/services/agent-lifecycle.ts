@@ -169,12 +169,106 @@ export class AgentLifecycleManager {
       effectivePrompt = `[PROJECT INSTRUCTIONS]\n${projectSystemPrompt}\n[/PROJECT INSTRUCTIONS]\n\n${effectivePrompt}`;
     }
 
+    // Resolve agent template (Deep Agent only)
+    let templateSystemPrompt: string | undefined;
+    let tplBuiltinSkillsDisabled: string[] | undefined;
+    let tplCustomSkillPaths: string[] | undefined;
+    let tplAgentName: string | undefined;
+    let tplMemoryOverride: boolean | null = null;
+    let tplCustomMemoryPaths: string[] | undefined;
+    if (thread?.agentTemplateId && provider === 'deepagent') {
+      try {
+        // Check builtin templates first (no remote call needed)
+        const { BUILTIN_AGENT_TEMPLATES } = await import('@funny/shared');
+        const builtinTpl = BUILTIN_AGENT_TEMPLATES.find(
+          (t: { id: string }) => t.id === thread.agentTemplateId,
+        );
+        const { remoteGetAgentTemplate } = await import('./team-client.js');
+        const tpl = builtinTpl ?? (await remoteGetAgentTemplate(thread.agentTemplateId));
+        if (tpl) {
+          // Helper to parse JSON text columns that may already be parsed
+          const parseJsonCol = <T>(val: unknown): T[] =>
+            val ? ((typeof val === 'string' ? JSON.parse(val) : val) as T[]) : [];
+
+          const tplDisallowed = parseJsonCol<string>(tpl.disallowedTools);
+          const tplMcpServers = parseJsonCol<any>(tpl.mcpServers);
+
+          // Merge template disallowed tools
+          if (tplDisallowed.length > 0) {
+            disallowedTools = [...(disallowedTools ?? []), ...tplDisallowed];
+          }
+
+          // Merge template MCP servers (additive)
+          if (tplMcpServers.length > 0) {
+            mcpServers = { ...(mcpServers ?? {}) };
+            for (const srv of tplMcpServers) {
+              mcpServers[srv.name] = srv;
+            }
+          }
+
+          // Template system prompt (mode: replace | prepend | append)
+          if (tpl.systemPrompt) {
+            templateSystemPrompt = tpl.systemPrompt;
+
+            // Interpolate template variables: replace {{VAR_NAME}} with values
+            const rawVars = thread.templateVariables;
+            const varValues: Record<string, string> =
+              typeof rawVars === 'string'
+                ? JSON.parse(rawVars)
+                : rawVars && typeof rawVars === 'object'
+                  ? rawVars
+                  : {};
+            if (Object.keys(varValues).length > 0) {
+              templateSystemPrompt = templateSystemPrompt.replace(
+                /\{\{(\w+)\}\}/g,
+                (match, name) => varValues[name] ?? match,
+              );
+            }
+            // prepend/append are handled below in systemPrefix assembly
+          }
+
+          // Phase 2: Parse remaining template fields for runtime wiring
+          tplBuiltinSkillsDisabled = parseJsonCol<string>(tpl.builtinSkillsDisabled);
+          tplCustomSkillPaths = parseJsonCol<string>(tpl.customSkillPaths);
+          tplCustomMemoryPaths = parseJsonCol<string>(tpl.customMemoryPaths);
+          tplAgentName = tpl.agentName ?? undefined;
+          // memoryOverride: integer column — null = use project default, 0 = force off, 1 = force on
+          tplMemoryOverride =
+            tpl.memoryOverride === 1 ? true : tpl.memoryOverride === 0 ? false : null;
+
+          log.info('Agent template resolved', {
+            namespace: 'agent',
+            threadId,
+            templateId: tpl.id,
+            templateName: tpl.name,
+            systemPromptMode: tpl.systemPromptMode,
+            disallowedToolsCount: tplDisallowed.length,
+            mcpServersCount: tplMcpServers.length,
+            builtinSkillsDisabled: tplBuiltinSkillsDisabled,
+            customSkillPaths: tplCustomSkillPaths?.length ?? 0,
+            agentName: tplAgentName,
+            memoryOverride: tplMemoryOverride,
+            customMemoryPaths: tplCustomMemoryPaths?.length ?? 0,
+          });
+        }
+      } catch (err) {
+        log.warn('Failed to resolve agent template', {
+          namespace: 'agent',
+          threadId,
+          templateId: thread.agentTemplateId,
+          error: (err as Error).message,
+        });
+      }
+    }
+
     // Paisley Park: project memory integration
+    // Template memoryOverride: true = force on, false = force off, null = use project default
     let memoryContext: string | undefined;
-    const memoryEnabled =
+    const projectMemoryEnabled =
       project?.memoryEnabled ||
       process.env.MEMORY_ENABLED === 'true' ||
       process.env.MEMORY_ENABLED === '1';
+    const memoryEnabled = tplMemoryOverride !== null ? tplMemoryOverride : projectMemoryEnabled;
     if (project && memoryEnabled) {
       const memDbUrl = process.env.MEMORY_DB_URL ?? `file:${project.id}-memory.db`;
       const memSyncUrl = process.env.MEMORY_SYNC_URL;
@@ -283,6 +377,10 @@ export class AgentLifecycleManager {
 
     const systemPrefix =
       [
+        // For Deep Agent templates with 'prepend' mode, add template prompt before project prompt
+        templateSystemPrompt && thread?.agentTemplateId
+          ? `[AGENT TEMPLATE]\n${templateSystemPrompt}\n[/AGENT TEMPLATE]`
+          : undefined,
         projectSystemPrompt
           ? `[PROJECT INSTRUCTIONS]\n${projectSystemPrompt}\n[/PROJECT INSTRUCTIONS]`
           : undefined,
@@ -352,6 +450,10 @@ export class AgentLifecycleManager {
         mcpServers,
         env: agentEnv,
         effort,
+        builtinSkillsDisabled: tplBuiltinSkillsDisabled,
+        customSkillPaths: tplCustomSkillPaths,
+        agentName: tplAgentName,
+        customMemoryPaths: tplCustomMemoryPaths,
       });
 
       threadEventBus.emit('agent:started', {
