@@ -12,10 +12,21 @@ import {
   ShieldAlert,
   KeyRound,
   Check,
+  XCircle,
 } from 'lucide-react';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { TooltipIconButton } from '@/components/ui/tooltip-icon-button';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -61,6 +73,8 @@ function InstalledServerCard({
   server,
   onRemove,
   removing,
+  onToggle,
+  toggling,
   onAuthenticate,
   authenticating,
   onSetToken,
@@ -69,6 +83,8 @@ function InstalledServerCard({
   server: McpServer;
   onRemove: () => void;
   removing: boolean;
+  onToggle: (disabled: boolean) => void;
+  toggling: boolean;
   onAuthenticate?: () => void;
   authenticating?: boolean;
   onSetToken?: (token: string) => void;
@@ -77,25 +93,55 @@ function InstalledServerCard({
   const { t } = useTranslation();
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [tokenValue, setTokenValue] = useState('');
+  const isDisabled = server.disabled === true;
 
   return (
     <div
       className={cn(
         'flex flex-col gap-1.5 px-3 py-2.5 rounded-md border bg-card',
-        server.status === 'needs_auth' ? 'border-status-warning/40' : 'border-border/50',
+        isDisabled
+          ? 'border-border/30 opacity-60'
+          : server.status === 'needs_auth'
+            ? 'border-amber-500/50'
+            : server.status === 'error'
+              ? 'border-red-500/50'
+              : 'border-border/50',
       )}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Server className="icon-base flex-shrink-0 text-muted-foreground" />
+          <Server
+            className={cn(
+              'icon-base flex-shrink-0',
+              isDisabled ? 'text-muted-foreground/50' : 'text-muted-foreground',
+            )}
+          />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-medium">{server.name}</span>
+              <span
+                className={cn(
+                  'truncate text-sm font-medium',
+                  isDisabled && 'text-muted-foreground',
+                )}
+              >
+                {server.name}
+              </span>
               <TypeBadge type={server.type} />
-              {server.status === 'needs_auth' && (
-                <span className="inline-flex items-center gap-1 rounded bg-status-warning/10 px-1.5 py-0.5 text-xs font-medium text-status-warning/80">
+              {!isDisabled && server.status === 'needs_auth' && (
+                <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-400">
                   <ShieldAlert className="icon-2xs" />
                   {t('mcp.needsAuth')}
+                </span>
+              )}
+              {!isDisabled && server.status === 'error' && (
+                <span className="inline-flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-0.5 text-xs font-medium text-red-400">
+                  <XCircle className="icon-2xs" />
+                  {t('mcp.failed')}
+                </span>
+              )}
+              {isDisabled && (
+                <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                  {t('mcp.disabled')}
                 </span>
               )}
             </div>
@@ -104,16 +150,29 @@ function InstalledServerCard({
             </p>
           </div>
         </div>
-        <TooltipIconButton
-          onClick={onRemove}
-          disabled={removing}
-          className="flex-shrink-0 text-muted-foreground hover:text-destructive"
-          tooltip={t('common.delete')}
-        >
-          {removing ? <Loader2 className="icon-sm animate-spin" /> : <Trash2 className="icon-sm" />}
-        </TooltipIconButton>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <Switch
+            data-testid={`mcp-toggle-${server.name}`}
+            checked={!isDisabled}
+            onCheckedChange={(checked) => onToggle(!checked)}
+            disabled={toggling}
+            size="xs"
+          />
+          <TooltipIconButton
+            onClick={onRemove}
+            disabled={removing}
+            className="text-muted-foreground hover:text-destructive"
+            tooltip={t('common.delete')}
+          >
+            {removing ? (
+              <Loader2 className="icon-sm animate-spin" />
+            ) : (
+              <Trash2 className="icon-sm" />
+            )}
+          </TooltipIconButton>
+        </div>
       </div>
-      {server.status === 'needs_auth' && (
+      {!isDisabled && server.status === 'needs_auth' && (
         <div className="space-y-2 pl-7">
           <div className="flex items-center gap-2">
             <Button
@@ -121,7 +180,7 @@ function InstalledServerCard({
               size="sm"
               onClick={onAuthenticate}
               disabled={authenticating || settingToken}
-              className="h-6 border-status-warning/30 px-2 text-xs text-status-warning/80 hover:bg-status-warning/10"
+              className="h-6 border-amber-500/30 px-2 text-xs text-amber-400 hover:bg-amber-500/10"
             >
               {authenticating ? (
                 <Loader2 className="icon-xs mr-1 animate-spin" />
@@ -229,7 +288,9 @@ export function McpServerSettings() {
   const [installingName, setInstallingName] = useState<string | null>(null);
   const [authenticatingName, setAuthenticatingName] = useState<string | null>(null);
   const [settingTokenName, setSettingTokenName] = useState<string | null>(null);
+  const [togglingName, setTogglingName] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [confirmRemoveName, setConfirmRemoveName] = useState<string | null>(null);
 
   // Add form state
   const [addName, setAddName] = useState('');
@@ -280,8 +341,14 @@ export function McpServerSettings() {
     })();
   }, []);
 
-  const handleRemove = async (name: string) => {
-    if (!projectPath) return;
+  const handleRemove = (name: string) => {
+    setConfirmRemoveName(name);
+  };
+
+  const confirmRemove = async () => {
+    if (!projectPath || !confirmRemoveName) return;
+    const name = confirmRemoveName;
+    setConfirmRemoveName(null);
     setRemovingName(name);
     const result = await api.removeMcpServer(name, projectPath);
     if (result.isErr()) {
@@ -290,6 +357,18 @@ export function McpServerSettings() {
       await loadServers();
     }
     setRemovingName(null);
+  };
+
+  const handleToggle = async (name: string, disabled: boolean) => {
+    if (!projectPath) return;
+    setTogglingName(name);
+    const result = await api.toggleMcpServer(name, projectPath, disabled);
+    if (result.isErr()) {
+      setError(result.error.message);
+    } else {
+      await loadServers();
+    }
+    setTogglingName(null);
   };
 
   const handleInstallRecommended = async (server: RecommendedServer) => {
@@ -370,6 +449,9 @@ export function McpServerSettings() {
       if (event.data?.type === 'mcp-oauth-callback') {
         window.removeEventListener('message', handleMessage);
         setAuthenticatingName(null);
+        // Close popup from parent side (more reliable than window.close() in the popup
+        // after cross-origin OAuth navigation)
+        if (popup && !popup.closed) popup.close();
         if (event.data.success) {
           loadServers();
         } else {
@@ -539,6 +621,8 @@ export function McpServerSettings() {
                 server={server}
                 onRemove={() => handleRemove(server.name)}
                 removing={removingName === server.name}
+                onToggle={(disabled) => handleToggle(server.name, disabled)}
+                toggling={togglingName === server.name}
                 onAuthenticate={() => handleAuthenticate(server)}
                 authenticating={authenticatingName === server.name}
                 onSetToken={(token) => handleSetToken(server, token)}
@@ -566,6 +650,31 @@ export function McpServerSettings() {
           </div>
         </div>
       )}
+
+      {/* Confirm remove dialog */}
+      <AlertDialog
+        open={!!confirmRemoveName}
+        onOpenChange={(open) => !open && setConfirmRemoveName(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('mcp.confirmRemoveTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('mcp.confirmRemoveDescription', { name: confirmRemoveName })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="mcp-remove-cancel">{t('mcp.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="mcp-remove-confirm"
+              onClick={confirmRemove}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

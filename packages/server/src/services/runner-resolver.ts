@@ -177,6 +177,29 @@ function extractThreadId(path: string): string | null {
 }
 
 /**
+ * Find any reachable runner, regardless of user.
+ * Used for unauthenticated callbacks (e.g., MCP OAuth redirect from external provider).
+ * The runtime itself validates the request (e.g., via state parameter).
+ */
+export async function resolveAnyRunner(): Promise<ResolvedRunner | null> {
+  const allRunners = await db.select({ id: runners.id, httpUrl: runners.httpUrl }).from(runners);
+
+  for (const r of allRunners) {
+    if (isRunnerConnected(r.id)) {
+      return { runnerId: r.id, httpUrl: WS_ONLY ? null : (r.httpUrl ?? null) };
+    }
+  }
+  if (!WS_ONLY) {
+    for (const r of allRunners) {
+      if (r.httpUrl) {
+        return { runnerId: r.id, httpUrl: r.httpUrl };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Find a reachable runner belonging to this user.
  * Prefers WS-connected runners, falls back to httpUrl-only runners.
  */

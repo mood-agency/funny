@@ -15,6 +15,7 @@ import {
   listMcpServers,
   addMcpServer,
   removeMcpServer,
+  toggleMcpServer,
   RECOMMENDED_SERVERS,
 } from '../services/mcp-service.js';
 import { resultToResponse } from '../utils/result-response.js';
@@ -58,6 +59,20 @@ app.delete('/servers/:name', async (c) => {
   return c.json({ ok: true });
 });
 
+// Toggle MCP server enabled/disabled
+app.patch('/servers/:name/toggle', async (c) => {
+  const name = c.req.param('name');
+  const body = await c.req.json();
+  const { projectPath, disabled } = body;
+
+  if (!projectPath || typeof disabled !== 'boolean')
+    return resultToResponse(c, err(badRequest('projectPath and disabled (boolean) are required')));
+
+  const result = await toggleMcpServer({ name, projectPath, disabled });
+  if (result.isErr()) return resultToResponse(c, result);
+  return c.json({ ok: true });
+});
+
 // Get recommended MCP servers
 app.get('/recommended', (c) => {
   return c.json({ servers: RECOMMENDED_SERVERS });
@@ -84,8 +99,16 @@ app.post('/oauth/start', async (c) => {
       err(badRequest(`Server "${serverName}" has no URL (only HTTP servers support OAuth)`)),
     );
 
-  const url = new URL(c.req.url);
-  const callbackBaseUrl = `${url.protocol}//${url.host}`;
+  // Use forwarded headers to reconstruct the public-facing origin.
+  // When requests arrive via the WS tunnel, c.req.url is http://localhost (no port).
+  const fwdHost = c.req.header('X-Forwarded-Host');
+  const fwdProto = c.req.header('X-Forwarded-Proto');
+  const callbackBaseUrl = fwdHost
+    ? `${fwdProto || 'http'}://${fwdHost}`
+    : (() => {
+        const u = new URL(c.req.url);
+        return `${u.protocol}//${u.host}`;
+      })();
 
   const { authUrl } = await startOAuthFlow(serverName, server.url, projectPath, callbackBaseUrl);
   return c.json({ authUrl });

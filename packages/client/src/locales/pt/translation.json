@@ -400,12 +400,16 @@
     "installed": "Instalado",
     "installing": "Instalando...",
     "needsAuth": "Precisa autenticar",
+    "failed": "Falhou",
+    "disabled": "Desativado",
     "authHint": "Este servidor requer autenticacao OAuth.",
     "authenticate": "Autenticar",
     "authenticating": "Autenticando...",
     "authFailed": "A autenticacao falhou. Tente novamente.",
     "manualToken": "Token Manual",
-    "tokenPlaceholder": "Cole seu token aqui"
+    "tokenPlaceholder": "Cole seu token aqui",
+    "confirmRemoveTitle": "Remover Servidor MCP",
+    "confirmRemoveDescription": "Tem certeza de que deseja remover \"{{name}}\"? Esta acao nao pode ser desfeita."
   },
   "tools": {
     "readFile": "Ler Arquivo",

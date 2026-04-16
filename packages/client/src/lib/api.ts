@@ -918,6 +918,11 @@ export const api = {
       `/mcp/servers/${encodeURIComponent(name)}?projectPath=${encodeURIComponent(projectPath)}`,
       { method: 'DELETE' },
     ),
+  toggleMcpServer: (name: string, projectPath: string, disabled: boolean) =>
+    request<{ ok: boolean }>(`/mcp/servers/${encodeURIComponent(name)}/toggle`, {
+      method: 'PATCH',
+      body: JSON.stringify({ projectPath, disabled }),
+    }),
   getRecommendedMcpServers: () => request<{ servers: McpServer[] }>('/mcp/recommended'),
   startMcpOAuth: (serverName: string, projectPath: string) =>
     request<{ authUrl: string }>('/mcp/oauth/start', {

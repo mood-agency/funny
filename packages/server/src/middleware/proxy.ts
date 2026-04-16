@@ -24,7 +24,7 @@ import type { Context } from 'hono';
 
 import { log } from '../lib/logger.js';
 import type { ServerEnv } from '../lib/types.js';
-import { resolveRunner } from '../services/runner-resolver.js';
+import { resolveAnyRunner, resolveRunner } from '../services/runner-resolver.js';
 import { isRunnerConnected } from '../services/ws-relay.js';
 import { tunnelFetch } from '../services/ws-tunnel.js';
 
@@ -36,16 +36,26 @@ const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET!;
  */
 export async function proxyToRunner(c: Context<ServerEnv>): Promise<Response> {
   const userId = c.get('userId') as string | undefined;
-  if (!userId) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
 
   const url = new URL(c.req.url);
   const path = url.pathname;
 
-  // Resolve which runner should handle this request (scoped to requesting user)
+  // MCP OAuth callback: the external provider redirects the browser here without
+  // any session cookie. The runtime validates the state parameter to ensure only
+  // the correct flow is completed. Resolve any connected runner (no user scoping).
+  const isOAuthCallback = path === '/api/mcp/oauth/callback';
+
+  if (!userId && !isOAuthCallback) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  // Resolve which runner should handle this request.
+  // OAuth callbacks are unauthenticated (external redirect) — find any runner.
+  // All other requests are scoped to the requesting user.
   const query = Object.fromEntries(url.searchParams.entries());
-  const resolved = await resolveRunner(path, query, userId);
+  const resolved = isOAuthCallback
+    ? await resolveAnyRunner()
+    : await resolveRunner(path, query, userId);
 
   if (!resolved) {
     log.warn('No reachable runner for proxy request', {
@@ -60,10 +70,24 @@ export async function proxyToRunner(c: Context<ServerEnv>): Promise<Response> {
 
   // Build forwarded headers
   const forwardedHeaders: Record<string, string> = {
-    'X-Forwarded-User': userId,
     'X-Runner-Auth': RUNNER_AUTH_SECRET,
     'content-type': c.req.header('content-type') || 'application/json',
   };
+  if (userId) {
+    forwardedHeaders['X-Forwarded-User'] = userId;
+  }
+
+  // Forward the original host so the runtime can reconstruct public-facing URLs
+  // (e.g., OAuth callback redirects). Prefer an existing X-Forwarded-Host (set by
+  // reverse proxies like Vite dev server), otherwise use the request's Host header.
+  const fwdHost = c.req.header('X-Forwarded-Host') || c.req.header('Host');
+  if (fwdHost) {
+    forwardedHeaders['X-Forwarded-Host'] = fwdHost;
+  }
+  const fwdProto = c.req.header('X-Forwarded-Proto') || url.protocol.replace(':', '');
+  if (fwdProto) {
+    forwardedHeaders['X-Forwarded-Proto'] = fwdProto;
+  }
 
   const orgId = c.get('organizationId') as string | undefined;
   if (orgId) {

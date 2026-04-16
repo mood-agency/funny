@@ -19,6 +19,7 @@ import { log } from '../lib/logger.js';
 import { metric, startSpan, setThreadTrace, clearThreadTrace } from '../lib/telemetry.js';
 import type { AgentEventRouter } from './agent-event-router.js';
 import type { AgentStateTracker } from './agent-state.js';
+import { listMcpServers } from './mcp-service.js';
 import type { IThreadManager } from './server-interfaces.js';
 import { getServices } from './service-registry.js';
 import { buildThreadContext, needsContextRecovery } from './thread-context-builder.js';
@@ -167,6 +168,55 @@ export class AgentLifecycleManager {
 
     if (projectSystemPrompt && !effectiveSessionId) {
       effectivePrompt = `[PROJECT INSTRUCTIONS]\n${projectSystemPrompt}\n[/PROJECT INSTRUCTIONS]\n\n${effectivePrompt}`;
+    }
+
+    // Load project MCP servers when none were explicitly provided.
+    // Use the canonical project path (not the worktree cwd) so that
+    // ~/.claude.json project settings and .mcp.json are found correctly.
+    const mcpProjectPath = project?.path ?? cwd;
+    if (!mcpServers) {
+      try {
+        const serverListResult = await listMcpServers(mcpProjectPath);
+        if (serverListResult.isOk()) {
+          const enabledServers = serverListResult.value.filter((s) => !s.disabled);
+          if (enabledServers.length > 0) {
+            mcpServers = {};
+            for (const srv of enabledServers) {
+              const entry: Record<string, any> = { type: srv.type };
+              if (srv.type === 'http' || srv.type === 'sse') {
+                if (srv.url) entry.url = srv.url;
+              } else {
+                if (srv.command) entry.command = srv.command;
+                if (srv.args) entry.args = srv.args;
+              }
+              if (srv.headers) entry.headers = srv.headers;
+              if (srv.env) entry.env = srv.env;
+              mcpServers[srv.name] = entry;
+            }
+            log.info('Loaded project MCP servers', {
+              namespace: 'agent',
+              threadId,
+              count: enabledServers.length,
+              names: enabledServers.map((s) => s.name),
+              serversWithHeaders: enabledServers
+                .filter((s) => s.headers && Object.keys(s.headers).length > 0)
+                .map((s) => s.name),
+            });
+          }
+        } else {
+          log.warn('Failed to list project MCP servers', {
+            namespace: 'agent',
+            threadId,
+            error: String(serverListResult.error),
+          });
+        }
+      } catch (e) {
+        log.warn('Error loading project MCP servers', {
+          namespace: 'agent',
+          threadId,
+          error: String(e),
+        });
+      }
     }
 
     // Resolve agent template (Deep Agent only)

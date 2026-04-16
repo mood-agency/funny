@@ -19,7 +19,12 @@ import type { Context, Next } from 'hono';
 import { log } from '../lib/logger.js';
 
 /** Paths that skip authentication entirely */
-const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/mode', '/api/bootstrap']);
+const PUBLIC_PATHS = new Set([
+  '/api/health',
+  '/api/auth/mode',
+  '/api/bootstrap',
+  '/api/mcp/oauth/callback',
+]);
 
 const TEAM_SERVER_URL = process.env.TEAM_SERVER_URL;
 const WS_TUNNEL_ONLY = process.env.WS_TUNNEL_ONLY === 'true' || process.env.WS_TUNNEL_ONLY === '1';
@@ -109,7 +114,6 @@ export async function authMiddleware(c: Context, next: Next) {
 
   // ── Better Auth session ────────────────────────────────────────
   if (path.startsWith('/api/auth/')) return next();
-  if (path === '/api/mcp/oauth/callback') return next();
 
   const { auth } = await import('../lib/auth.js');
   const session = await auth.api.getSession({ headers: c.req.raw.headers });

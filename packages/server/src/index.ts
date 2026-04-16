@@ -89,6 +89,19 @@ app.use(
     strictTransportSecurity: 'max-age=31536000; includeSubDomains',
   }),
 );
+// Relax COOP and CSP for the MCP OAuth callback page.
+// The popup navigates cross-origin through the OAuth provider and back,
+// so same-origin COOP breaks window.opener (needed for postMessage + window.close).
+// The callback HTML also uses an inline script for postMessage/close.
+app.use('/api/mcp/oauth/callback', async (c, next) => {
+  await next();
+  c.res.headers.set('Cross-Origin-Opener-Policy', 'unsafe-none');
+  c.res.headers.set(
+    'Content-Security-Policy',
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
+  );
+});
+
 app.use('*', logger());
 
 // Health check (before auth)
@@ -109,15 +122,19 @@ app.get('/api/bootstrap', (c) => {
 // ── Rate limiting on auth endpoints ───────────────────────
 const { rateLimit } = await import('./middleware/rate-limit.js');
 // Lenient limit for read-only session checks (get-session is polled after login)
-app.use('/api/auth/get-session', rateLimit({ windowMs: 60_000, max: 120 }));
-// Strict rate limit on auth mutations (sign-in, sign-up, etc.)
-app.use('/api/auth/*', rateLimit({ windowMs: 60_000, max: 10 }));
-// Strict rate limit on invite link registration: 5 per minute per IP
-app.use('/api/invite-links/register', rateLimit({ windowMs: 60_000, max: 5 }));
+app.use('/api/auth/get-session', rateLimit({ windowMs: 60_000, max: 600 }));
+// Strict rate limit on auth credential mutations only (sign-in, sign-up).
+// Scoped narrowly so it does not block high-frequency reads like get-session.
+app.use('/api/auth/sign-in/*', rateLimit({ windowMs: 60_000, max: 60 }));
+app.use('/api/auth/sign-up/*', rateLimit({ windowMs: 60_000, max: 60 }));
+// Generous catch-all for any other auth endpoints
+app.use('/api/auth/*', rateLimit({ windowMs: 60_000, max: 600 }));
+// Strict rate limit on invite link registration: 20 per minute per IP
+app.use('/api/invite-links/register', rateLimit({ windowMs: 60_000, max: 20 }));
 // Runner endpoints are high-frequency (heartbeat + task polling) — give them a generous limit
-app.use('/api/runners/*', rateLimit({ windowMs: 60_000, max: 600 }));
+app.use('/api/runners/*', rateLimit({ windowMs: 60_000, max: 1200 }));
 // Per-user rate limit on authenticated API endpoints
-app.use('/api/*', rateLimit({ windowMs: 60_000, max: 600, perUser: true }));
+app.use('/api/*', rateLimit({ windowMs: 60_000, max: 1200, perUser: true }));
 
 // ── Public routes (before auth middleware) ────────────────
 const { inviteLinkPublicRoutes, inviteLinkRoutes } = await import('./routes/invite-links.js');

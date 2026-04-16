@@ -409,12 +409,16 @@
     "installed": "Installed",
     "installing": "Installing...",
     "needsAuth": "Needs auth",
+    "failed": "Failed",
+    "disabled": "Disabled",
     "authHint": "This server requires OAuth authentication.",
     "authenticate": "Authenticate",
     "authenticating": "Authenticating...",
     "authFailed": "Authentication failed. Please try again.",
     "manualToken": "Manual Token",
-    "tokenPlaceholder": "Paste your bearer token here"
+    "tokenPlaceholder": "Paste your bearer token here",
+    "confirmRemoveTitle": "Remove MCP Server",
+    "confirmRemoveDescription": "Are you sure you want to remove \"{{name}}\"? This action cannot be undone."
   },
   "tools": {
     "readFile": "Read File",

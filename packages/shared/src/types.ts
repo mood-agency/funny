@@ -1181,6 +1181,9 @@ export interface McpServer {
   headers?: Record<string, string>;
   env?: Record<string, string>;
   status?: 'ok' | 'needs_auth' | 'error';
+  disabled?: boolean;
+  /** Where the server is defined: 'project' (.mcp.json) or 'user' (~/.claude.json) */
+  source?: 'project' | 'user';
 }
 
 export interface McpListResponse {
