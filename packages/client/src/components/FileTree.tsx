@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   FolderX,
+  GitBranch,
   MoreHorizontal,
   Undo2,
 } from 'lucide-react';
@@ -315,6 +316,7 @@ export function FileTree({
     const isActive = f.path === selectedFile;
     const isChecked = checkedFiles?.has(f.path) ?? false;
     const fileName = f.path.split('/').pop() || f.path;
+    const isSubmodule = f.kind === 'submodule';
 
     return (
       <div
@@ -357,10 +359,17 @@ export function FileTree({
             {isChecked && <Check className="icon-2xs" />}
           </button>
         )}
-        <FileExtensionIcon
-          filePath={f.path}
-          className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
-        />
+        {isSubmodule ? (
+          <GitBranch
+            className="h-4 w-4 flex-shrink-0 text-purple-500 dark:text-purple-400"
+            data-testid={`${testIdPrefix}-submodule-icon-${f.path}`}
+          />
+        ) : (
+          <FileExtensionIcon
+            filePath={f.path}
+            className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
+          />
+        )}
         {searchQuery ? (
           <HighlightText
             text={fileName}
@@ -370,6 +379,19 @@ export function FileTree({
         ) : (
           <span className={cn('min-w-0 flex-1 truncate font-mono-explorer', fontSize)}>
             {fileName}
+          </span>
+        )}
+        {isSubmodule && (
+          <span
+            className={cn(
+              'flex-shrink-0 rounded-sm border border-purple-500/40 bg-purple-500/10 px-1 text-[10px] uppercase tracking-wide text-purple-600 dark:text-purple-300',
+            )}
+            title={t('review.submoduleTooltip', {
+              defaultValue: 'Nested git repository (gitlink)',
+            })}
+            data-testid={`${testIdPrefix}-submodule-badge-${f.path}`}
+          >
+            {t('review.submodule', { defaultValue: 'submodule' })}
           </span>
         )}
         <DiffStats

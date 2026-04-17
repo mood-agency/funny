@@ -2,6 +2,9 @@
  * Diff operations: full diff, diff summary, single-file diff.
  */
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { FileDiff, FileDiffSummary, DiffSummaryResponse } from '@funny/shared';
 import { processError, type DomainError } from '@funny/shared/errors';
 import { ResultAsync } from 'neverthrow';
@@ -54,6 +57,19 @@ function splitDiffByFile(rawDiff: string): Map<string, string> {
     }
   }
   return result;
+}
+
+/**
+ * Normalize a path entry and detect whether it's a submodule / nested git repo.
+ * `git ls-files --others --exclude-standard` returns nested repos with a trailing `/`,
+ * and `git diff` reports gitlink entries (mode 160000) without content. In both cases
+ * the entry represents a whole repo — detect by probing `<cwd>/<path>/.git`.
+ */
+function classifyPath(cwd: string, rawPath: string): { path: string; isSubmodule: boolean } {
+  const path = rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath;
+  // `.git` can be a dir (standalone clone) or a file (submodule gitlink pointer).
+  const dotGit = join(cwd, path, '.git');
+  return { path, isSubmodule: existsSync(dotGit) };
 }
 
 function matchesAnyPattern(filePath: string, patterns: string[]): boolean {
@@ -149,27 +165,38 @@ export function getDiff(cwd: string): ResultAsync<FileDiff[], DomainError> {
       const diffs: FileDiff[] = [];
       let totalBytes = 0;
 
-      for (const f of stagedFiles) {
-        let diff = stagedDiffMap.get(f.path) ?? '';
-        if (totalBytes < MAX_TOTAL_DIFF_BYTES) {
+      const pushEntry = (
+        f: { path: string; status: FileDiff['status'] },
+        rawDiff: string,
+        staged: boolean,
+      ) => {
+        const { path, isSubmodule } = classifyPath(cwd, f.path);
+        let diff = rawDiff;
+        if (isSubmodule) {
+          // Gitlinks / nested repos don't have meaningful per-line diffs; keep a marker.
+          diff = diff || '';
+        } else if (totalBytes < MAX_TOTAL_DIFF_BYTES) {
           diff = truncateDiff(diff);
           totalBytes += Buffer.byteLength(diff, 'utf8');
         } else {
           diff = '... [diff omitted — total payload size limit reached] ...';
         }
-        diffs.push({ path: f.path, status: f.status, diff, staged: true });
+        diffs.push({
+          path,
+          status: f.status,
+          diff,
+          staged,
+          ...(isSubmodule && { kind: 'submodule' as const }),
+        });
+      };
+
+      for (const f of stagedFiles) {
+        pushEntry(f, stagedDiffMap.get(f.path) ?? '', true);
       }
 
       for (const f of allUnstaged) {
         if (stagedPaths.has(f.path)) continue;
-        let diff = unstagedDiffMap.get(f.path) ?? '';
-        if (totalBytes < MAX_TOTAL_DIFF_BYTES) {
-          diff = truncateDiff(diff);
-          totalBytes += Buffer.byteLength(diff, 'utf8');
-        } else {
-          diff = '... [diff omitted — total payload size limit reached] ...';
-        }
-        diffs.push({ path: f.path, status: f.status, diff, staged: false });
+        pushEntry(f, unstagedDiffMap.get(f.path) ?? '', false);
       }
 
       return diffs;
@@ -298,13 +325,44 @@ export function getDiffSummary(
       if (stagedNumstat.exitCode === 0) parseNumstat(stagedNumstat.stdout, true);
       if (unstagedNumstat.exitCode === 0) parseNumstat(unstagedNumstat.stdout, false);
 
-      // 3. Merge stats into baseFiles
+      // 2b. Untracked files don't appear in `git diff --numstat` because they're not
+      // in git's index yet. Compute their line counts via `git diff --no-index` so the
+      // UI can show +N for newly added files. Skip nested repos (path ends with "/").
+      const untrackedToStat = baseFiles.filter(
+        (f) =>
+          !f.staged && f.status === 'added' && !f.path.endsWith('/') && !statMap.has(`u:${f.path}`),
+      );
+      if (untrackedToStat.length > 0) {
+        await Promise.all(
+          untrackedToStat.map(async (f) => {
+            const r = await gitRead(
+              ['diff', '--no-index', '--numstat', '--', '/dev/null', f.path],
+              { cwd, reject: false },
+            );
+            // Exit code 1 is expected (differences found); only bail on 2+ (error).
+            if (r.exitCode !== 0 && r.exitCode !== 1) return;
+            const line = r.stdout.trim().split('\n')[0];
+            if (!line) return;
+            const parts = line.split('\t');
+            if (parts.length < 3) return;
+            const additions = parseInt(parts[0], 10);
+            const deletions = parseInt(parts[1], 10);
+            if (isNaN(additions) || isNaN(deletions)) return; // binary files → "-\t-"
+            statMap.set(`u:${f.path}`, { additions, deletions, staged: false });
+          }),
+        );
+      }
+
+      // 3. Merge stats into baseFiles + classify submodules/nested repos.
       const files: FileDiffSummary[] = baseFiles.map((f) => {
         const stats = statMap.get(`${f.staged ? 's' : 'u'}:${f.path}`);
+        const { path, isSubmodule } = classifyPath(cwd, f.path);
         return {
           ...f,
+          path,
           additions: stats?.additions ?? 0,
           deletions: stats?.deletions ?? 0,
+          ...(isSubmodule && { kind: 'submodule' as const }),
         };
       });
 
