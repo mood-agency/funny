@@ -51,7 +51,7 @@ export function darkenHex(hex: string, amount: number): string {
 /** Return '#ffffff' or '#000000' for best contrast against the given background. */
 export function contrastText(bgHex: string): string {
   const [r, g, b] = hexToRgb(bgHex);
-  return luminance(r, g, b) > 0.4 ? '#000000' : '#ffffff';
+  return luminance(r, g, b) > 0.18 ? '#000000' : '#ffffff';
 }
 
 interface ProjectChipProps {

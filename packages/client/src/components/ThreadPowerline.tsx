@@ -57,7 +57,6 @@ export function ThreadPowerline({
   const baseColor = darkenHex(rawColor, 0.1);
   const branchColor = darkenHex(rawColor, 0.2);
   const worktreeColor = darkenHex(rawColor, 0.3);
-  const TEXT_COLOR = '#000000';
 
   const segments = useMemo<PowerlineSegmentData[]>(() => {
     const segs: PowerlineSegmentData[] = [];
@@ -67,7 +66,6 @@ export function ThreadPowerline({
         icon: Folder,
         label: projectName,
         color: baseColor,
-        textColor: TEXT_COLOR,
         tooltip: projectTooltip || projectName,
       });
     }
@@ -77,7 +75,6 @@ export function ThreadPowerline({
         icon: GitBranch,
         label: branchName,
         color: projectName ? branchColor : baseColor,
-        textColor: TEXT_COLOR,
         tooltip: branchName,
       });
     }
@@ -87,7 +84,6 @@ export function ThreadPowerline({
         icon: GitBranch,
         label: worktreeBranchLabel,
         color: projectName ? worktreeColor : branchColor,
-        textColor: TEXT_COLOR,
         tooltip: worktreeBranchLabel,
       });
     }

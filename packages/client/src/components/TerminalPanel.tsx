@@ -843,8 +843,20 @@ export function TerminalPanel() {
         type: isTauri ? undefined : 'pty',
         shell,
       });
+      // Panel must be visible for the spawn effect to emit pty:spawn
+      // (see !panelVisible guard in XtermTerminal). Auto-expand if collapsed.
+      if (!panelVisible) togglePanel(selectedProjectId);
     },
-    [projects, selectedProjectId, visibleTabs, addTab, activeThreadWorktreePath, availableShells],
+    [
+      projects,
+      selectedProjectId,
+      visibleTabs,
+      addTab,
+      activeThreadWorktreePath,
+      availableShells,
+      panelVisible,
+      togglePanel,
+    ],
   );
 
   const sendSignal = useCallback((ptyId: string, signal: string) => {

@@ -248,10 +248,17 @@ export function PullRequestsTab({ visible }: PullRequestsTabProps) {
                   <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', color)} />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-baseline gap-1.5">
-                      <span className="font-medium leading-tight">{pr.title}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                      <a
+                        href={pr.html_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn('shrink-0 font-mono text-[10px] hover:underline', color)}
+                        data-testid={`pr-number-link-${pr.number}`}
+                      >
                         #{pr.number}
-                      </span>
+                      </a>
+                      <span className="font-medium leading-tight">{pr.title}</span>
                     </div>
                     <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                       {pr.user && <span>{pr.user.login}</span>}
