@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { buildPath } from '@/lib/url';
 import { useProjectStore } from '@/stores/project-store';
 import { useTerminalStore } from '@/stores/terminal-store';
+import { useThreadStore } from '@/stores/thread-store';
 
 export function useGlobalShortcuts(
   onToggleCommandPalette: () => void,
@@ -35,11 +36,13 @@ export function useGlobalShortcuts(
         return;
       }
 
-      // Ctrl+Shift+F for global thread search
+      // Ctrl+Shift+F for thread search — scope to current thread's project by default
       if (e.ctrlKey && e.shiftKey && e.key === 'F') {
         e.preventDefault();
         e.stopPropagation();
-        navigate(buildPath('/list'));
+        const activeThreadProjectId = useThreadStore.getState().activeThread?.projectId ?? null;
+        const projectId = activeThreadProjectId ?? useProjectStore.getState().selectedProjectId;
+        navigate(buildPath(projectId ? `/list?project=${projectId}` : '/list'));
         return;
       }
 

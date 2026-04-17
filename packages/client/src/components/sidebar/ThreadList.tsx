@@ -95,11 +95,14 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
       }
     }
 
-    // Sort by most recent activity descending (no sticky status priority).
-    // Use completedAt ?? createdAt (not updatedAt) so the sort matches the
-    // displayed time — updatedAt gets bumped on metadata changes, which would
-    // cause old threads to sort above newer ones while showing stale times.
+    // Running threads always go first, then sort each group by most recent
+    // activity. Without the status priority, a long-running thread with an
+    // old createdAt gets pushed below recently-finished threads and drops
+    // out of the top 5.
     result.sort((a, b) => {
+      const aRunning = a.status === 'running';
+      const bRunning = b.status === 'running';
+      if (aRunning !== bRunning) return aRunning ? -1 : 1;
       const dateA = a.completedAt ?? a.createdAt;
       const dateB = b.completedAt ?? b.createdAt;
       return new Date(dateB).getTime() - new Date(dateA).getTime();

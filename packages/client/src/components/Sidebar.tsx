@@ -1,3 +1,4 @@
+import { autoScrollForElements } from '@atlaskit/pragmatic-drag-and-drop-auto-scroll/element';
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import type { Thread } from '@funny/shared';
 import {
@@ -131,6 +132,33 @@ export function AppSidebar() {
       el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
   }, [selectedProjectId]);
+
+  // Drag & drop: auto-scroll the projects and threads lists while dragging near
+  // their top/bottom edges, so the user can drop above/below the visible area.
+  useEffect(() => {
+    const projectsEl = projectsScrollRef.current;
+    const threadsEl = threadsScrollRef.current;
+    const cleanups: Array<() => void> = [];
+    if (projectsEl) {
+      cleanups.push(
+        autoScrollForElements({
+          element: projectsEl,
+          canScroll: ({ source }) => source.data.type === 'sidebar-project',
+        }),
+      );
+    }
+    if (threadsEl) {
+      cleanups.push(
+        autoScrollForElements({
+          element: threadsEl,
+          canScroll: ({ source }) => source.data.type === 'grid-thread',
+        }),
+      );
+    }
+    return () => {
+      for (const c of cleanups) c();
+    };
+  }, []);
 
   // Drag & drop: monitor for project reordering
   useEffect(() => {
