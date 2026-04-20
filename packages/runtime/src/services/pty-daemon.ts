@@ -136,16 +136,78 @@ function sendTo(socket: import('bun').Socket, msg: object): void {
   }
 }
 
+// Defense-in-depth allowlist. The pty-manager (server) validates shellId
+// against its detected-shells list before forwarding to the daemon, but
+// the daemon listens on a Unix socket and should not trust arbitrary
+// shell ids from anyone that can reach it. Only bare names matching this
+// allowlist are resolved via `command -v`; anything else falls back to
+// the system default shell.
+const ALLOWED_SHELL_IDS = new Set([
+  'bash',
+  'zsh',
+  'fish',
+  'sh',
+  'dash',
+  'ksh',
+  'tcsh',
+  'csh',
+  'nushell',
+  'nu',
+  'elvish',
+]);
+
 function resolveShell(shellId?: string): string {
-  if (!shellId || shellId === 'default') {
-    return process.env.SHELL || 'bash';
+  const defaultShell = process.env.SHELL || 'bash';
+  if (!shellId || shellId === 'default') return defaultShell;
+  if (!ALLOWED_SHELL_IDS.has(shellId)) {
+    daemonLog(`[pty-daemon] Rejected unknown shell id '${shellId}' — using default`);
+    return defaultShell;
   }
-  return shellId;
+  try {
+    const r = Bun.spawnSync(['sh', '-c', `command -v "${shellId}"`], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    if (r.exitCode === 0) {
+      const path = r.stdout.toString().trim();
+      if (path) return path;
+    }
+  } catch {
+    // fall through
+  }
+  daemonLog(`[pty-daemon] Shell '${shellId}' not on PATH — using default`);
+  return defaultShell;
 }
 
 function spawnSession(cmd: SpawnCmd): void {
-  if (sessions.has(cmd.id)) {
-    broadcast({ evt: 'error', id: cmd.id, error: 'Session already exists' });
+  const existing = sessions.get(cmd.id);
+  if (existing) {
+    // Adopt the existing session instead of erroring. This handles clients
+    // that send spawn with an ID whose session is still alive in the daemon
+    // (e.g. after a runtime restart that lost activeSessions, a strict-mode
+    // double-mount, or a reconnect). Resize to the new client's dimensions
+    // and replay the serialized terminal state.
+    const cols = cmd.cols || existing.cols;
+    const rows = cmd.rows || existing.rows;
+    if (cols !== existing.cols || rows !== existing.rows) {
+      try {
+        (existing.proc as any).terminal?.resize(cols, rows);
+        existing.headless.resize(cols, rows);
+        existing.cols = cols;
+        existing.rows = rows;
+      } catch (err: any) {
+        daemonLog(`[pty-daemon] Adopt resize failed: ${cmd.id}`, err?.message);
+      }
+    }
+
+    broadcast({ evt: 'spawned', id: cmd.id });
+    try {
+      const state = existing.serialize.serialize();
+      if (state) broadcast({ evt: 'data', id: cmd.id, data: state });
+    } catch (err: any) {
+      daemonLog(`[pty-daemon] Adopt serialize failed: ${cmd.id}`, err?.message);
+    }
+    daemonLog(`[pty-daemon] Session adopted on duplicate spawn: ${cmd.id}`);
     return;
   }
 
@@ -277,18 +339,6 @@ function listSessions(): Array<{
     cols: s.cols,
     rows: s.rows,
   }));
-}
-
-function signalSession(id: string, sig: number): void {
-  const session = sessions.get(id);
-  if (session) {
-    try {
-      session.proc.kill(sig);
-      daemonLog(`[pty-daemon] Signal ${sig} sent to: ${id}`);
-    } catch (err: any) {
-      daemonLog(`[pty-daemon] Signal failed: ${id}`, err?.message);
-    }
-  }
 }
 
 function captureSession(id: string): string | null {

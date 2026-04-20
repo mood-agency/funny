@@ -35,6 +35,14 @@ vi.mock('../../services/skills-service.js', () => ({
   RECOMMENDED_SKILLS: MOCK_RECOMMENDED,
 }));
 
+// Bypass path-scope authorization in unit tests — it requires a running
+// RuntimeServiceProvider which is covered in integration tests.
+vi.mock('../../utils/path-scope.js', () => ({
+  requireProjectPath: vi.fn(async () => null),
+  requirePickerPath: vi.fn(async () => null),
+  isUnder: vi.fn(() => true),
+}));
+
 import skillsApp from '../../routes/skills.js';
 
 describe('Skills Routes', () => {

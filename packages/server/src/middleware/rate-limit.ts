@@ -1,10 +1,25 @@
 /**
  * Simple in-memory sliding-window rate limiter for the server.
- * Keyed by client IP + optional per-user key. Tracks request timestamps
- * and rejects with 429 when the count within `windowMs` exceeds `max`.
+ *
+ * Bucketing strategy (security H6):
+ *   - Authenticated requests key on the userId first, and additionally on the
+ *     caller IP when one is available. Sharing the IP bucket with all other
+ *     anonymous callers would let one abuser lock every logged-in user out.
+ *   - Anonymous requests key on IP only. `X-Forwarded-For` is trusted
+ *     strictly when `TRUST_PROXY=true` is set in the environment — otherwise
+ *     we rely on the socket remote address so a client cannot spoof its
+ *     rate-limit bucket by attaching its own header.
+ *   - If neither a userId nor a resolvable IP is present (e.g. a unix-socket
+ *     transport), the request is allowed through: it is better to fail open
+ *     than to merge every such request into a single shared `'unknown'`
+ *     bucket, which is itself a denial-of-service vector.
  */
 
 import type { Context, Next } from 'hono';
+
+import { log } from '../lib/logger.js';
+
+const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 
 export function rateLimit(opts: {
   windowMs: number;
@@ -38,24 +53,53 @@ export function rateLimit(opts: {
     return false;
   }
 
-  return async (c: Context, next: Next) => {
-    const socketAddr = (c.env as any)?.remoteAddress;
-    const ip = socketAddr || 'unknown';
-    const now = Date.now();
-
-    // Check IP-based limit
-    if (check(`ip:${ip}`, now)) {
-      c.header('Retry-After', String(Math.ceil(windowMs / 1000)));
-      return c.json({ error: 'Too many requests' }, 429);
+  function resolveIp(c: Context): string | null {
+    if (TRUST_PROXY) {
+      const xff = c.req.header('x-forwarded-for');
+      if (xff) {
+        const first = xff.split(',')[0]?.trim();
+        if (first) return first;
+      }
     }
+    const socketAddr = (c.env as any)?.remoteAddress;
+    return typeof socketAddr === 'string' && socketAddr.length > 0 ? socketAddr : null;
+  }
 
-    // Check per-user limit (if enabled and userId is available)
-    if (perUser) {
-      const userId = c.get('userId') as string | undefined;
-      if (userId && check(`user:${userId}`, now)) {
+  return async (c: Context, next: Next) => {
+    const now = Date.now();
+    const userId = c.get('userId') as string | undefined;
+    const ip = resolveIp(c);
+
+    // Authenticated: userId is the primary bucket so a single abusive IP
+    // cannot exhaust the limit for every legitimate user.
+    if (userId) {
+      if (check(`user:${userId}`, now)) {
         c.header('Retry-After', String(Math.ceil(windowMs / 1000)));
         return c.json({ error: 'Too many requests' }, 429);
       }
+      // Apply an IP-scoped limit as a secondary defense when we can identify
+      // the caller's IP. Only runs when `perUser` is enabled to match the
+      // prior behaviour of the authenticated catch-all.
+      if (perUser && ip && check(`ip:${ip}`, now)) {
+        c.header('Retry-After', String(Math.ceil(windowMs / 1000)));
+        return c.json({ error: 'Too many requests' }, 429);
+      }
+      return next();
+    }
+
+    // Anonymous: rate-limit on IP when we have one, otherwise allow through.
+    // We explicitly refuse to fall back to a shared `'unknown'` bucket.
+    if (ip) {
+      if (check(`ip:${ip}`, now)) {
+        c.header('Retry-After', String(Math.ceil(windowMs / 1000)));
+        return c.json({ error: 'Too many requests' }, 429);
+      }
+    } else {
+      log.warn('Rate limit skipped — no identifiable IP for anonymous request', {
+        namespace: 'rate-limit',
+        path: c.req.path,
+        trustProxy: TRUST_PROXY,
+      });
     }
 
     return next();

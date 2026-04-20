@@ -1,9 +1,9 @@
-import AnsiToHtml from 'ansi-to-html';
 import { ChevronRight, Terminal } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ensureLanguage, highlightCode } from '@/hooks/use-highlight';
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { cn } from '@/lib/utils';
 
 export function BashCard({
@@ -20,9 +20,9 @@ export function BashCard({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const command = parsed.command as string | undefined;
-  // SECURITY: escapeXML must remain true to prevent XSS via dangerouslySetInnerHTML
+  // Security M6: `createAnsiConverter` enforces escapeXML regardless of caller.
   const ansiConverter = useMemo(
-    () => new AnsiToHtml({ fg: '#a1a1aa', bg: 'transparent', newline: false, escapeXML: true }),
+    () => createAnsiConverter({ fg: '#a1a1aa', bg: 'transparent', newline: false }),
     [],
   );
   const htmlOutput = useMemo(

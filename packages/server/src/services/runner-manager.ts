@@ -201,6 +201,24 @@ export async function getRunner(runnerId: string): Promise<RunnerInfo | null> {
   );
 }
 
+/**
+ * Return the owning user ID for a runner (raw DB column).
+ *
+ * Unlike {@link getRunner}, this exposes the `userId` column that `RunnerInfo`
+ * intentionally hides — used by tenant-isolation checks in the Socket.IO and
+ * data-handler layers to reject cross-tenant requests from a compromised or
+ * misconfigured runner. Returns `null` when the runner has no owner (legacy
+ * rows pre-dating per-user runners).
+ */
+export async function getRunnerUserId(runnerId: string): Promise<string | null> {
+  const rows = await db
+    .select({ userId: runners.userId })
+    .from(runners)
+    .where(eq(runners.id, runnerId))
+    .limit(1);
+  return rows[0]?.userId ?? null;
+}
+
 // ── Project Assignment ──────────────────────────────────
 
 export async function assignProject(
@@ -262,8 +280,48 @@ export async function listAssignments(runnerId: string): Promise<RunnerProjectAs
 
 // ── Task Dispatch ───────────────────────────────────────
 
+/**
+ * Return the runnerId of any online runner owned by `userId`.
+ *
+ * Used by no-projectId fallbacks (e.g. `pty:list`) that still must not
+ * cross tenant boundaries. Returns `null` when the user has no connected
+ * runner — callers must NOT fall back to another user's runner.
+ */
+export async function findAnyRunnerForUser(userId: string): Promise<string | null> {
+  const rows = await db.select({ id: runners.id }).from(runners).where(eq(runners.userId, userId));
+  if (rows.length === 0) return null;
+
+  const allRunners = await listRunners();
+  const statusById = new Map(allRunners.map((r) => [r.runnerId, r]));
+
+  const candidates = rows
+    .map((r) => statusById.get(r.id))
+    .filter((r): r is RunnerInfo => r != null && r.status !== 'offline');
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    if (a.status === 'online' && b.status !== 'online') return -1;
+    if (b.status === 'online' && a.status !== 'online') return 1;
+    return a.activeThreadCount - b.activeThreadCount;
+  });
+
+  return candidates[0].runnerId;
+}
+
+/**
+ * Resolve a runner for a project while enforcing tenant isolation.
+ *
+ * When `userId` is provided, only returns a runner whose `runners.userId`
+ * matches — preventing browser sockets from routing PTY/agent traffic to
+ * another user's runner (which has access to a different local $HOME, git
+ * credentials, etc). Callers that already validated the project ownership
+ * upstream may omit `userId`, but every browser-originated path should pass
+ * it.
+ */
 export async function findRunnerForProject(
   projectId: string,
+  userId?: string,
 ): Promise<{ runner: RunnerInfo; localPath: string } | null> {
   const assignments = await db
     .select()
@@ -272,6 +330,16 @@ export async function findRunnerForProject(
 
   if (assignments.length === 0) return null;
 
+  let allowedRunnerIds: Set<string> | null = null;
+  if (userId) {
+    const ownedRows = await db
+      .select({ id: runners.id })
+      .from(runners)
+      .where(eq(runners.userId, userId));
+    allowedRunnerIds = new Set(ownedRows.map((r) => r.id));
+    if (allowedRunnerIds.size === 0) return null;
+  }
+
   const allRunners = await listRunners();
   const runnerMap = new Map(allRunners.map((r) => [r.runnerId, r]));
 
@@ -279,7 +347,9 @@ export async function findRunnerForProject(
     .map((a) => ({ assignment: a, runner: runnerMap.get(a.runnerId) }))
     .filter(
       (c): c is { assignment: (typeof assignments)[0]; runner: RunnerInfo } =>
-        c.runner != null && c.runner.status !== 'offline',
+        c.runner != null &&
+        c.runner.status !== 'offline' &&
+        (allowedRunnerIds == null || allowedRunnerIds.has(c.runner.runnerId)),
     );
 
   if (candidates.length === 0) return null;

@@ -130,10 +130,12 @@ async function resolveProjectId(workingPath: string): Promise<string | null> {
   const normalised = workingPath.replace(/\\/g, '/').toLowerCase();
   const projects = await getServices().projects.listProjects('');
 
-  // First pass: exact prefix match (project path is prefix of working path)
+  // First pass: exact prefix match (project path is prefix of working path).
+  // Guard with a trailing '/' to prevent sibling-prefix matches like
+  // `/a/foo` being identified as belonging to project `/a/fo`.
   for (const project of projects) {
     const projPath = project.path.replace(/\\/g, '/').toLowerCase();
-    if (normalised.startsWith(projPath)) {
+    if (normalised === projPath || normalised.startsWith(projPath + '/')) {
       return project.id;
     }
   }

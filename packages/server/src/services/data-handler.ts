@@ -22,10 +22,10 @@ import { and, eq } from 'drizzle-orm';
 
 import { db, dbAll, dbGet, dbRun } from '../db/index.js';
 import * as schema from '../db/schema.js';
+import { audit } from '../lib/audit.js';
 import { log } from '../lib/logger.js';
 import * as messageQueueRepo from './message-queue-repository.js';
 import * as projectRepo from './project-repository.js';
-import { sendToRunner } from './ws-relay.js';
 
 // Create shared repository instances (lazy-initialized)
 let _messageRepo: ReturnType<typeof createMessageRepository> | null = null;
@@ -99,11 +99,235 @@ function getArcRepo() {
 }
 
 /**
+ * Verify that the runner owning `runnerUserId` is allowed to touch the
+ * user/thread/project/message/tool-call/arc referenced by `data`.
+ *
+ * This is the tenant-isolation boundary for the data plane: without it, any
+ * compromised or misconfigured runner can read another user's GitHub token,
+ * delete someone else's thread, etc. (see SECURITY_AUDIT C3). Checks short-
+ * circuit on the first mismatch.
+ */
+async function assertDataOwnership(
+  runnerUserId: string | null,
+  data: any,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const payload = data?.payload ?? {};
+
+  // Types that do not reference any user-scoped entity. Runners without an
+  // owning user (legacy rows where runners.user_id is NULL) can still access
+  // these — everything else requires a known owner.
+  const USER_NEUTRAL_TYPES = new Set<string>([
+    'data:get_agent_template',
+    'data:mark_and_list_stale_threads',
+  ]);
+  if (USER_NEUTRAL_TYPES.has(data?.type)) return { ok: true };
+
+  if (!runnerUserId) {
+    return { ok: false, reason: 'runner has no owning user' };
+  }
+
+  // ── Explicit userId on the request ─────────────────────────────
+  const candidateUserId =
+    typeof data?.userId === 'string' && data.userId
+      ? data.userId
+      : data?.type === 'data:create_thread' && typeof payload?.userId === 'string'
+        ? payload.userId
+        : undefined;
+  if (candidateUserId && candidateUserId !== runnerUserId) {
+    return { ok: false, reason: `userId ${candidateUserId} !== runner ${runnerUserId}` };
+  }
+
+  // ── Thread ownership ───────────────────────────────────────────
+  const threadId =
+    (typeof data?.threadId === 'string' && data.threadId) ||
+    (typeof payload?.threadId === 'string' && payload.threadId) ||
+    undefined;
+  if (threadId) {
+    const row = (await dbGet(
+      db
+        .select({ userId: schema.threads.userId })
+        .from(schema.threads)
+        .where(eq(schema.threads.id, threadId)),
+    )) as { userId: string } | undefined;
+    if (!row) return { ok: false, reason: `thread ${threadId} not found` };
+    if (row.userId !== runnerUserId) {
+      return { ok: false, reason: `thread ${threadId} owned by ${row.userId}` };
+    }
+  }
+
+  // ── Project ownership ──────────────────────────────────────────
+  const projectId =
+    (typeof data?.projectId === 'string' && data.projectId) ||
+    (typeof payload?.projectId === 'string' && payload.projectId) ||
+    undefined;
+  if (projectId) {
+    const p = await projectRepo.getProject(projectId);
+    if (!p) return { ok: false, reason: `project ${projectId} not found` };
+    if (p.userId !== runnerUserId) {
+      // Allow if the runner's user is a member (per project_members).
+      const member = (await dbGet(
+        db
+          .select({ userId: schema.projectMembers.userId })
+          .from(schema.projectMembers)
+          .where(
+            and(
+              eq(schema.projectMembers.projectId, projectId),
+              eq(schema.projectMembers.userId, runnerUserId),
+            ),
+          ),
+      )) as { userId: string } | undefined;
+      if (!member) {
+        return { ok: false, reason: `project ${projectId} owned by ${p.userId}` };
+      }
+    }
+  }
+
+  // ── Message ownership (message → thread → user) ────────────────
+  const messageIdForToolCall =
+    typeof payload?.messageId === 'string' ? payload.messageId : undefined;
+  if (data?.type === 'data:find_tool_call' && messageIdForToolCall) {
+    const m = (await dbGet(
+      db
+        .select({ threadId: schema.messages.threadId })
+        .from(schema.messages)
+        .where(eq(schema.messages.id, messageIdForToolCall)),
+    )) as { threadId: string } | undefined;
+    if (m) {
+      const t = (await dbGet(
+        db
+          .select({ userId: schema.threads.userId })
+          .from(schema.threads)
+          .where(eq(schema.threads.id, m.threadId)),
+      )) as { userId: string } | undefined;
+      if (!t || t.userId !== runnerUserId) {
+        return { ok: false, reason: `message ${messageIdForToolCall} cross-tenant` };
+      }
+    }
+  }
+  if (data?.type === 'data:update_message' && typeof payload?.messageId === 'string') {
+    const m = (await dbGet(
+      db
+        .select({ threadId: schema.messages.threadId })
+        .from(schema.messages)
+        .where(eq(schema.messages.id, payload.messageId)),
+    )) as { threadId: string } | undefined;
+    if (!m) return { ok: false, reason: `message ${payload.messageId} not found` };
+    const t = (await dbGet(
+      db
+        .select({ userId: schema.threads.userId })
+        .from(schema.threads)
+        .where(eq(schema.threads.id, m.threadId)),
+    )) as { userId: string } | undefined;
+    if (!t || t.userId !== runnerUserId) {
+      return { ok: false, reason: `message ${payload.messageId} cross-tenant` };
+    }
+  }
+
+  // ── Tool call ownership (toolCall → message → thread → user) ───
+  const toolCallId =
+    (data?.type === 'data:get_tool_call' && typeof data?.toolCallId === 'string'
+      ? data.toolCallId
+      : undefined) ??
+    (data?.type === 'data:update_tool_call_output' && typeof payload?.toolCallId === 'string'
+      ? payload.toolCallId
+      : undefined);
+  if (toolCallId) {
+    const tc = (await dbGet(
+      db
+        .select({ messageId: schema.toolCalls.messageId })
+        .from(schema.toolCalls)
+        .where(eq(schema.toolCalls.id, toolCallId)),
+    )) as { messageId: string } | undefined;
+    if (!tc) return { ok: false, reason: `tool call ${toolCallId} not found` };
+    const m = (await dbGet(
+      db
+        .select({ threadId: schema.messages.threadId })
+        .from(schema.messages)
+        .where(eq(schema.messages.id, tc.messageId)),
+    )) as { threadId: string } | undefined;
+    if (!m) return { ok: false, reason: `tool call ${toolCallId} orphaned` };
+    const t = (await dbGet(
+      db
+        .select({ userId: schema.threads.userId })
+        .from(schema.threads)
+        .where(eq(schema.threads.id, m.threadId)),
+    )) as { userId: string } | undefined;
+    if (!t || t.userId !== runnerUserId) {
+      return { ok: false, reason: `tool call ${toolCallId} cross-tenant` };
+    }
+  }
+
+  // ── Queued message ownership (queue row → thread → user) ───────
+  if (
+    (data?.type === 'data:cancel_queued_message' || data?.type === 'data:update_queued_message') &&
+    typeof data?.messageId === 'string'
+  ) {
+    const q = (await dbGet(
+      db
+        .select({ threadId: schema.messageQueue.threadId })
+        .from(schema.messageQueue)
+        .where(eq(schema.messageQueue.id, data.messageId)),
+    )) as { threadId: string } | undefined;
+    if (!q) return { ok: false, reason: `queued message ${data.messageId} not found` };
+    const t = (await dbGet(
+      db
+        .select({ userId: schema.threads.userId })
+        .from(schema.threads)
+        .where(eq(schema.threads.id, q.threadId)),
+    )) as { userId: string } | undefined;
+    if (!t || t.userId !== runnerUserId) {
+      return { ok: false, reason: `queued message ${data.messageId} cross-tenant` };
+    }
+  }
+
+  // ── Arc ownership ──────────────────────────────────────────────
+  if (data?.type === 'data:get_arc' && typeof data?.arcId === 'string') {
+    const a = (await dbGet(
+      db
+        .select({ userId: schema.arcs.userId })
+        .from(schema.arcs)
+        .where(eq(schema.arcs.id, data.arcId)),
+    )) as { userId: string } | undefined;
+    if (!a) return { ok: false, reason: `arc ${data.arcId} not found` };
+    if (a.userId !== runnerUserId) {
+      return { ok: false, reason: `arc ${data.arcId} cross-tenant` };
+    }
+  }
+
+  return { ok: true };
+}
+
+/**
  * Handle a data persistence message from a runner (Socket.IO ack pattern).
  * Returns the response data instead of calling sendToRunner.
+ *
+ * `runnerUserId` is the DB-recorded owner of the runner; it is used to reject
+ * any request that references entities belonging to a different user.
  */
-export async function handleDataMessageWithAck(runnerId: string, data: any): Promise<any> {
+export async function handleDataMessageWithAck(
+  runnerId: string,
+  runnerUserId: string | null,
+  data: any,
+): Promise<any> {
   try {
+    const ownership = await assertDataOwnership(runnerUserId, data);
+    if (!ownership.ok) {
+      log.warn('Rejected cross-tenant data request from runner', {
+        namespace: 'data-handler',
+        runnerId,
+        runnerUserId,
+        type: data?.type,
+        reason: ownership.reason,
+      });
+      audit({
+        action: 'authz.cross_tenant_refused',
+        actorId: runnerUserId,
+        detail: `runner data request refused: ${data?.type}`,
+        meta: { source: 'data-handler', runnerId, type: data?.type, reason: ownership.reason },
+      });
+      return { type: 'data:ack', success: false, error: 'Forbidden' };
+    }
+
     switch (data.type) {
       case 'data:insert_message': {
         const messageRepo = getMessageRepo();
@@ -323,441 +547,5 @@ export async function handleDataMessageWithAck(runnerId: string, data: any): Pro
       error: (err as Error).message,
     });
     return { type: 'data:ack', success: false, error: (err as Error).message };
-  }
-}
-
-/**
- * Handle a data persistence message from a runner (legacy pattern).
- * Persists the data and sends back a response via sendToRunner.
- * @deprecated Use handleDataMessageWithAck with Socket.IO acks instead.
- */
-export async function handleDataMessage(runnerId: string, data: any): Promise<void> {
-  try {
-    switch (data.type) {
-      case 'data:insert_message': {
-        const messageRepo = getMessageRepo();
-        const messageId = await messageRepo.insertMessage(data.payload);
-        sendToRunner(runnerId, {
-          type: 'data:insert_message_response',
-          requestId: data.requestId,
-          messageId,
-        });
-        break;
-      }
-
-      case 'data:insert_tool_call': {
-        const toolCallRepo = getToolCallRepo();
-        const toolCallId = await toolCallRepo.insertToolCall(data.payload);
-        sendToRunner(runnerId, {
-          type: 'data:insert_tool_call_response',
-          requestId: data.requestId,
-          toolCallId,
-        });
-        break;
-      }
-
-      case 'data:update_thread': {
-        const threadRepo = getThreadRepo();
-        await threadRepo.updateThread(data.payload.threadId, data.payload.updates);
-        // Respond so the runner can await confirmation
-        if (data.requestId) {
-          sendToRunner(runnerId, {
-            type: 'data:update_thread_response',
-            requestId: data.requestId,
-            ok: true,
-          });
-        }
-        break;
-      }
-
-      case 'data:update_message': {
-        const messageRepo = getMessageRepo();
-        await messageRepo.updateMessage(data.payload.messageId, data.payload.content);
-        break;
-      }
-
-      case 'data:update_tool_call_output': {
-        const toolCallRepo = getToolCallRepo();
-        await toolCallRepo.updateToolCallOutput(data.payload.toolCallId, data.payload.output);
-        break;
-      }
-
-      case 'data:get_thread': {
-        const threadRepo = getThreadRepo();
-        const thread = await threadRepo.getThread(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:get_thread_response',
-          requestId: data.requestId,
-          thread: thread ?? null,
-        });
-        break;
-      }
-
-      case 'data:get_tool_call': {
-        const toolCallRepo = getToolCallRepo();
-        const toolCall = await toolCallRepo.getToolCall(data.toolCallId);
-        sendToRunner(runnerId, {
-          type: 'data:get_tool_call_response',
-          requestId: data.requestId,
-          toolCall: toolCall ?? null,
-        });
-        break;
-      }
-
-      case 'data:find_tool_call': {
-        const toolCallRepo = getToolCallRepo();
-        const tc = await toolCallRepo.findToolCall(
-          data.payload.messageId,
-          data.payload.name,
-          data.payload.input,
-        );
-        sendToRunner(runnerId, {
-          type: 'data:find_tool_call_response',
-          requestId: data.requestId,
-          toolCall: tc ?? null,
-        });
-        break;
-      }
-
-      case 'data:find_last_unanswered_interactive_tool_call': {
-        const toolCallRepo = getToolCallRepo();
-        const tc = await toolCallRepo.findLastUnansweredInteractiveToolCall(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:find_last_unanswered_interactive_tool_call_response',
-          requestId: data.requestId,
-          toolCall: tc ?? null,
-        });
-        break;
-      }
-
-      // ── Agent template operations ─────────────────────────────
-
-      case 'data:get_agent_template': {
-        // Check builtin templates first
-        const { BUILTIN_AGENT_TEMPLATES: builtins } = await import('@funny/shared');
-        const builtinTpl = builtins.find((t: { id: string }) => t.id === data.templateId);
-        if (builtinTpl) {
-          sendToRunner(runnerId, {
-            type: 'data:get_agent_template_response',
-            requestId: data.requestId,
-            template: builtinTpl,
-          });
-          break;
-        }
-        const row = await dbGet(
-          db
-            .select()
-            .from(schema.agentTemplates)
-            .where(eq(schema.agentTemplates.id, data.templateId)),
-        );
-        sendToRunner(runnerId, {
-          type: 'data:get_agent_template_response',
-          requestId: data.requestId,
-          template: row ?? null,
-        });
-        break;
-      }
-
-      // ── Project operations ──────────────────────────────────
-
-      case 'data:get_project': {
-        const project = await projectRepo.getProject(data.projectId);
-        sendToRunner(runnerId, {
-          type: 'data:get_project_response',
-          requestId: data.requestId,
-          project: project ?? null,
-        });
-        break;
-      }
-
-      case 'data:list_projects': {
-        const projects = await projectRepo.listProjects(data.userId);
-        sendToRunner(runnerId, {
-          type: 'data:list_projects_response',
-          requestId: data.requestId,
-          projects,
-        });
-        break;
-      }
-
-      case 'data:list_project_threads': {
-        const threads = await dbAll(
-          db
-            .select({
-              id: schema.threads.id,
-              userId: schema.threads.userId,
-              worktreePath: schema.threads.worktreePath,
-              status: schema.threads.status,
-            })
-            .from(schema.threads)
-            .where(
-              and(eq(schema.threads.projectId, data.projectId), eq(schema.threads.archived, 0)),
-            ),
-        );
-        sendToRunner(runnerId, {
-          type: 'data:list_project_threads_response',
-          requestId: data.requestId,
-          threads,
-        });
-        break;
-      }
-
-      case 'data:resolve_project_path': {
-        const result = await projectRepo.resolveProjectPath(data.projectId, data.userId);
-        if (result.isOk()) {
-          sendToRunner(runnerId, {
-            type: 'data:resolve_project_path_response',
-            requestId: data.requestId,
-            ok: true,
-            path: result.value,
-          });
-        } else {
-          sendToRunner(runnerId, {
-            type: 'data:resolve_project_path_response',
-            requestId: data.requestId,
-            ok: false,
-            error: result.error.message,
-          });
-        }
-        break;
-      }
-
-      // ── Project creation (from runner after clone) ────────
-
-      case 'data:create_project': {
-        // Skip filesystem checks — the runner already validated the path (clone succeeded)
-        const createResult = await projectRepo.createProject(
-          data.name,
-          data.path,
-          data.userId,
-          undefined,
-          true,
-        );
-        if (createResult.isOk()) {
-          sendToRunner(runnerId, {
-            type: 'data:create_project_response',
-            requestId: data.requestId,
-            project: createResult.value,
-          });
-        } else {
-          sendToRunner(runnerId, {
-            type: 'data:create_project_response',
-            requestId: data.requestId,
-            error: createResult.error.message,
-            errorType: createResult.error.type,
-          });
-        }
-        break;
-      }
-
-      // ── Thread creation/deletion ──────────────────────────
-
-      case 'data:create_thread': {
-        const tRepo = getThreadRepo();
-        await tRepo.createThread(data.payload);
-        sendToRunner(runnerId, {
-          type: 'data:ack',
-          requestId: data.requestId,
-          success: true,
-        });
-        break;
-      }
-
-      case 'data:delete_thread': {
-        const tRepo = getThreadRepo();
-        await tRepo.deleteThread(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:ack',
-          requestId: data.requestId,
-          success: true,
-        });
-        break;
-      }
-
-      // ── Message queue ─────────────────────────────────────
-
-      case 'data:enqueue_message': {
-        const queued = await messageQueueRepo.enqueue(data.threadId, data.payload);
-        sendToRunner(runnerId, {
-          type: 'data:enqueue_message_response',
-          requestId: data.requestId,
-          queued,
-        });
-        break;
-      }
-
-      case 'data:dequeue_message': {
-        const dequeued = await messageQueueRepo.dequeue(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:dequeue_message_response',
-          requestId: data.requestId,
-          dequeued,
-        });
-        break;
-      }
-
-      case 'data:peek_message': {
-        const peeked = await messageQueueRepo.peek(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:peek_message_response',
-          requestId: data.requestId,
-          peeked,
-        });
-        break;
-      }
-
-      case 'data:queue_count': {
-        const count = await messageQueueRepo.queueCount(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:queue_count_response',
-          requestId: data.requestId,
-          count,
-        });
-        break;
-      }
-
-      case 'data:list_queue': {
-        const items = await messageQueueRepo.listQueue(data.threadId);
-        sendToRunner(runnerId, {
-          type: 'data:list_queue_response',
-          requestId: data.requestId,
-          items,
-        });
-        break;
-      }
-
-      case 'data:cancel_queued_message': {
-        const success = await messageQueueRepo.cancel(data.messageId);
-        sendToRunner(runnerId, {
-          type: 'data:cancel_queued_message_response',
-          requestId: data.requestId,
-          success,
-        });
-        break;
-      }
-
-      case 'data:update_queued_message': {
-        const updated = await messageQueueRepo.update(data.messageId, data.content);
-        sendToRunner(runnerId, {
-          type: 'data:update_queued_message_response',
-          requestId: data.requestId,
-          updated,
-        });
-        break;
-      }
-
-      // ── Thread events ─────────────────────────────────────
-
-      case 'data:save_thread_event': {
-        const { saveThreadEvent } = await import('./thread-event-repository.js');
-        await saveThreadEvent(data.payload.threadId, data.payload.eventType, data.payload.data);
-        break;
-      }
-
-      // ── Profile operations ─────────────────────────────────
-
-      case 'data:get_profile': {
-        const { getProfile } = await import('./profile-service.js');
-        const profile = await getProfile(data.userId);
-        sendToRunner(runnerId, {
-          type: 'data:get_profile_response',
-          requestId: data.requestId,
-          profile: profile ?? null,
-        });
-        break;
-      }
-
-      case 'data:get_provider_key': {
-        const { getProviderKey } = await import('./profile-service.js');
-        const pk = await getProviderKey(data.userId, data.provider);
-        sendToRunner(runnerId, {
-          type: 'data:get_provider_key_response',
-          requestId: data.requestId,
-          key: pk ?? null,
-        });
-        break;
-      }
-
-      case 'data:get_github_token': {
-        const { getProviderKey } = await import('./profile-service.js');
-        const token = await getProviderKey(data.userId, 'github');
-        sendToRunner(runnerId, {
-          type: 'data:get_github_token_response',
-          requestId: data.requestId,
-          token: token ?? null,
-        });
-        break;
-      }
-
-      case 'data:get_minimax_api_key': {
-        const { getProviderKey } = await import('./profile-service.js');
-        const key = await getProviderKey(data.userId, 'minimax');
-        sendToRunner(runnerId, {
-          type: 'data:get_minimax_api_key_response',
-          requestId: data.requestId,
-          key: key ?? null,
-        });
-        break;
-      }
-
-      case 'data:update_profile': {
-        const { upsertProfile } = await import('./profile-service.js');
-        const updatedProfile = await upsertProfile(data.userId, data.payload);
-        sendToRunner(runnerId, {
-          type: 'data:update_profile_response',
-          requestId: data.requestId,
-          profile: updatedProfile,
-        });
-        break;
-      }
-
-      // ── Arc operations ───────────────────────────────────
-
-      case 'data:get_arc': {
-        const arcRepository = getArcRepo();
-        const arc = await arcRepository.getArc(data.arcId);
-        sendToRunner(runnerId, {
-          type: 'data:get_arc_response',
-          requestId: data.requestId,
-          arc: arc ?? null,
-        });
-        break;
-      }
-
-      case 'data:mark_and_list_stale_threads': {
-        const threadRepo = getThreadRepo();
-        const staleThreads = await threadRepo.markAndListStaleThreads(runnerId);
-        sendToRunner(runnerId, {
-          type: 'data:mark_and_list_stale_threads_response',
-          requestId: data.requestId,
-          threads: staleThreads,
-        });
-        break;
-      }
-
-      default:
-        log.warn('Unknown data message type from runner', {
-          namespace: 'data-handler',
-          runnerId,
-          type: data.type,
-        });
-    }
-  } catch (err) {
-    log.error('Failed to handle data message from runner', {
-      namespace: 'data-handler',
-      runnerId,
-      type: data.type,
-      error: (err as Error).message,
-    });
-
-    // If this was a request expecting a response, send an error ack
-    if (data.requestId) {
-      sendToRunner(runnerId, {
-        type: 'data:ack',
-        requestId: data.requestId,
-        success: false,
-        error: (err as Error).message,
-      });
-    }
   }
 }

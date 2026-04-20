@@ -18,6 +18,7 @@ import { sql } from 'drizzle-orm';
 import { db, getConnection } from '../db/index.js';
 import { log } from '../lib/logger.js';
 import type { PtyBackend } from './pty-backend.js';
+import { validateShellId } from './shell-detector.js';
 import { wsBroker } from './ws-broker.js';
 
 /** In runner mode there is no local DB — one user per runner. */
@@ -200,6 +201,27 @@ backend.init({
 
   onError(ptyId, error) {
     const session = activeSessions.get(ptyId);
+
+    // The daemon already has this session alive. Adopt it instead of
+    // surfacing the error — happens when the runtime's activeSessions map
+    // fell out of sync (e.g. runtime restart, strict-mode remount, or a
+    // stale daemon on disk). Keep the session, send a capture back so the
+    // client renders the live terminal state.
+    if (error === 'Session already exists' && session?.userId) {
+      log.info('PTY spawn adopted existing daemon session', {
+        namespace: 'pty-manager',
+        ptyId,
+      });
+      capturePaneAsync(ptyId).then((content) => {
+        wsBroker.emitToUser(session.userId, {
+          type: 'pty:data' as const,
+          threadId: '',
+          data: { ptyId, data: content ?? '' },
+        });
+      });
+      return;
+    }
+
     log.error('PTY error', { namespace: 'pty-manager', ptyId, error });
 
     if (!session?.userId) {
@@ -324,23 +346,29 @@ export function spawnPty(
     return;
   }
 
+  // Reject arbitrary executables in the shell arg — only accept 'default',
+  // undefined, or an id from the detected-shells allowlist. Unknown ids are
+  // coerced to 'default' (system shell) so a malicious client can't run an
+  // attacker-supplied binary.
+  const safeShell = validateShellId(shell);
+
   log.info('Requesting spawn PTY', {
     namespace: 'pty-manager',
     ptyId: id,
     backend: backend.name,
-    shell,
+    shell: safeShell,
     projectId,
     label,
   });
 
   const tmuxSession = backend.persistent ? `funny-${id}` : undefined;
-  activeSessions.set(id, { userId, cwd, projectId, label, tmuxSession, shell });
+  activeSessions.set(id, { userId, cwd, projectId, label, tmuxSession, shell: safeShell });
 
-  backend.spawn(id, cwd, cols, rows, process.env as Record<string, string>, shell);
+  backend.spawn(id, cwd, cols, rows, process.env as Record<string, string>, safeShell);
 
   // Persist to DB for restart recovery
   if (backend.persistent && tmuxSession) {
-    savePtySession(id, tmuxSession, userId, cwd, projectId, label, shell, cols, rows);
+    savePtySession(id, tmuxSession, userId, cwd, projectId, label, safeShell, cols, rows);
   }
 }
 

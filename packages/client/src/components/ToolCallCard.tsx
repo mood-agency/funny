@@ -1,8 +1,8 @@
-import AnsiToHtml from 'ansi-to-html';
 import { ChevronRight, Wrench, ListTodo, Check } from 'lucide-react';
 import { useState, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { timeAgo } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -72,9 +72,9 @@ export const ToolCallCard = memo(
     const displayPath = filePath ? makeRelativePath(filePath, projectPath) : null;
     const displayTime = useMemo(() => (timestamp ? timeAgo(timestamp, t) : null), [timestamp, t]);
 
-    // SECURITY: escapeXML must remain true to prevent XSS via dangerouslySetInnerHTML
+    // Security M6: `createAnsiConverter` enforces escapeXML regardless of caller.
     const ansiConverter = useMemo(
-      () => new AnsiToHtml({ fg: '#a1a1aa', bg: 'transparent', newline: false, escapeXML: true }),
+      () => createAnsiConverter({ fg: '#a1a1aa', bg: 'transparent', newline: false }),
       [],
     );
     const htmlOutput = useMemo(

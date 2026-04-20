@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify';
 import { Check, Code, Image, Maximize2, Minimize2, X, ZoomIn, ZoomOut } from 'lucide-react';
 import mermaid from 'mermaid';
 import { useTheme } from 'next-themes';
@@ -16,6 +17,30 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { cn } from '@/lib/utils';
 
 /**
+ * Security M1: sanitize mermaid's rendered SVG through DOMPurify's SVG profile
+ * before we inject it via `dangerouslySetInnerHTML`. Mermaid's own parser
+ * escapes text at `securityLevel: 'strict'`, but the SVG output can still
+ * contain `<foreignObject>` / `<script>` / `xlink:href="javascript:..."`
+ * nodes if a future renderer regression or a malicious chart input slips
+ * through. Sanitizing here is defense-in-depth and is cheap (≈1ms for typical
+ * diagrams). We keep SVG semantics (USE_PROFILES: svg + svgFilters) and
+ * forbid the handful of SVG elements that can carry JS.
+ */
+function sanitizeMermaidSvg(svg: string): string {
+  if (!svg) return svg;
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    FORBID_TAGS: ['script', 'foreignObject'],
+    // Drop any event handler (onload, onclick, …) and javascript: URIs.
+    FORBID_ATTR: [],
+    ADD_DATA_URI_TAGS: [],
+    // The SVG profile already refuses javascript: URIs, but pin it so we
+    // remain safe if the upstream profile loosens in a future release.
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  });
+}
+
+/**
  * Hook that renders a mermaid chart string into SVG html.
  */
 function useMermaidSvg(chart: string) {
@@ -30,7 +55,7 @@ function useMermaidSvg(chart: string) {
     mermaid
       .render(`mermaid-${Math.random().toString(36).slice(2)}`, chart)
       .then(({ svg: renderedSvg }) => {
-        if (!cancelled) setSvg(renderedSvg);
+        if (!cancelled) setSvg(sanitizeMermaidSvg(renderedSvg));
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));

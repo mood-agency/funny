@@ -12,6 +12,7 @@
 import { Server as BunEngine } from '@socket.io/bun-engine';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 
+import { audit } from '../lib/audit.js';
 import { log } from '../lib/logger.js';
 import { setIO as setRelayIO } from './ws-relay.js';
 import { setIO as setTunnelIO } from './ws-tunnel.js';
@@ -208,11 +209,25 @@ function setupBrowserPtyHandlers(socket: Socket, userId: string): void {
 
       const forwardToRunner = async (runnerId: string | null) => {
         if (runnerId) {
-          const runnerNsp = getIO().of('/runner');
-          runnerNsp.to(`runner:${runnerId}`).emit('central:browser_ws', {
-            userId,
-            data: { type: eventName, data: payload },
-          });
+          // Emit to the specific current socketId rather than the runner's
+          // room. During a reconnect both the old and new sockets may briefly
+          // coexist in the room; addressing one socket avoids the duplicate.
+          const wsRelay = await import('./ws-relay.js');
+          const socketId = wsRelay.getRunnerSocketId(runnerId);
+          if (socketId) {
+            getIO()
+              .of('/runner')
+              .to(socketId)
+              .emit('central:browser_ws', {
+                userId,
+                data: { type: eventName, data: payload },
+              });
+          } else if (eventName === 'pty:spawn') {
+            socket.emit('pty:error', {
+              ptyId: payload.id,
+              error: 'No runner available to handle terminal request',
+            });
+          }
         } else if (eventName === 'pty:spawn') {
           socket.emit('pty:error', {
             ptyId: payload.id,
@@ -221,19 +236,97 @@ function setupBrowserPtyHandlers(socket: Socket, userId: string): void {
         }
       };
 
+      // Ownership gate: PTY traffic must only flow to a runner that belongs
+      // to the requesting user. We never fall back to "any connected runner"
+      // because that would leak shell access across tenants (see CLAUDE.md
+      // Runner Isolation rule).
+      const rm = await import('./runner-manager.js');
+
       if (projectId) {
         try {
-          const rm = await import('./runner-manager.js');
+          const projectRepo = await import('./project-repository.js');
+          const project = await projectRepo.getProject(projectId);
+          if (!project || project.userId !== userId) {
+            log.warn('Blocked cross-user PTY request', {
+              namespace: 'socketio',
+              event: eventName,
+              userId,
+              projectId,
+              ownerId: project?.userId ?? null,
+            });
+            audit({
+              action: 'authz.cross_tenant_refused',
+              actorId: userId ?? null,
+              detail: 'Browser PTY request refused — project not owned by caller',
+              meta: {
+                source: 'socketio:browser_pty',
+                event: eventName,
+                projectId,
+                ownerId: project?.userId ?? null,
+              },
+            });
+            if (eventName === 'pty:spawn') {
+              socket.emit('pty:error', {
+                ptyId: payload.id,
+                error: 'Project not found',
+              });
+            }
+            return;
+          }
           const result = await rm.findRunnerForProject(projectId);
-          const { getAnyConnectedRunnerId } = await import('./ws-relay.js');
-          forwardToRunner(result?.runner.runnerId ?? getAnyConnectedRunnerId());
-        } catch {
-          const { getAnyConnectedRunnerId } = await import('./ws-relay.js');
-          forwardToRunner(getAnyConnectedRunnerId());
+          const runnerId = result?.runner.runnerId ?? null;
+          if (runnerId) {
+            const runnerUserId = await rm.getRunnerUserId(runnerId);
+            if (runnerUserId !== userId) {
+              log.warn('Runner for project owned by different user', {
+                namespace: 'socketio',
+                event: eventName,
+                userId,
+                projectId,
+                runnerId,
+                runnerUserId,
+              });
+              audit({
+                action: 'authz.cross_tenant_refused',
+                actorId: userId ?? null,
+                detail: 'Browser PTY request refused — runner owned by different user',
+                meta: {
+                  source: 'socketio:browser_pty',
+                  event: eventName,
+                  projectId,
+                  runnerId,
+                  runnerUserId,
+                },
+              });
+              if (eventName === 'pty:spawn') {
+                socket.emit('pty:error', {
+                  ptyId: payload.id,
+                  error: 'No runner available to handle terminal request',
+                });
+              }
+              return;
+            }
+          }
+          await forwardToRunner(runnerId);
+        } catch (e) {
+          log.error('PTY forward failed', {
+            namespace: 'socketio',
+            event: eventName,
+            userId,
+            projectId,
+            error: (e as Error).message,
+          });
+          if (eventName === 'pty:spawn') {
+            socket.emit('pty:error', {
+              ptyId: payload.id,
+              error: 'No runner available to handle terminal request',
+            });
+          }
         }
       } else {
-        const { getAnyConnectedRunnerId } = await import('./ws-relay.js');
-        forwardToRunner(getAnyConnectedRunnerId());
+        // No projectId — route to any runner owned by this user.
+        const runnerId = await rm.findAnyRunnerForUser(userId);
+        await forwardToRunner(runnerId);
       }
     });
   }
@@ -250,6 +343,15 @@ function setupRunnerNamespace(): void {
   const runnerNsp = io.of('/runner');
 
   // Auth middleware: validate runner token
+  //
+  // Security M3: do not rely on the browser-oriented CORS `Origin` check that
+  // the Bun engine performs at the HTTP upgrade — runners are machine-to-
+  // machine clients that may not send an `Origin` header at all, and an
+  // attacker controlling a browser can always set a truthful `Origin`. Instead
+  // we enforce a bearer-token handshake with a hard timeout so that an
+  // upgraded socket that never completes authentication cannot sit idle and
+  // keep a connection slot.
+  const AUTH_TIMEOUT_MS = 10_000;
   runnerNsp.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -258,13 +360,36 @@ function setupRunnerNamespace(): void {
       }
 
       const rm = await import('./runner-manager.js');
-      const runnerId = await rm.authenticateRunner(token);
+      // Race the DB-backed token lookup against a short timeout so a hung
+      // backend can't stall upgrade traffic indefinitely.
+      const timeoutErr = Symbol('auth_timeout');
+      const authResult: string | null | typeof timeoutErr = await Promise.race([
+        rm.authenticateRunner(token),
+        new Promise<typeof timeoutErr>((resolve) =>
+          setTimeout(() => resolve(timeoutErr), AUTH_TIMEOUT_MS).unref(),
+        ),
+      ]);
+      if (authResult === timeoutErr) {
+        log.warn('Runner auth timed out during WS handshake', {
+          namespace: 'socketio',
+          timeoutMs: AUTH_TIMEOUT_MS,
+        });
+        return next(new Error('Authentication timed out'));
+      }
+      const runnerId = authResult;
       if (!runnerId) {
         return next(new Error('Invalid runner token'));
       }
 
+      // Cache the runner's owning userId on the socket for tenant-isolation
+      // checks on every subsequent data/event message. Legacy runners without
+      // an owner resolve to null here and will be rejected from user-scoped
+      // operations by the data handler.
+      const runnerUserId = await rm.getRunnerUserId(runnerId);
+
       socket.data = {
         runnerId,
+        runnerUserId,
         type: 'runner',
       };
       next();
@@ -275,6 +400,7 @@ function setupRunnerNamespace(): void {
 
   runnerNsp.on('connection', async (socket: Socket) => {
     const runnerId = socket.data.runnerId as string;
+    const runnerUserId = (socket.data.runnerUserId ?? null) as string | null;
 
     // Cancel any pending offline timer from a previous disconnect
     const pendingTimer = offlineTimers.get(runnerId);
@@ -283,12 +409,37 @@ function setupRunnerNamespace(): void {
       offlineTimers.delete(runnerId);
     }
 
-    // Join runner-specific room
-    socket.join(`runner:${runnerId}`);
-
-    // Register in ws-relay for isRunnerConnected() checks
+    // Register the new socketId first, atomically replacing any prior entry.
+    // We hand off to ws-relay's map (the single source of truth) so that
+    // emits routed by `getRunnerSocketId` land on this socket from the
+    // moment it finishes connecting — the old socket stops receiving emits
+    // as soon as the map is swapped, even if it is still in the room for a
+    // few milliseconds while its disconnect propagates.
     const wsRelay = await import('./ws-relay.js');
-    wsRelay.addRunnerClient(runnerId, socket.id);
+    const replacedSocketId = wsRelay.addRunnerClient(runnerId, socket.id);
+
+    // Disconnect any stale socket now that new traffic is guaranteed to
+    // land on the fresh socket. We look the old socket up by id rather
+    // than scanning room membership, which eliminates the `allSockets()`
+    // race where two near-simultaneous reconnects could both evict the
+    // same stale socket and then both join the room.
+    if (replacedSocketId && replacedSocketId !== socket.id) {
+      const stale = runnerNsp.sockets.get(replacedSocketId);
+      if (stale) {
+        log.warn('Evicting stale runner socket — replaced by new connection', {
+          namespace: 'socketio',
+          runnerId,
+          staleSocketId: replacedSocketId,
+          newSocketId: socket.id,
+        });
+        stale.disconnect(true);
+      }
+    }
+
+    // Join runner-specific room (kept for back-compat with any consumers
+    // that iterate rooms for diagnostics; emits now go by socketId).
+    const room = `runner:${runnerId}`;
+    socket.join(room);
 
     log.info('Runner connected via Socket.IO', {
       namespace: 'socketio',
@@ -312,16 +463,21 @@ function setupRunnerNamespace(): void {
       const msg = data as Record<string, any>;
       if (!msg.userId || typeof msg.userId !== 'string') return;
 
-      // Tenant validation: ensure this runner is authorized to relay events for this user.
-      // Each runner is associated with a specific userId — reject cross-tenant relays.
-      const rm = await import('./runner-manager.js');
-      const runner = await rm.getRunner(runnerId);
-      if (runner?.userId && runner.userId !== msg.userId) {
+      // Tenant validation: each runner is associated with a specific userId.
+      // Reject cross-tenant relays and reject legacy runners that have no
+      // owner (runnerUserId === null) so they can't fan out to arbitrary users.
+      if (!runnerUserId || runnerUserId !== msg.userId) {
         log.warn('Runner attempted cross-tenant event relay', {
           namespace: 'socketio',
           runnerId,
-          runnerUserId: runner.userId,
+          runnerUserId,
           targetUserId: msg.userId,
+        });
+        audit({
+          action: 'authz.cross_tenant_refused',
+          actorId: runnerUserId,
+          detail: 'runner agent_event relay refused',
+          meta: { source: 'socketio:runner_agent_event', runnerId, targetUserId: msg.userId },
         });
         return;
       }
@@ -346,13 +502,18 @@ function setupRunnerNamespace(): void {
       const relay = data as Record<string, any>;
       if (relay.userId && typeof relay.userId === 'string') {
         // Tenant validation: same as agent_event
-        const rm = await import('./runner-manager.js');
-        const runner = await rm.getRunner(runnerId);
-        if (runner?.userId && runner.userId !== relay.userId) {
+        if (!runnerUserId || runnerUserId !== relay.userId) {
           log.warn('Runner attempted cross-tenant browser relay', {
             namespace: 'socketio',
             runnerId,
+            runnerUserId,
             targetUserId: relay.userId,
+          });
+          audit({
+            action: 'authz.cross_tenant_refused',
+            actorId: runnerUserId,
+            detail: 'runner browser_relay refused',
+            meta: { source: 'socketio:runner_browser_relay', runnerId, targetUserId: relay.userId },
           });
           return;
         }
@@ -364,7 +525,7 @@ function setupRunnerNamespace(): void {
     setupRunnerControlHandlers(socket, runnerId);
 
     // Handle data persistence messages with ack callbacks
-    setupRunnerDataHandlers(socket, runnerId);
+    setupRunnerDataHandlers(socket, runnerId, runnerUserId);
 
     // Grace period before marking runner offline — Socket.IO reconnects
     // automatically on transport hiccups, so a brief disconnect shouldn't
@@ -372,21 +533,49 @@ function setupRunnerNamespace(): void {
     // reconnected within the grace window (timer is cancelled on reconnect).
     const OFFLINE_GRACE_MS = 15_000;
 
-    socket.on('disconnect', (reason) => {
+    socket.on('disconnect', async (reason) => {
       clearSocketRate(socket.id);
       log.warn('Runner disconnected from Socket.IO', {
         namespace: 'socketio',
         runnerId,
+        socketId: socket.id,
         reason,
       });
 
+      // Clear the ws-relay mapping immediately so liveness checks
+      // (`isRunnerConnected`, `getAnyConnectedRunnerId`, `findAnyRunnerForUser`)
+      // don't keep returning a dead socket for 15 seconds — the stale-entry
+      // window that caused emits to silently land in an empty room.
+      //
+      // Pass our socketId so the remove is a no-op if a newer socket has
+      // already claimed the map slot (e.g. a reconnect that fired its
+      // connect handler before our disconnect event arrived).
+      const wasActive = wsRelay.getRunnerSocketId(runnerId) === socket.id;
+      wsRelay.removeRunnerClient(runnerId, socket.id);
+
+      // If a newer socket already took over, it owns the runner's liveness
+      // and offline timing — our delayed disconnect must not schedule a
+      // cleanup that would tear down the replacement.
+      if (!wasActive) return;
+
+      // Security M4: evict the thread→runner cache now. Without this, a
+      // resolver lookup during the 15s grace window can return the just-
+      // disconnected runner for any thread whose runner still has an httpUrl
+      // (which would otherwise keep `isReachable` truthy), producing one or
+      // two requests that go to an unresponsive runner before resolution
+      // falls through to a fresh pick.
+      const resolver = await import('./runner-resolver.js');
+      resolver.evictRunnerFromCache(runnerId);
+
+      // Grace period: defer the DB/resolver cleanup in case the runner
+      // reconnects quickly. A reconnect cancels the timer via the
+      // pendingTimer handling at the top of the connection block.
       const timer = setTimeout(async () => {
         offlineTimers.delete(runnerId);
 
-        // Runner reconnected on a new socket — skip cleanup
+        // A new socket may have reconnected during the grace window; if so
+        // skip marking the runner offline.
         if (wsRelay.isRunnerConnected(runnerId)) return;
-
-        wsRelay.removeRunnerClient(runnerId);
 
         const rm = await import('./runner-manager.js');
         rm.markRunnerOffline(runnerId).catch(() => {});
@@ -469,12 +658,19 @@ function setupRunnerControlHandlers(socket: Socket, runnerId: string): void {
  * Set up data persistence handlers for a runner socket.
  *
  * Uses event-based request/response: the runner includes a `_requestId` in
- * each data message, and the server emits the response back on
- * `data:response:<requestId>`. This avoids Socket.IO ack callbacks which
+ * each data message, and the server emits the response back on the shared
+ * `data:response` event with `{ requestId, response }` (Security L2 — a
+ * single event name instead of a dynamic `data:response:<id>` channel per
+ * request, so the runner registers one persistent listener rather than one
+ * `once()` per in-flight call). This avoids Socket.IO ack callbacks which
  * deadlock when the runner sends data requests while processing a
  * tunnel:request on the same connection (Bun WebSocket limitation).
  */
-function setupRunnerDataHandlers(socket: Socket, runnerId: string): void {
+function setupRunnerDataHandlers(
+  socket: Socket,
+  runnerId: string,
+  runnerUserId: string | null,
+): void {
   const dataEvents = [
     'data:insert_message',
     'data:insert_tool_call',
@@ -513,6 +709,19 @@ function setupRunnerDataHandlers(socket: Socket, runnerId: string): void {
   // Regex to validate requestId is a safe identifier (UUID or nanoid-like)
   const REQUEST_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
+  // Security M8: track currently in-flight requestIds per socket so that a
+  // runner cannot reuse (or a malicious runner cannot collide on) the same
+  // requestId while a prior request is still being handled. A duplicate would
+  // otherwise race two responses onto the same `data:response` envelope,
+  // letting one handler observe another's payload.
+  const inFlightRequestIds = new Set<string>();
+  socket.on('disconnect', () => inFlightRequestIds.clear());
+
+  /** Shared-event emit helper (Security L2). */
+  const emitDataResponse = (requestId: string, response: any) => {
+    socket.emit('data:response', { requestId, response });
+  };
+
   for (const eventName of dataEvents) {
     socket.on(eventName, async (data: any, ack?: (response: any) => void) => {
       if (isRateLimited(socket.id, 200, 10_000)) return;
@@ -522,18 +731,35 @@ function setupRunnerDataHandlers(socket: Socket, runnerId: string): void {
         log.warn('Invalid requestId format', { namespace: 'socketio', runnerId, type: eventName });
         return;
       }
+      if (requestId && inFlightRequestIds.has(requestId)) {
+        log.warn('Duplicate in-flight requestId — dropping', {
+          namespace: 'socketio',
+          runnerId,
+          type: eventName,
+          requestId,
+        });
+        // Emit an error on the shared response channel so the original
+        // waiter sees something deterministic — but do not start a second
+        // handler.
+        emitDataResponse(requestId, {
+          error: 'Duplicate requestId in flight',
+          success: false,
+        });
+        return;
+      }
+      if (requestId) inFlightRequestIds.add(requestId);
       try {
         const { handleDataMessageWithAck } = await import('./data-handler.js');
-        const response = await handleDataMessageWithAck(runnerId, {
+        const response = await handleDataMessageWithAck(runnerId, runnerUserId, {
           type: eventName,
           ...data,
         });
-        // Event-based response (new pattern): emit on data:response:<requestId>
+        // Event-based response (L2 shared-event pattern): emit on `data:response`
         if (requestId && response !== undefined) {
-          socket.emit(`data:response:${requestId}`, response);
+          emitDataResponse(requestId, response);
         } else if (requestId) {
           // Fire-and-forget messages still need an empty ack so the runner doesn't time out
-          socket.emit(`data:response:${requestId}`, { type: 'data:ack', success: true });
+          emitDataResponse(requestId, { type: 'data:ack', success: true });
         }
         // Legacy ack fallback (for runners that still use the ack pattern)
         if (!requestId && ack && response !== undefined) {
@@ -548,10 +774,12 @@ function setupRunnerDataHandlers(socket: Socket, runnerId: string): void {
         });
         const errorResponse = { error: (err as Error).message, success: false };
         if (requestId) {
-          socket.emit(`data:response:${requestId}`, errorResponse);
+          emitDataResponse(requestId, errorResponse);
         } else if (ack) {
           ack(errorResponse);
         }
+      } finally {
+        if (requestId) inFlightRequestIds.delete(requestId);
       }
     });
   }

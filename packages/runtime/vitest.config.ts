@@ -21,6 +21,7 @@ export default defineConfig({
       '@funny/shared/db/migrate': path.join(shared, 'db/migrate.ts'),
       '@funny/shared/repositories': path.join(shared, 'repositories/index.ts'),
       '@funny/shared/runner-protocol': path.join(shared, 'runner-protocol.ts'),
+      '@funny/shared/auth/forwarded-identity': path.join(shared, 'auth/forwarded-identity.ts'),
       '@funny/shared/evflow-model': path.join(shared, 'evflow.model.ts'),
       '@funny/shared': path.join(shared, 'types.ts'),
       '@funny/evflow': path.join(evflow, 'index.ts'),

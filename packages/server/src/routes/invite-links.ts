@@ -14,7 +14,7 @@
 
 import { randomBytes } from 'crypto';
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
 
@@ -55,6 +55,58 @@ async function validateToken(token: string) {
   }
 
   return { link, useCount };
+}
+
+/**
+ * Security H10: atomically reserve a use-count slot on the invite link.
+ *
+ * The previous implementation validated `useCount < maxUses` in a separate
+ * SELECT, then later issued `UPDATE ... SET useCount = useCount + 1`. Two
+ * concurrent registrations could both pass the SELECT and both increment,
+ * letting `maxUses` be exceeded. We now increment inside a single conditional
+ * UPDATE that also re-checks revocation / expiry / remaining capacity. Returns
+ * `true` when the slot was reserved, `false` when a racing caller won it.
+ */
+async function reserveInviteSlot(linkId: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const reserved = await db
+    .update(inviteLinks)
+    .set({
+      useCount: sql`CAST((CAST(${inviteLinks.useCount} AS INTEGER) + 1) AS TEXT)`,
+    })
+    .where(
+      and(
+        eq(inviteLinks.id, linkId),
+        eq(inviteLinks.revoked, '0'),
+        sql`(${inviteLinks.maxUses} IS NULL OR CAST(${inviteLinks.useCount} AS INTEGER) < CAST(${inviteLinks.maxUses} AS INTEGER))`,
+        sql`(${inviteLinks.expiresAt} IS NULL OR ${inviteLinks.expiresAt} > ${now})`,
+      ),
+    )
+    .returning({ id: inviteLinks.id });
+  return reserved.length > 0;
+}
+
+/**
+ * Best-effort release of a previously reserved slot. Called when the
+ * downstream side effect (user creation, org join) fails after the slot was
+ * reserved. A successful prior call to `reserveInviteSlot` guarantees
+ * `useCount >= 1`, so an unconditional decrement is safe.
+ */
+async function releaseInviteSlot(linkId: string): Promise<void> {
+  try {
+    await db
+      .update(inviteLinks)
+      .set({
+        useCount: sql`CAST((CAST(${inviteLinks.useCount} AS INTEGER) - 1) AS TEXT)`,
+      })
+      .where(eq(inviteLinks.id, linkId));
+  } catch (err: any) {
+    log.warn('Failed to release reserved invite slot', {
+      namespace: 'invite',
+      linkId,
+      error: err?.message ?? String(err),
+    });
+  }
 }
 
 // Better Auth's organization plugin methods are not fully typed in the
@@ -156,7 +208,26 @@ inviteLinkPublicRoutes.post('/register', async (c) => {
   const result = await validateToken(body.token);
   if ('error' in result) return c.json({ error: result.error }, result.status);
 
-  const { link, useCount } = result;
+  const { link } = result;
+
+  // Security H10: reserve the slot BEFORE creating the user. This is an
+  // atomic conditional UPDATE so two concurrent callers cannot both pass
+  // the pre-check and then each increment — the database enforces the
+  // `max_uses` ceiling.
+  const reserved = await reserveInviteSlot(link.id);
+  if (!reserved) {
+    log.info('Invite link exhausted at reservation time', {
+      namespace: 'invite',
+      linkId: link.id,
+      orgId: link.organizationId,
+    });
+    return c.json({ error: 'This invite link has reached its maximum uses' }, 410);
+  }
+
+  // Tracks whether the reserved slot has been consumed by a real user record.
+  // If creation throws before the user exists we release the slot; if it throws
+  // afterwards (sign-in / org-join) the user is real and the slot stays used.
+  let slotConsumed = false;
 
   try {
     // 1. Create the user via admin API (bypasses disableSignUp)
@@ -173,8 +244,10 @@ inviteLinkPublicRoutes.post('/register', async (c) => {
 
     const user = (createResult as any)?.user;
     if (!user) {
+      await releaseInviteSlot(link.id);
       return c.json({ error: 'Failed to create account' }, 500);
     }
+    slotConsumed = true;
 
     // 2. Sign the user in — returns Set-Cookie headers
     const signInResponse = await orgApi.signInUsername({
@@ -199,11 +272,7 @@ inviteLinkPublicRoutes.post('/register', async (c) => {
       });
     }
 
-    // 4. Increment use count
-    await db
-      .update(inviteLinks)
-      .set({ useCount: String(useCount + 1) })
-      .where(eq(inviteLinks.id, link.id));
+    // Slot was already reserved atomically before user creation (see H10).
 
     audit({
       action: 'user.create',
@@ -249,6 +318,7 @@ inviteLinkPublicRoutes.post('/register', async (c) => {
     );
   } catch (err: any) {
     log.error('Failed to register via invite link', { namespace: 'invite', error: err?.message });
+    if (!slotConsumed) await releaseInviteSlot(link.id);
     // Return generic error to prevent user enumeration
     return c.json({ error: 'Registration failed. The username may already be taken.' }, 400);
   }
@@ -366,21 +436,33 @@ inviteLinkRoutes.post('/accept', async (c) => {
   const result = await validateToken(body.token);
   if ('error' in result) return c.json({ error: result.error }, result.status);
 
-  const { link, useCount } = result;
+  const { link } = result;
+
+  // Security H10: reserve the slot atomically before adding the user to
+  // the org so concurrent acceptances cannot exceed `max_uses`.
+  const reserved = await reserveInviteSlot(link.id);
+  if (!reserved) {
+    log.info('Invite link exhausted at reservation time', {
+      namespace: 'invite',
+      linkId: link.id,
+      orgId: link.organizationId,
+      userId,
+    });
+    return c.json({ error: 'This invite link has reached its maximum uses' }, 410);
+  }
 
   try {
     // Get user info
     const allUsers = await orgApi.listUsers({ query: { limit: 1000 } });
     const user = (allUsers as any)?.users?.find((u: any) => u.id === userId);
-    if (!user) return c.json({ error: 'User not found' }, 404);
+    if (!user) {
+      await releaseInviteSlot(link.id);
+      return c.json({ error: 'User not found' }, 404);
+    }
 
     await addUserToOrg(userId, user.email, link.organizationId, link.role, c.req.raw.headers);
 
-    // Increment use count
-    await db
-      .update(inviteLinks)
-      .set({ useCount: String(useCount + 1) })
-      .where(eq(inviteLinks.id, link.id));
+    // Slot was already reserved atomically above (see H10).
 
     log.info('Invite link accepted', {
       namespace: 'invite',
@@ -391,6 +473,9 @@ inviteLinkRoutes.post('/accept', async (c) => {
     return c.json({ ok: true, organizationId: link.organizationId });
   } catch (err: any) {
     log.error('Failed to accept invite link', { namespace: 'invite', error: err?.message });
+    // Release the slot — the user did not actually join (either the join
+    // threw, or they were already a member and the reservation was a no-op).
+    await releaseInviteSlot(link.id);
     if (err?.message?.includes('already') || err?.body?.message?.includes('already')) {
       return c.json({ ok: true, organizationId: link.organizationId, alreadyMember: true });
     }

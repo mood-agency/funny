@@ -2,6 +2,9 @@ import type { SafeUser } from '@funny/shared';
 import { create } from 'zustand';
 
 import { authClient } from '@/lib/auth-client';
+import { createClientLogger } from '@/lib/client-logger';
+
+const log = createClientLogger('auth-store');
 
 interface AuthState {
   user: SafeUser | null;
@@ -78,7 +81,9 @@ export const useAuthStore = create<AuthState>((set, _get) => ({
         set({ isAuthenticated: false, isLoading: false, user: null });
       }
     } catch (err) {
-      console.error('[auth-store] initialization error:', err);
+      log.error('initialization error', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       set({ isAuthenticated: false, isLoading: false });
     }
   },

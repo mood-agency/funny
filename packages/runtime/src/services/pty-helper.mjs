@@ -48,8 +48,9 @@ function handleMessage(msg) {
 
 /** Resolve the shell identifier to an executable path and args. */
 function resolveShell(shellId) {
+  const defaultShell = isWindows ? 'powershell.exe' : process.env.SHELL || 'bash';
   if (!shellId || shellId === 'default') {
-    return { exe: isWindows ? 'powershell.exe' : process.env.SHELL || 'bash', args: [] };
+    return { exe: defaultShell, args: [] };
   }
 
   switch (shellId) {
@@ -68,10 +69,26 @@ function resolveShell(shellId) {
       return { exe: 'cmd.exe', args: [] };
     case 'wsl':
       return { exe: 'wsl.exe', args: [] };
-    default:
-      // Try using the shellId directly — the shell detector may have
-      // sent a known binary name (e.g. 'bash', 'zsh', 'fish')
+    // POSIX shells — accept a small allowlist of well-known binary names.
+    // The caller (pty-manager) has already validated against the detected-shells
+    // allowlist; this switch is defense-in-depth.
+    case 'bash':
+    case 'zsh':
+    case 'fish':
+    case 'sh':
+    case 'dash':
+    case 'ksh':
+    case 'tcsh':
+    case 'csh':
+    case 'nushell':
+    case 'nu':
+    case 'elvish':
       return { exe: shellId, args: [] };
+    default:
+      // Unknown id — never pass it through as an executable path. Fall back
+      // to the system default rather than running an attacker-supplied binary.
+      console.error(`[pty-helper] Unknown shell id "${shellId}" — using default`);
+      return { exe: defaultShell, args: [] };
   }
 }
 

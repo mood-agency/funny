@@ -14,44 +14,10 @@ import { Hono } from 'hono';
 
 import type { HonoEnv } from '../types/hono-env.js';
 import { resolveGitFiles } from '../utils/git-files.js';
+import { requirePickerPath, requireProjectPath } from '../utils/path-scope.js';
 import { resultToResponse } from '../utils/result-response.js';
 
 const app = new Hono<HonoEnv>();
-
-/**
- * Validate that a path exists, is accessible, and does not contain
- * path traversal sequences.
- * Browse routes list directories only — no file content is exposed.
- * File read/write security is enforced separately in files.ts (project-scoped).
- */
-async function checkAllowedPath(path: string, _userId: string): Promise<Response | null> {
-  // Reject paths containing traversal sequences before normalization
-  if (path.includes('..')) {
-    return new Response(JSON.stringify({ error: 'Path traversal not allowed' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  const normalizedTarget = normalize(resolve(path));
-
-  // Block access to sensitive system directories
-  const blockedPrefixes = ['/etc', '/proc', '/sys', '/dev', '/run', '/boot'];
-  if (blockedPrefixes.some((p) => normalizedTarget === p || normalizedTarget.startsWith(p + '/'))) {
-    return new Response(JSON.stringify({ error: 'Access denied' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  if (!existsSync(normalizedTarget)) {
-    return new Response(JSON.stringify({ error: 'Directory does not exist' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-  return null;
-}
 
 /** Return 400 response if value is missing */
 function checkRequired(value: string | undefined, label = 'path'): string | Response {
@@ -89,10 +55,12 @@ app.get('/list', async (c) => {
   const dirPathOrRes = checkRequired(c.req.query('path'), 'path query parameter');
   if (dirPathOrRes instanceof Response) return dirPathOrRes;
   const dirPath = dirPathOrRes;
-  const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requirePickerPath(dirPath);
   if (denied) return denied;
+  if (!existsSync(normalize(resolve(dirPath)))) {
+    return c.json({ error: 'Directory does not exist' }, 404);
+  }
 
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });
@@ -130,9 +98,8 @@ app.get('/repo-name', async (c) => {
   const dirPathOrRes = checkRequired(c.req.query('path'), 'path query parameter');
   if (dirPathOrRes instanceof Response) return dirPathOrRes;
   const dirPath = dirPathOrRes;
-  const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requirePickerPath(dirPath);
   if (denied) return denied;
 
   const remoteResult = await getRemoteUrl(dirPath);
@@ -150,9 +117,8 @@ app.get('/remote-url', async (c) => {
   const dirPathOrRes = checkRequired(c.req.query('path'), 'path query parameter');
   if (dirPathOrRes instanceof Response) return dirPathOrRes;
   const dirPath = dirPathOrRes;
-  const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requirePickerPath(dirPath);
   if (denied) return denied;
 
   const remoteResult = await getRemoteUrl(dirPath);
@@ -167,9 +133,10 @@ app.get('/remote-url', async (c) => {
 app.post('/git-init', async (c) => {
   const { path: dirPath } = await c.req.json<{ path: string }>();
   if (!dirPath) return c.json({ error: 'path is required' }, 400);
-  const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  // Picker scope: git-init runs during project creation, before a project
+  // record exists. Constrained to $HOME (minus credential dirs).
+  const denied = await requirePickerPath(dirPath);
   if (denied) return denied;
 
   const result = await initRepo(dirPath);
@@ -183,14 +150,32 @@ app.post('/create-directory', async (c) => {
   if (!parent) return c.json({ error: 'parent is required' }, 400);
   if (!name) return c.json({ error: 'name is required' }, 400);
 
-  // Validate directory name (no path separators or special chars)
+  // Security M7: validate directory name.
+  // - Reject path separators and control characters that could break out of
+  //   `parent` via `join()`.
+  // - Reject `.`/`..` which are traversal primitives regardless of separator
+  //   presence (e.g. `join(parent, '..')` climbs above the scope).
+  // - Reject Windows-reserved device names (`CON`, `PRN`, `AUX`, `NUL`,
+  //   `COM1..9`, `LPT1..9`) — a created file/dir with these names on Windows
+  //   aliases a device and can be abused by a later open/read.
+  // - Reject trailing `.` / trailing space which Windows silently strips,
+  //   letting `"foo "` masquerade as `"foo"`.
   // eslint-disable-next-line no-control-regex
   if (/[/\\<>:"|?*\x00-\x1f]/.test(name)) {
     return c.json({ error: 'Invalid directory name' }, 400);
   }
+  if (name === '.' || name === '..') {
+    return c.json({ error: 'Invalid directory name' }, 400);
+  }
+  if (/[. ]$/.test(name)) {
+    return c.json({ error: 'Invalid directory name' }, 400);
+  }
+  const WINDOWS_RESERVED = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (WINDOWS_RESERVED.test(name)) {
+    return c.json({ error: 'Invalid directory name' }, 400);
+  }
 
-  const userId = c.get('userId') as string;
-  const denied = await checkAllowedPath(parent, userId);
+  const denied = await requirePickerPath(parent);
   if (denied) return denied;
 
   const newPath = join(parent, name);
@@ -213,7 +198,7 @@ app.post('/open-directory', async (c) => {
   if (!dirPath) return c.json({ error: 'path is required' }, 400);
   const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requireProjectPath(dirPath, userId);
   if (denied) return denied;
 
   // Normalize and resolve the path to its absolute form
@@ -262,7 +247,7 @@ app.post('/open-in-editor', async (c) => {
   if (!editor) return c.json({ error: 'editor is required' }, 400);
   const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requireProjectPath(dirPath, userId);
   if (denied) return denied;
 
   const editorCommands: Record<string, { cmd: string; args: string[] }> = {
@@ -296,7 +281,7 @@ app.post('/open-terminal', async (c) => {
   if (!dirPath) return c.json({ error: 'path is required' }, 400);
   const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requireProjectPath(dirPath, userId);
   if (denied) return denied;
 
   // Normalize and resolve the path to its absolute form
@@ -363,7 +348,7 @@ app.get('/files', async (c) => {
   const dirPath = dirPathOrRes;
   const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requireProjectPath(dirPath, userId);
   if (denied) return denied;
 
   const query = c.req.query('query') || '';
@@ -433,7 +418,7 @@ app.get('/symbols', async (c) => {
   const dirPath = dirPathOrRes;
   const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requireProjectPath(dirPath, userId);
   if (denied) return denied;
 
   const query = c.req.query('query') || '';
@@ -457,7 +442,7 @@ app.post('/symbols/index', async (c) => {
   if (!dirPath) return c.json({ error: 'path is required' }, 400);
   const userId = c.get('userId') as string;
 
-  const denied = await checkAllowedPath(dirPath, userId);
+  const denied = await requireProjectPath(dirPath, userId);
   if (denied) return denied;
 
   // Fire-and-forget indexing

@@ -18,8 +18,16 @@
  * - X-Forwarded-User: userId from the authenticated session
  * - X-Forwarded-Org: organizationId (if present)
  * - X-Runner-Auth: shared secret so the runner trusts the server
+ * - X-Forwarded-Signature / X-Forwarded-Timestamp: HMAC-SHA256 over the
+ *   forwarded identity, proving the headers came from the server (not from
+ *   a client that happens to know the shared secret).
  */
 
+import {
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  signForwardedIdentity,
+} from '@funny/shared/auth/forwarded-identity';
 import type { Context } from 'hono';
 
 import { log } from '../lib/logger.js';
@@ -104,6 +112,17 @@ export async function proxyToRunner(c: Context<ServerEnv>): Promise<Response> {
     forwardedHeaders['X-Forwarded-Role'] = userRole;
   }
 
+  // HMAC-sign the forwarded identity so the runtime can distinguish a real
+  // server-proxied request from a spoofed one carrying the shared secret.
+  if (userId) {
+    const { signature, timestamp } = signForwardedIdentity(
+      { userId, role: userRole ?? null, orgId: orgId ?? null, orgName: orgName ?? null },
+      RUNNER_AUTH_SECRET,
+    );
+    forwardedHeaders[SIGNATURE_HEADER] = signature;
+    forwardedHeaders[TIMESTAMP_HEADER] = String(timestamp);
+  }
+
   // Read body for non-GET/HEAD requests
   let body: string | null = null;
   if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
@@ -181,9 +200,44 @@ async function directHttpFetch(
     body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? body : undefined,
   });
 
+  // Security M5: do not forward arbitrary response headers from the runner.
+  // A malicious runner could otherwise set `Set-Cookie` on the server's
+  // origin, poison `Access-Control-*` to relax CORS, or trip `Strict-
+  // Transport-Security` / `Content-Security-Policy` on the central server.
+  // Allowlist only payload-describing headers that the client legitimately
+  // needs to render the response.
   return new Response(runnerResponse.body, {
     status: runnerResponse.status,
     statusText: runnerResponse.statusText,
-    headers: runnerResponse.headers,
+    headers: filterSafeRunnerResponseHeaders(runnerResponse.headers),
   });
+}
+
+/**
+ * Headers we accept back from a runner. Kept deliberately narrow — if a new
+ * legitimate header shows up, add it explicitly rather than loosening this
+ * list. Any `Set-Cookie` / `Access-Control-*` / `Authorization` / security-
+ * policy header from the runner is silently dropped.
+ */
+const SAFE_RUNNER_RESPONSE_HEADERS = new Set([
+  'content-type',
+  'content-length',
+  'content-encoding',
+  'content-disposition',
+  'content-language',
+  'cache-control',
+  'etag',
+  'last-modified',
+  'vary',
+  'x-content-type-options',
+]);
+
+function filterSafeRunnerResponseHeaders(source: Headers): Headers {
+  const out = new Headers();
+  source.forEach((value, key) => {
+    if (SAFE_RUNNER_RESPONSE_HEADERS.has(key.toLowerCase())) {
+      out.set(key, value);
+    }
+  });
+  return out;
 }

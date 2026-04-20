@@ -10,7 +10,7 @@ import { processError, type DomainError } from '@funny/shared/errors';
 import { ResultAsync } from 'neverthrow';
 
 import { git, type GitIdentityOptions } from './base.js';
-import { executeShell } from './process.js';
+import { execute, SHELL } from './process.js';
 
 /**
  * Create a commit with a message.
@@ -55,9 +55,22 @@ export function commit(
   });
 }
 
+/** Hard cap on the size of a hook command body to avoid pathological payloads. */
+const MAX_HOOK_COMMAND_BYTES = 64 * 1024;
+
 /**
  * Run a single hook command (e.g. one step from .husky/pre-commit) in the given cwd.
- * Returns ok({ success, output }) or err(DomainError) on unexpected failures.
+ *
+ * The command is written to a temporary shell script and executed as a
+ * standalone file (`sh /tmp/…/hook.sh`) rather than inlined into `sh -c
+ * "$command"`. This removes the class of bugs where a caller accidentally
+ * splices user-controlled fragments into the command string and ends up with
+ * shell-metacharacter injection: the script body is now read by the shell
+ * from disk, never from an argv buffer. Behaviourally equivalent to how git
+ * itself runs hook scripts.
+ *
+ * Callers must only pass hook bodies sourced from trusted storage (e.g.
+ * `.husky/<hook>` on disk); never a raw HTTP body.
  */
 export function runHookCommand(
   cwd: string,
@@ -65,9 +78,41 @@ export function runHookCommand(
 ): ResultAsync<{ success: boolean; output: string }, DomainError> {
   return ResultAsync.fromPromise(
     (async () => {
-      const result = await executeShell(command, { cwd, reject: false, timeout: 120_000 });
-      const output = (result.stdout + '\n' + result.stderr).trim();
-      return { success: result.exitCode === 0, output };
+      if (typeof command !== 'string' || command.length === 0) {
+        return { success: false, output: 'Empty hook command' };
+      }
+      if (Buffer.byteLength(command, 'utf-8') > MAX_HOOK_COMMAND_BYTES) {
+        return { success: false, output: 'Hook command exceeds size limit' };
+      }
+
+      const scriptDir = join(tmpdir(), `funny-hook-${crypto.randomUUID()}`);
+      const scriptFile = join(scriptDir, 'hook.sh');
+      mkdirSync(scriptDir, { recursive: true });
+      writeFileSync(scriptFile, `#!/usr/bin/env sh\nset -e\n${command}\n`, {
+        encoding: 'utf-8',
+        mode: 0o700,
+      });
+      try {
+        chmodSync(scriptFile, 0o700);
+      } catch {
+        /* Windows may ignore chmod */
+      }
+
+      try {
+        const result = await execute(SHELL, [scriptFile], {
+          cwd,
+          reject: false,
+          timeout: 120_000,
+        });
+        const output = (result.stdout + '\n' + result.stderr).trim();
+        return { success: result.exitCode === 0, output };
+      } finally {
+        try {
+          rmSync(scriptDir, { recursive: true, force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
     })(),
     (e: unknown) => processError((e as Error).message || 'Hook command failed', 1, ''),
   );

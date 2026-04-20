@@ -7,6 +7,8 @@
 
 import type { Server as SocketIOServer } from 'socket.io';
 
+import { getRunnerSocketId } from './ws-relay.js';
+
 // ── Socket.IO reference ─────────────────────────────────
 // Set by socketio.ts after initialization to avoid circular imports
 
@@ -41,15 +43,14 @@ export function tunnelFetch(
     }
 
     const runnerNsp = _io.of('/runner');
-    const room = runnerNsp.adapter.rooms.get(`runner:${runnerId}`);
-
-    if (!room || room.size === 0) {
+    // Look up the current socket via ws-relay's registry rather than the
+    // room — during a reconnect the room may briefly contain both the old
+    // and new sockets; the registry always points at exactly one.
+    const socketId = getRunnerSocketId(runnerId);
+    if (!socketId) {
       reject(new Error(`Runner ${runnerId} not connected`));
       return;
     }
-
-    // Get the actual socket for this runner
-    const socketId = room.values().next().value;
     const socket = runnerNsp.sockets.get(socketId);
 
     if (!socket) {

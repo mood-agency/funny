@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import { toast } from 'sonner';
 
 import { closePreviewForCommand } from '@/hooks/use-preview-window';
+import { validateContainerUrl } from '@/lib/api';
 import { createClientLogger } from '@/lib/client-logger';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
 import { useGitStatusStore, invalidateCooldownsForKeys } from '@/stores/git-status-store';
@@ -587,8 +588,19 @@ function registerSocketIOHandlers(socket: Socket): void {
 export function connectRemoteWS(containerUrl: string) {
   if (stopped || remoteConnections.has(containerUrl)) return;
 
-  const wsUrl = `${containerUrl.replace(/^http/, 'ws')}/ws`;
-  wsLog.info('connecting remote WS', { containerUrl });
+  // Security H11: validate before opening a socket. `validateContainerUrl`
+  // rejects non-http(s) schemes, credential-bearing URLs, and (when
+  // configured) origins outside the VITE_ALLOWED_CONTAINER_ORIGINS allowlist.
+  // Returns the canonical origin so we never feed attacker-controlled path
+  // fragments into the WS URL.
+  const safeOrigin = validateContainerUrl(containerUrl);
+  if (!safeOrigin) {
+    wsLog.warn('refusing remote WS — invalid containerUrl', { containerUrl });
+    return;
+  }
+
+  const wsUrl = `${safeOrigin.replace(/^http/, 'ws')}/ws`;
+  wsLog.info('connecting remote WS', { containerUrl: safeOrigin });
 
   const ws = new WebSocket(wsUrl);
   remoteConnections.set(containerUrl, ws);

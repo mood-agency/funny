@@ -4,7 +4,6 @@ import type {
   WSTestConsoleData,
   WSTestErrorData,
 } from '@funny/shared';
-import AnsiToHtml from 'ansi-to-html';
 import {
   AlertTriangle,
   Crosshair,
@@ -22,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { CodeViewer } from '@/components/ui/code-viewer';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -107,11 +107,10 @@ function LogTab({ outputLines }: { outputLines: OutputLine[] }) {
 
   const ansiConverter = useMemo(
     () =>
-      new AnsiToHtml({
+      createAnsiConverter({
         fg: getCssVar('--foreground'),
         bg: getCssVar('--background'),
         newline: false,
-        escapeXML: true,
       }),
     [themeKey],
   );

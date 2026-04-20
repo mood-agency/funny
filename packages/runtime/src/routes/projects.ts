@@ -53,14 +53,15 @@ export const projectRoutes = new Hono<HonoEnv>();
 
 // GET /api/projects/:id/branches
 projectRoutes.get('/:id/branches', async (c) => {
-  const projectResult = await requireProject(c.req.param('id'));
+  const userId = c.get('userId');
+  const orgId = c.get('organizationId') ?? undefined;
+  const projectResult = await requireProject(c.req.param('id'), userId, orgId);
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const project = projectResult.value;
   // Fire-and-forget: fetch remote refs in the background so the response is
   // instant (uses locally cached branch data). The next call will see updated
   // remote branches once the fetch completes.
-  const userId = c.get('userId');
   const identity = userId ? await resolveIdentity(userId) : undefined;
   void fetchRemote(project.path, identity);
   const [branchesResult, defaultBranchResult, currentBranchResult] = await Promise.all([
@@ -82,7 +83,11 @@ projectRoutes.get('/:id/branches', async (c) => {
 
 // GET /api/projects/:id/checkout-preflight?branch=<branch>
 projectRoutes.get('/:id/checkout-preflight', async (c) => {
-  const projectResult = await requireProject(c.req.param('id'));
+  const projectResult = await requireProject(
+    c.req.param('id'),
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const targetBranch = c.req.query('branch');
@@ -128,7 +133,11 @@ projectRoutes.get('/:id/checkout-preflight', async (c) => {
 
 // POST /api/projects/:id/checkout — perform branch checkout with a strategy for dirty files
 projectRoutes.post('/:id/checkout', async (c) => {
-  const projectResult = await requireProject(c.req.param('id'));
+  const projectResult = await requireProject(
+    c.req.param('id'),
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const body = await c.req.json<{
@@ -233,7 +242,11 @@ projectRoutes.post('/:id/commands/:cmdId/start', requireAdmin, async (c) => {
   const projectId = c.req.param('id');
   const cmdId = c.req.param('cmdId');
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 
@@ -283,7 +296,11 @@ projectRoutes.get('/:id/commands/:cmdId/metrics', (c) => {
 // POST /api/projects/:id/sync-processes — sync .funny.json processes + Procfile with startup commands
 projectRoutes.post('/:id/sync-processes', requireAdmin, async (c) => {
   const projectId = c.req.param('id');
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 
@@ -327,7 +344,11 @@ projectRoutes.post('/:id/sync-processes', requireAdmin, async (c) => {
 projectRoutes.post('/:id/sync-config', requireAdmin, async (c) => {
   const projectId = c.req.param('id');
   const userId = c.get('userId');
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    userId,
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 

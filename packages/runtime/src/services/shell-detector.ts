@@ -214,3 +214,22 @@ export function detectShells(): DetectedShell[] {
 export function clearShellCache(): void {
   cachedShells = null;
 }
+
+/**
+ * Validate a user-supplied shell identifier against the detected-shells
+ * allowlist. `undefined`, `null`, and the sentinel `'default'` are passed
+ * through unchanged (backends treat them as "use system default"). Any
+ * other string MUST match a detected shell's `id`; unknown values are
+ * rejected and coerced to `'default'` so backends fall back to the system
+ * shell instead of spawning an arbitrary executable.
+ */
+export function validateShellId(shellId?: string): string | undefined {
+  if (!shellId || shellId === 'default') return shellId;
+  const detected = detectShells().find((s) => s.id === shellId);
+  if (detected) return shellId;
+  log.warn('Rejected unknown shell id — falling back to default', {
+    namespace: 'shell-detector',
+    requested: shellId,
+  });
+  return 'default';
+}

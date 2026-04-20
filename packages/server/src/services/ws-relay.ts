@@ -27,12 +27,41 @@ const runnerSockets = new Map<string, string>();
 
 // ── Runner client management ────────────────────────────
 
-export function addRunnerClient(runnerId: string, socketId: string): void {
+/**
+ * Register a runner's current socket, returning the socketId that was
+ * previously registered (or null). The caller is expected to disconnect
+ * the returned socket, which prevents the room from briefly holding two
+ * sockets during a reconnect — the race that caused duplicate emits.
+ */
+export function addRunnerClient(runnerId: string, socketId: string): string | null {
+  const previous = runnerSockets.get(runnerId) ?? null;
   runnerSockets.set(runnerId, socketId);
-  log.info('Runner connected', { namespace: 'ws-relay', runnerId });
+  log.info('Runner connected', {
+    namespace: 'ws-relay',
+    runnerId,
+    replaced: previous ?? undefined,
+  });
+  return previous;
 }
 
-export function removeRunnerClient(runnerId: string): void {
+/**
+ * Remove a runner's socket. If `socketId` is provided we only clear the
+ * entry when it still matches — so a stale socket's delayed disconnect
+ * cannot unregister a freshly-connected replacement socket.
+ */
+export function removeRunnerClient(runnerId: string, socketId?: string): void {
+  if (socketId !== undefined) {
+    const current = runnerSockets.get(runnerId);
+    if (current !== socketId) {
+      log.info('Skipping stale runner disconnect — replaced by newer socket', {
+        namespace: 'ws-relay',
+        runnerId,
+        disconnectingSocket: socketId,
+        currentSocket: current,
+      });
+      return;
+    }
+  }
   runnerSockets.delete(runnerId);
   log.info('Runner disconnected', { namespace: 'ws-relay', runnerId });
 }
@@ -40,6 +69,11 @@ export function removeRunnerClient(runnerId: string): void {
 /** Check if a runner is connected via Socket.IO. */
 export function isRunnerConnected(runnerId: string): boolean {
   return runnerSockets.has(runnerId);
+}
+
+/** Return the currently-registered socketId for a runner, or null. */
+export function getRunnerSocketId(runnerId: string): string | null {
+  return runnerSockets.get(runnerId) ?? null;
 }
 
 // ── Event relay ─────────────────────────────────────────
@@ -65,11 +99,18 @@ export function broadcast(event: Record<string, unknown>): void {
 
 /**
  * Send a command to a specific runner via Socket.IO.
+ *
+ * Emits to the current registered socketId rather than the runner's room.
+ * During a reconnect window both the old and new sockets may briefly live
+ * in the same room; addressing a specific socketId keeps us delivering to
+ * exactly one endpoint (the most recent one) and avoids duplicate emits.
  */
 export function sendToRunner(runnerId: string, command: Record<string, unknown>): boolean {
   if (!_io) return false;
+  const socketId = runnerSockets.get(runnerId);
+  if (!socketId) return false;
   const eventType = (command.type as string) || 'command';
-  _io.of('/runner').to(`runner:${runnerId}`).emit(eventType, command);
+  _io.of('/runner').to(socketId).emit(eventType, command);
   return true;
 }
 

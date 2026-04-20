@@ -23,14 +23,19 @@ function resolveShell(shellId?: string): { exe: string; args: string[] } {
     return { exe: process.env.SHELL || 'bash', args: [] };
   }
 
-  // Look up the shell by its detected ID
+  // Look up the shell by its detected ID. Unknown ids are refused here
+  // (defense-in-depth; pty-manager already validates) — fall back to the
+  // system default rather than executing an attacker-supplied binary.
   const detected = detectShells().find((s) => s.id === shellId);
   if (detected) {
     return { exe: detected.path, args: [] };
   }
 
-  // Fallback: try using shellId directly as an executable name
-  return { exe: shellId, args: [] };
+  log.warn('Unknown shell id in bun backend — falling back to default', {
+    namespace: 'pty-bun',
+    requested: shellId,
+  });
+  return { exe: process.env.SHELL || 'bash', args: [] };
 }
 
 export class BunPtyBackend implements PtyBackend {

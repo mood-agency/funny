@@ -18,16 +18,21 @@ import {
   toggleMcpServer,
   RECOMMENDED_SERVERS,
 } from '../services/mcp-service.js';
+import type { HonoEnv } from '../types/hono-env.js';
+import { requireProjectPath } from '../utils/path-scope.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { addMcpServerSchema, validate } from '../validation/schemas.js';
 
-const app = new Hono();
+const app = new Hono<HonoEnv>();
 
 // List MCP servers for a project
 app.get('/servers', async (c) => {
   const projectPath = c.req.query('projectPath');
   if (!projectPath)
     return resultToResponse(c, err(badRequest('projectPath query parameter required')));
+
+  const denied = await requireProjectPath(projectPath, c.get('userId'));
+  if (denied) return denied;
 
   const result = await listMcpServers(projectPath);
   if (result.isErr()) return resultToResponse(c, result);
@@ -39,6 +44,9 @@ app.post('/servers', async (c) => {
   const raw = await c.req.json();
   const parsed = validate(addMcpServerSchema, raw);
   if (parsed.isErr()) return resultToResponse(c, parsed);
+
+  const denied = await requireProjectPath(parsed.value.projectPath, c.get('userId'));
+  if (denied) return denied;
 
   const result = await addMcpServer(parsed.value);
   if (result.isErr()) return resultToResponse(c, result);
@@ -54,6 +62,9 @@ app.delete('/servers/:name', async (c) => {
   if (!projectPath)
     return resultToResponse(c, err(badRequest('projectPath query parameter required')));
 
+  const denied = await requireProjectPath(projectPath, c.get('userId'));
+  if (denied) return denied;
+
   const result = await removeMcpServer({ name, projectPath, scope });
   if (result.isErr()) return resultToResponse(c, result);
   return c.json({ ok: true });
@@ -67,6 +78,9 @@ app.patch('/servers/:name/toggle', async (c) => {
 
   if (!projectPath || typeof disabled !== 'boolean')
     return resultToResponse(c, err(badRequest('projectPath and disabled (boolean) are required')));
+
+  const denied = await requireProjectPath(projectPath, c.get('userId'));
+  if (denied) return denied;
 
   const result = await toggleMcpServer({ name, projectPath, disabled });
   if (result.isErr()) return resultToResponse(c, result);
@@ -86,6 +100,9 @@ app.post('/oauth/start', async (c) => {
   if (!serverName || !projectPath) {
     return resultToResponse(c, err(badRequest('serverName and projectPath are required')));
   }
+
+  const denied = await requireProjectPath(projectPath, c.get('userId'));
+  if (denied) return denied;
 
   const serversResult = await listMcpServers(projectPath);
   if (serversResult.isErr()) return resultToResponse(c, serversResult);
@@ -122,6 +139,9 @@ app.post('/oauth/token', async (c) => {
   if (!serverName || !projectPath || !token) {
     return resultToResponse(c, err(badRequest('serverName, projectPath, and token are required')));
   }
+
+  const denied = await requireProjectPath(projectPath, c.get('userId'));
+  if (denied) return denied;
 
   const serversResult = await listMcpServers(projectPath);
   if (serversResult.isErr()) return resultToResponse(c, serversResult);

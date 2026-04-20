@@ -1,4 +1,3 @@
-import AnsiToHtml from 'ansi-to-html';
 import { RefreshCw, Hammer, CircleCheck, CircleX, Circle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -6,6 +5,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { api } from '@/lib/api';
 import { createClientLogger } from '@/lib/client-logger';
 import { cn } from '@/lib/utils';
@@ -22,11 +22,10 @@ interface NativeGitInfo {
   canBuild: boolean;
 }
 
-const ansiConverter = new AnsiToHtml({
+const ansiConverter = createAnsiConverter({
   fg: '#abb2bf',
   bg: 'transparent',
   newline: true,
-  escapeXML: true,
 });
 
 export function SystemSettings() {

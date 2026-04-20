@@ -218,21 +218,36 @@ export async function initBetterAuth(): Promise<void> {
         meta: { userId: created.id, email },
       });
       if (isGeneratedPassword) {
-        // Write password to stderr only (NOT to structured logging which may persist in Abbacchio)
+        // Security H9: never write the generated password to stderr or any log
+        // stream — log pipelines (Abbacchio, journald, docker logs) commonly
+        // capture stderr and would persist the secret indefinitely. Instead
+        // write it to a mode-0600 file that only the server user can read,
+        // and print just the file path to stderr as a one-time setup hint.
+        const passwordPath = resolve(DATA_DIR, 'admin-password.txt');
+        const body =
+          `Generated admin credentials for funny\n` +
+          `Username: ${username}\n` +
+          `Password: ${password}\n\n` +
+          `Delete this file after you have logged in and changed the password.\n` +
+          `Set ADMIN_PASSWORD in the environment to skip credential generation.\n`;
+        writeFileSync(passwordPath, body, { mode: 0o600 });
         process.stderr.write(
           `\n` +
             `  ========================================\n` +
             `  GENERATED ADMIN CREDENTIALS\n` +
             `  Username: ${username}\n` +
-            `  Password: ${password}\n` +
-            `  ========================================\n` +
-            `  Change this password after first login.\n` +
-            `  Set ADMIN_PASSWORD env var to use a fixed password.\n\n`,
+            `  Password written to: ${passwordPath}\n` +
+            `  (file is mode 0600; delete after first login)\n` +
+            `  ========================================\n\n`,
         );
-        log.info('Created admin account with generated password — see stderr for credentials', {
-          namespace: 'auth',
-          username,
-        });
+        log.info(
+          'Created admin account with generated password — credentials written to data dir',
+          {
+            namespace: 'auth',
+            username,
+            passwordPath,
+          },
+        );
       } else {
         log.info('Created admin account with configured password', {
           namespace: 'auth',

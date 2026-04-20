@@ -149,6 +149,8 @@ Configuration:
 - `RUNNER_AUTH_SECRET` — **Required** shared secret for runner ↔ server authentication
 - `DATABASE_URL` — Optional PostgreSQL connection string on the server (default: SQLite at `~/.funny/data.db`)
 
+> **Runners are not sandboxed.** A runner pointed at a remote `TEAM_SERVER_URL` effectively grants that server shell execution in the runner's `$HOME` (git ops, pre-commit hooks, Claude CLI spawn, PTY shells, access to saved GitHub tokens / provider keys). Only connect runners to central servers you trust, and prefer running each runner under a dedicated OS user / VM / container. See the **Machine B — Runner** section in [INSTALL.md](./INSTALL.md) for the full trust-boundary notes.
+
 ### Per-User Git Identity
 
 Each user can configure their own git identity and GitHub credentials from **Settings > Profile**:

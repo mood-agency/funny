@@ -125,8 +125,29 @@ runnerRoutes.get('/', async (c) => {
 
 runnerRoutes.get('/:runnerId', async (c) => {
   const runnerId = c.req.param('runnerId');
+  const userId = c.get('userId') as string | undefined;
+  const isRunner = c.get('isRunner') as boolean | undefined;
+  const userRole = c.get('userRole') as string | undefined;
+
   const runner = await rm.getRunner(runnerId);
   if (!runner) return c.json({ error: 'Runner not found' }, 404);
+
+  // Tenant isolation: only the owner, an admin, or a runner-authenticated
+  // caller (server-to-runner) may view a runner record. Otherwise return
+  // 404 rather than 403 so we don't disclose the runner's existence.
+  const isAdmin = userRole === 'admin';
+  const ownerId = await rm.getRunnerUserId(runnerId);
+  const isOwner = !!userId && ownerId === userId;
+  if (!isRunner && !isAdmin && !isOwner) {
+    audit({
+      action: 'authz.cross_tenant_refused',
+      actorId: userId ?? null,
+      detail: 'GET /api/runners/:runnerId refused for non-owner',
+      meta: { runnerId, ownerId: ownerId ?? null },
+    });
+    return c.json({ error: 'Runner not found' }, 404);
+  }
+
   return c.json(runner);
 });
 
@@ -163,6 +184,40 @@ runnerRoutes.delete('/:runnerId', async (c) => {
 
 // ── Project Assignment ──────────────────────────────────
 
+/**
+ * Return true when the caller is the runner's owner, an admin, or a
+ * runner-authenticated (server-to-runner) request. Callers that fail this
+ * check should 404 (not 403) so we don't leak a runner's existence to
+ * other tenants — matches the `GET /:runnerId` behaviour.
+ */
+async function authorizeRunnerAccess(runnerId: string, c: any): Promise<boolean> {
+  const userId = c.get('userId') as string | undefined;
+  const isRunner = c.get('isRunner') as boolean | undefined;
+  const userRole = c.get('userRole') as string | undefined;
+  if (isRunner) return true;
+  if (userRole === 'admin') return true;
+  if (!userId) {
+    audit({
+      action: 'authz.cross_tenant_refused',
+      actorId: null,
+      detail: 'Runner access refused — no userId on request',
+      meta: { runnerId, path: c.req.path, method: c.req.method },
+    });
+    return false;
+  }
+  const ownerId = await rm.getRunnerUserId(runnerId);
+  const isOwner = ownerId === userId;
+  if (!isOwner) {
+    audit({
+      action: 'authz.cross_tenant_refused',
+      actorId: userId,
+      detail: 'Runner access refused — non-owner',
+      meta: { runnerId, ownerId: ownerId ?? null, path: c.req.path, method: c.req.method },
+    });
+  }
+  return isOwner;
+}
+
 runnerRoutes.post('/:runnerId/projects', async (c) => {
   const runnerId = c.req.param('runnerId');
   const body = await c.req.json<AssignProjectRequest>();
@@ -172,7 +227,9 @@ runnerRoutes.post('/:runnerId/projects', async (c) => {
   }
 
   const runner = await rm.getRunner(runnerId);
-  if (!runner) return c.json({ error: 'Runner not found' }, 404);
+  if (!runner || !(await authorizeRunnerAccess(runnerId, c))) {
+    return c.json({ error: 'Runner not found' }, 404);
+  }
 
   const assignment = await rm.assignProject(runnerId, body);
   return c.json(assignment, 201);
@@ -182,7 +239,9 @@ runnerRoutes.get('/:runnerId/projects', async (c) => {
   const runnerId = c.req.param('runnerId');
 
   const runner = await rm.getRunner(runnerId);
-  if (!runner) return c.json({ error: 'Runner not found' }, 404);
+  if (!runner || !(await authorizeRunnerAccess(runnerId, c))) {
+    return c.json({ error: 'Runner not found' }, 404);
+  }
 
   const assignments = await rm.listAssignments(runnerId);
   return c.json({ assignments });
@@ -191,6 +250,11 @@ runnerRoutes.get('/:runnerId/projects', async (c) => {
 runnerRoutes.delete('/:runnerId/projects/:projectId', async (c) => {
   const runnerId = c.req.param('runnerId');
   const projectId = c.req.param('projectId');
+
+  const runner = await rm.getRunner(runnerId);
+  if (!runner || !(await authorizeRunnerAccess(runnerId, c))) {
+    return c.json({ error: 'Runner not found' }, 404);
+  }
 
   await rm.unassignProject(runnerId, { projectId });
   return c.json({ ok: true });

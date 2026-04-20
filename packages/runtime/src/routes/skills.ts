@@ -17,18 +17,24 @@ import {
   removeSkill,
   RECOMMENDED_SKILLS,
 } from '../services/skills-service.js';
+import type { HonoEnv } from '../types/hono-env.js';
+import { requireProjectPath } from '../utils/path-scope.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { addSkillSchema, validate } from '../validation/schemas.js';
 
-const app = new Hono();
+const app = new Hono<HonoEnv>();
 
 // List installed skills (optionally include project-level skills)
-app.get('/', (c) => {
+app.get('/', async (c) => {
   const lockFileSkills = listSkills();
   const lockFileNames = new Set(lockFileSkills.map((s) => s.name));
   const directSkills = listDirectClaudeSkills(lockFileNames);
   const pluginCommands = listPluginCommands();
   const projectPath = c.req.query('projectPath');
+  if (projectPath) {
+    const denied = await requireProjectPath(projectPath, c.get('userId'));
+    if (denied) return denied;
+  }
   const projectSkills = projectPath ? listProjectSkills(projectPath) : [];
 
   // Deduplicate by name (project > plugin > direct > lock file)

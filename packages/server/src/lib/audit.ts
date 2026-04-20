@@ -25,7 +25,15 @@ export type AuditAction =
   | 'project.delete'
   | 'org.create'
   | 'org.delete'
-  | 'settings.update';
+  | 'settings.update'
+  /** Session rejected by middleware (missing/invalid cookie, unparseable session). */
+  | 'auth.session_rejected'
+  /** Session role unexpected; coerced to least-privileged 'user' (H8 fallback). */
+  | 'auth.role_coerced'
+  /** Request carrying an unauthorized runner secret or token was rejected. */
+  | 'auth.runner_rejected'
+  /** Runner-scoped resource access refused because runner.userId ≠ requester/owner. */
+  | 'authz.cross_tenant_refused';
 
 interface AuditEntry {
   action: AuditAction;

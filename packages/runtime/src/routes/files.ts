@@ -20,42 +20,56 @@ import { resultToResponse } from '../utils/result-response.js';
 const app = new Hono<HonoEnv>();
 
 /**
- * Check if a path is within an allowed directory.
- * Restricted to the user's registered project directories and their worktrees.
- * Does NOT allow blanket home directory access — prevents reading ~/.ssh, ~/.aws, etc.
+ * Scope identifying the project + worktree base a path belongs to. Used to
+ * pin symlink targets back to the same project so a symlink from project A
+ * cannot escape into project B.
  */
-async function isPathAllowed(targetPath: string, userId: string): Promise<boolean> {
+type ProjectScope = { projectPath: string; worktreeBase: string };
+
+/**
+ * Resolve the project scope that owns `targetPath`, or null if no scope
+ * matches. A match means the normalized target is the project root, the
+ * worktree base, or a descendant of either (checked with `path + sep` to
+ * block sibling-prefix escapes like `/a/bc` matching `/a/b`).
+ */
+async function resolveProjectScope(
+  targetPath: string,
+  userId: string,
+): Promise<ProjectScope | null> {
   const normalizedTarget = normalize(resolve(targetPath));
 
   const projects = await getServices().projects.listProjects(userId);
   for (const project of projects) {
     const projectPath = normalize(resolve(project.path));
-    // Allow paths within the project directory (with separator check to prevent sibling traversal)
-    if (normalizedTarget === projectPath || normalizedTarget.startsWith(projectPath + sep))
-      return true;
-    // Allow the project's worktree directory
     const worktreeBase = normalize(
       resolve(dirname(projectPath), WORKTREE_DIR_NAME, basename(projectPath)),
     );
-    if (normalizedTarget === worktreeBase || normalizedTarget.startsWith(worktreeBase + sep))
-      return true;
+    const inProject =
+      normalizedTarget === projectPath || normalizedTarget.startsWith(projectPath + sep);
+    const inWorktree =
+      normalizedTarget === worktreeBase || normalizedTarget.startsWith(worktreeBase + sep);
+    if (inProject || inWorktree) return { projectPath, worktreeBase };
   }
 
-  return false;
+  return null;
 }
 
-/** Return 403 response if path is not in an allowed directory */
-async function checkAllowedPath(path: string, userId: string): Promise<Response | null> {
-  if (!(await isPathAllowed(path, userId))) {
-    return new Response(
-      JSON.stringify({ error: 'Access denied: path is outside allowed directories' }),
-      {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      },
-    );
-  }
-  return null;
+/** True if `targetPath` sits inside the given scope. */
+function isInScope(targetPath: string, scope: ProjectScope): boolean {
+  const normalizedTarget = normalize(resolve(targetPath));
+  return (
+    normalizedTarget === scope.projectPath ||
+    normalizedTarget.startsWith(scope.projectPath + sep) ||
+    normalizedTarget === scope.worktreeBase ||
+    normalizedTarget.startsWith(scope.worktreeBase + sep)
+  );
+}
+
+function deny(): Response {
+  return new Response(
+    JSON.stringify({ error: 'Access denied: path is outside allowed directories' }),
+    { status: 403, headers: { 'Content-Type': 'application/json' } },
+  );
 }
 
 /** Binary file extensions that should not be edited in the internal editor */
@@ -101,8 +115,8 @@ app.get('/read', async (c) => {
   }
 
   const userId = c.get('userId') as string;
-  const denied = await checkAllowedPath(filePath, userId);
-  if (denied) return denied;
+  const scope = await resolveProjectScope(filePath, userId);
+  if (!scope) return deny();
 
   // Check if file is binary
   const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
@@ -110,7 +124,9 @@ app.get('/read', async (c) => {
     return resultToResponse(c, err(badRequest('Cannot edit binary files in internal editor')));
   }
 
-  // Check for symlinks — resolve the real path and re-validate
+  // Symlink escape check: if the requested path is a symlink, the realpath
+  // must land back inside the SAME project scope. A symlink in project A
+  // pointing into project B (or anywhere else) is rejected.
   const linkStatResult = await ResultAsync.fromPromise(lstat(filePath), (e: any) =>
     e.code === 'ENOENT' ? notFound('File not found') : internal('File access error'),
   );
@@ -120,8 +136,7 @@ app.get('/read', async (c) => {
       e.code === 'ENOENT' ? notFound('File not found') : internal('File access error'),
     );
     if (realPathResult.isErr()) return resultToResponse(c, realPathResult);
-    const denied = await checkAllowedPath(realPathResult.value, userId);
-    if (denied) return denied;
+    if (!isInScope(realPathResult.value, scope)) return deny();
   }
 
   // Check file size (max 2MB)
@@ -157,8 +172,23 @@ app.post('/write', async (c) => {
   }
 
   const userId = c.get('userId') as string;
-  const denied = await checkAllowedPath(filePath, userId);
-  if (denied) return denied;
+  const scope = await resolveProjectScope(filePath, userId);
+  if (!scope) return deny();
+
+  // Symlink escape check: if the target exists and is a symlink, its realpath
+  // must stay within the same project scope. New files legitimately miss
+  // (ENOENT) — in that case there's no symlink to check.
+  try {
+    const linkStat = await lstat(filePath);
+    if (linkStat.isSymbolicLink()) {
+      const real = await realpath(filePath);
+      if (!isInScope(real, scope)) return deny();
+    }
+  } catch (e: any) {
+    if (e?.code !== 'ENOENT') {
+      return resultToResponse(c, err(internal('File access error')));
+    }
+  }
 
   const writeResult = await ResultAsync.fromPromise(
     writeFile(filePath, content, 'utf-8'),

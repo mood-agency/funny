@@ -18,11 +18,12 @@ import { badRequest } from '@funny/shared/errors';
 import { Hono } from 'hono';
 import { err } from 'neverthrow';
 
+import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
 import { requireProject } from '../utils/route-helpers.js';
 import { createWorktreeSchema, deleteWorktreeSchema, validate } from '../validation/schemas.js';
 
-export const worktreeRoutes = new Hono();
+export const worktreeRoutes = new Hono<HonoEnv>();
 
 // GET /api/worktrees/preview?projectId=xxx&branchName=xxx
 worktreeRoutes.get('/preview', async (c) => {
@@ -31,7 +32,11 @@ worktreeRoutes.get('/preview', async (c) => {
   if (!projectId || !branchName)
     return resultToResponse(c, err(badRequest('projectId and branchName are required')));
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const previewResult = await previewWorktree(projectResult.value.path, branchName);
@@ -45,7 +50,11 @@ worktreeRoutes.get('/status', async (c) => {
   if (!projectId || !worktreePath)
     return resultToResponse(c, err(badRequest('projectId and worktreePath are required')));
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const statusResult = await getStatusSummary(worktreePath, undefined, projectResult.value.path);
@@ -64,7 +73,11 @@ worktreeRoutes.get('/', async (c) => {
   const projectId = c.req.query('projectId');
   if (!projectId) return resultToResponse(c, err(badRequest('projectId is required')));
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   // Prune orphan worktrees before listing (best-effort, non-blocking on failure)
@@ -82,7 +95,11 @@ worktreeRoutes.post('/', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
   const { projectId, branchName, baseBranch } = parsed.value;
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   const wtResult = await createWorktree(projectResult.value.path, branchName, baseBranch);
@@ -97,7 +114,11 @@ worktreeRoutes.delete('/', async (c) => {
   if (parsed.isErr()) return resultToResponse(c, parsed);
   const { projectId, worktreePath, branchName, deleteBranch } = parsed.value;
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
 
   await removeWorktree(projectResult.value.path, worktreePath);

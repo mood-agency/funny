@@ -6,6 +6,11 @@
  */
 
 import {
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  signForwardedIdentity,
+} from '@funny/shared/auth/forwarded-identity';
+import {
   createThreadRepository,
   createMessageRepository,
   createCommentRepository,
@@ -115,6 +120,12 @@ function buildForwardHeaders(userId: string, orgId?: string): Record<string, str
     'X-Runner-Auth': RUNNER_AUTH_SECRET,
   };
   if (orgId) headers['X-Forwarded-Org'] = orgId;
+  const { signature, timestamp } = signForwardedIdentity(
+    { userId, orgId: orgId ?? null },
+    RUNNER_AUTH_SECRET,
+  );
+  headers[SIGNATURE_HEADER] = signature;
+  headers[TIMESTAMP_HEADER] = String(timestamp);
   return headers;
 }
 

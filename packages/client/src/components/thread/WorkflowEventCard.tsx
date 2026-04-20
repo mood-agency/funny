@@ -4,7 +4,6 @@
  */
 
 import type { ThreadEvent } from '@funny/shared';
-import AnsiToHtml from 'ansi-to-html';
 import {
   Shield,
   Eye,
@@ -28,6 +27,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { timeAgo } from '@/lib/thread-utils';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
@@ -47,10 +47,9 @@ function useNavigateToThread() {
   );
 }
 
-const ansiConverter = new AnsiToHtml({
+const ansiConverter = createAnsiConverter({
   fg: '#d4d4d4',
   bg: 'transparent',
-  escapeXML: true,
 });
 
 function parseEventData(data: string | Record<string, unknown>): Record<string, any> {

@@ -105,7 +105,13 @@ const SidebarProvider = React.forwardRef<
         }
 
         // This sets the cookie to keep the sidebar state.
-        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+        // Security M2: use SameSite=Lax to block cross-site reads and set
+        // Secure on https:// origins so the cookie can't leak over plain
+        // http. We can't HttpOnly here — the client needs to read it.
+        const isSecureOrigin =
+          typeof window !== 'undefined' && window.location.protocol === 'https:';
+        const secureAttr = isSecureOrigin ? '; Secure' : '';
+        document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax${secureAttr}`;
       },
       [setOpenProp, open],
     );
@@ -385,6 +391,8 @@ const SidebarRail = React.forwardRef<HTMLButtonElement, React.ComponentProps<'bu
               aria-label="Toggle Sidebar"
               className={cn(
                 'absolute inset-y-0 z-20 hidden translate-x-full sm:block',
+                // Wider hit area for click-to-toggle ergonomics (overrides default)
+                'before:-left-[5px] before:w-[13px]',
                 'group-data-[side=left]:right-0 group-data-[side=right]:left-0',
                 'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:hover:bg-sidebar',
                 '[[data-side=left][data-collapsible=offcanvas]_&]:-right-2',

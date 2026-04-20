@@ -13,6 +13,7 @@
 
     "./prompts": "./src/prompts/index.ts",
     "./runner-protocol": "./src/runner-protocol.ts",
+    "./auth/forwarded-identity": "./src/auth/forwarded-identity.ts",
     "./db/columns": "./src/db/columns.ts",
     "./db/provider": "./src/db/provider.ts",
     "./db/schema": "./src/db/schema.ts",

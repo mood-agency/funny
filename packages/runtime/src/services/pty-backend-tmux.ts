@@ -24,19 +24,26 @@ interface TmuxSession {
 }
 
 function resolveShell(shellId?: string): string {
-  if (!shellId || shellId === 'default') {
-    return process.env.SHELL || 'bash';
-  }
+  const defaultShell = process.env.SHELL || 'bash';
+  if (!shellId || shellId === 'default') return defaultShell;
+
+  // Defense-in-depth: pty-manager already validates shellId against the
+  // detected-shells allowlist. Unknown ids here fall back to default
+  // rather than treating the raw id as an executable path.
   const detected = detectShells().find((s) => s.id === shellId);
-  const resolved = detected?.path ?? shellId;
+  if (!detected) {
+    log.warn('Unknown shell id in tmux backend — falling back to default', {
+      namespace: 'pty-tmux',
+      requested: shellId,
+    });
+    return defaultShell;
+  }
 
   // Prevent running tmux inside tmux — fall back to default shell
-  const basename = resolved.split('/').pop() ?? '';
-  if (basename === 'tmux' || basename === 'screen') {
-    return process.env.SHELL || 'bash';
-  }
+  const basename = detected.path.split('/').pop() ?? '';
+  if (basename === 'tmux' || basename === 'screen') return defaultShell;
 
-  return resolved;
+  return detected.path;
 }
 
 function tmuxSessionName(id: string): string {

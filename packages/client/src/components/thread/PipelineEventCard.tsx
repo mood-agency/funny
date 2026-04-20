@@ -4,7 +4,6 @@
  */
 
 import type { ThreadEvent } from '@funny/shared';
-import AnsiToHtml from 'ansi-to-html';
 import {
   Shield,
   Eye,
@@ -24,6 +23,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { timeAgo } from '@/lib/thread-utils';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
@@ -358,9 +358,9 @@ function PrecommitHooksCard({
   const hooks: Array<{ label: string; status: string; error?: string }> = metadata.hooks ?? [];
   const hasFailed = metadata.status === 'failed';
 
-  // SECURITY: escapeXML must remain true to prevent XSS via dangerouslySetInnerHTML
+  // Security M6: `createAnsiConverter` enforces escapeXML regardless of caller.
   const ansiConverter = useMemo(
-    () => new AnsiToHtml({ fg: '#a1a1aa', bg: 'transparent', newline: false, escapeXML: true }),
+    () => createAnsiConverter({ fg: '#a1a1aa', bg: 'transparent', newline: false }),
     [],
   );
 

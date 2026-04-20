@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { readdir, writeFile, unlink } from 'fs/promises';
-import { join, relative } from 'path';
+import { isAbsolute, join, normalize, relative, resolve, sep } from 'path';
 
 import type {
   TestFileStatus,
@@ -178,15 +178,72 @@ function walkSuitesTree(suites: any[], file: string): TestSuite[] {
   return result;
 }
 
+/**
+ * Validate a user-supplied test file path. Returns the project-relative
+ * path on success, or an error object on rejection.
+ *
+ * Rules:
+ *   - must be a non-empty string
+ *   - must NOT be absolute and must NOT contain `..` segments
+ *   - must resolve inside `projectPath` (no escape via symlink-free traversal)
+ *   - must match a recognised test-file pattern (`*.spec.{ts,tsx,js,jsx}`)
+ *
+ * Normalising with `path.sep` equality+prefix protects against sibling
+ * directories like `/project-extra/...` matching `/project`.
+ */
+function validateTestFile(
+  projectPath: string,
+  file: string,
+): { ok: true; relative: string } | { ok: false; error: string } {
+  if (typeof file !== 'string' || file.length === 0) {
+    return { ok: false, error: 'file must be a non-empty string' };
+  }
+  if (file.startsWith('-')) {
+    // Prevents the path being argv-parsed as a flag by `playwright test`.
+    return { ok: false, error: 'file must not start with "-"' };
+  }
+  if (isAbsolute(file)) {
+    return { ok: false, error: 'file must be project-relative' };
+  }
+  const normalised = normalize(file);
+  if (normalised.startsWith('..') || normalised.split(/[\\/]/).includes('..')) {
+    return { ok: false, error: 'file must not escape the project directory' };
+  }
+  const projectRoot = normalize(resolve(projectPath));
+  const absolute = normalize(resolve(projectRoot, normalised));
+  if (absolute !== projectRoot && !absolute.startsWith(projectRoot + sep)) {
+    return { ok: false, error: 'file must resolve inside the project directory' };
+  }
+  if (!/\.spec\.(ts|tsx|js|jsx)$/.test(normalised)) {
+    return { ok: false, error: 'file must match *.spec.{ts,tsx,js,jsx}' };
+  }
+  return { ok: true, relative: normalised };
+}
+
 export async function discoverTestsInFile(
   projectPath: string,
   file: string,
 ): Promise<
   { specs: TestSpec[]; suites: TestSuite[]; projects: string[] } | { error: string; status: number }
 > {
+  const validated = validateTestFile(projectPath, file);
+  if (!validated.ok) {
+    log.warn('Rejected test file path for discoverTestsInFile', {
+      namespace: 'test-runner',
+      file,
+      reason: validated.error,
+    });
+    return { error: validated.error, status: 400 };
+  }
+  const safeFile = validated.relative;
+
   try {
-    log.info('Discovering tests in file', { namespace: 'test-runner', projectPath, file });
-    const proc = Bun.spawn(['npx', 'playwright', 'test', file, '--list', '--reporter=json'], {
+    log.info('Discovering tests in file', {
+      namespace: 'test-runner',
+      projectPath,
+      file: safeFile,
+    });
+    const proc = Bun.spawn(['npx', 'playwright', 'test', safeFile, '--list', '--reporter=json'], {
       cwd: projectPath,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -200,7 +257,7 @@ export async function discoverTestsInFile(
 
     log.info('Playwright list result', {
       namespace: 'test-runner',
-      file,
+      file: safeFile,
       exitCode,
       stdoutLen: stdout.length,
       stderrLen: stderr.length,
@@ -220,15 +277,24 @@ export async function discoverTestsInFile(
       return { error: `Failed to parse Playwright JSON output`, status: 500 };
     }
 
-    const specs = walkSuitesFlat(json.suites ?? [], file);
-    const suites = walkSuitesTree(json.suites ?? [], file);
+    const specs = walkSuitesFlat(json.suites ?? [], safeFile);
+    const suites = walkSuitesTree(json.suites ?? [], safeFile);
     const projects: string[] = (json.config?.projects ?? [])
       .map((p: any) => p.name)
       .filter(Boolean);
-    log.info('Discovered specs', { namespace: 'test-runner', file, count: specs.length, projects });
+    log.info('Discovered specs', {
+      namespace: 'test-runner',
+      file: safeFile,
+      count: specs.length,
+      projects,
+    });
     return { specs, suites, projects };
   } catch (err) {
-    log.error('discoverTestsInFile error', { namespace: 'test-runner', file, error: String(err) });
+    log.error('discoverTestsInFile error', {
+      namespace: 'test-runner',
+      file: safeFile,
+      error: String(err),
+    });
     return { error: String(err), status: 500 };
   }
 }
@@ -385,10 +451,22 @@ export async function runTest(
     return { error: 'A test is already running', status: 409 };
   }
 
+  const validated = validateTestFile(projectPath, file);
+  if (!validated.ok) {
+    log.warn('Rejected test file path for runTest', {
+      namespace: 'test-runner',
+      projectId,
+      file,
+      reason: validated.error,
+    });
+    return { error: validated.error, status: 400 };
+  }
+  const safeFile = validated.relative;
+
   const runId = randomUUID();
   const run: ActiveRun = {
     runId,
-    file,
+    file: safeFile,
     projectId,
     userId,
     process: null,
@@ -403,7 +481,7 @@ export async function runTest(
   wsBroker.emitToUser(userId, {
     type: 'test:status',
     threadId: projectId,
-    data: { status: 'running', file, runId },
+    data: { status: 'running', file: safeFile, runId },
   });
 
   try {
@@ -438,7 +516,7 @@ export default defineConfig({
     await writeFile(wrapperConfigPath, wrapperConfig, 'utf-8');
 
     // Spawn Playwright test process
-    const testTarget = line ? `${file}:${line}` : file;
+    const testTarget = line ? `${safeFile}:${line}` : safeFile;
     const projectArgs = projects?.length ? projects.flatMap((p) => ['--project', p]) : [];
     const proc = Bun.spawn(
       [
@@ -471,7 +549,7 @@ export default defineConfig({
     }
 
     // Try to connect CDP for browser streaming
-    connectCDP(projectId, userId, file, runId).catch((err) => {
+    connectCDP(projectId, userId, safeFile, runId).catch((err) => {
       log.warn('CDP connection failed — running without browser stream', {
         namespace: 'test-runner',
         error: String(err),
@@ -497,7 +575,7 @@ export default defineConfig({
       wsBroker.emitToUser(userId, {
         type: 'test:status',
         threadId: projectId,
-        data: { status, file, runId, exitCode: exitCode ?? undefined },
+        data: { status, file: safeFile, runId, exitCode: exitCode ?? undefined },
       });
     }
   } catch (err) {
@@ -511,7 +589,7 @@ export default defineConfig({
         threadId: projectId,
         data: {
           status: 'failed',
-          file,
+          file: safeFile,
           runId,
           error: String(err),
         },

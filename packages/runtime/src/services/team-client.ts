@@ -520,6 +520,37 @@ function connectSocket(): void {
     ack(response);
   });
 
+  // Single persistent listener for server data responses (Security L2).
+  // The server emits `data:response` with `{ requestId, response }`; we look
+  // up the pending entry in `pendingDataRequests` and resolve it. This
+  // replaces the previous pattern of registering a fresh `once()` listener
+  // per in-flight request on a dynamic `data:response:<id>` event name.
+  socket.on('data:response', (msg: { requestId?: string; response?: any }) => {
+    if (!msg || typeof msg.requestId !== 'string') return;
+    const pending = pendingDataRequests.get(msg.requestId);
+    if (!pending) return;
+    pendingDataRequests.delete(msg.requestId);
+    clearTimeout(pending.timer);
+    const r = msg.response;
+    if (r?.success === false && r?.error) {
+      pending.reject(new Error(r.error));
+    } else {
+      pending.resolve(r);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    // Fail every in-flight data request on disconnect so callers aren't
+    // stuck waiting for the full 15s timeout.
+    if (pendingDataRequests.size > 0) {
+      for (const [, p] of pendingDataRequests) {
+        clearTimeout(p.timer);
+        p.reject(new Error('Socket.IO disconnected while awaiting data response'));
+      }
+      pendingDataRequests.clear();
+    }
+  });
+
   // Handle browser WS messages forwarded through the central server
   socket.on('central:browser_ws', (data: any) => {
     if (data.userId && data.data) {
@@ -668,13 +699,30 @@ function releaseDataSlot(): void {
 }
 
 /**
+ * In-flight data request registry (Security L2).
+ *
+ * Keyed by the unique `requestId` sent with each `data:*` emit. A single
+ * persistent `data:response` listener (installed in `connectSocket`) dispatches
+ * server responses into the matching entry, so we no longer register a fresh
+ * `socket.once('data:response:<id>')` listener per request.
+ */
+const pendingDataRequests = new Map<
+  string,
+  {
+    resolve: (value: any) => void;
+    reject: (reason: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
+
+/**
  * Send a data message to the server using event-based request/response.
  *
  * Uses a unique requestId to correlate requests with responses. The server
- * emits back on `data:response:<requestId>` instead of using Socket.IO ack
- * callbacks. This avoids a deadlock where ack packets can't be delivered
- * while the runner is processing a tunnel:request on the same connection
- * (Bun's WebSocket / @socket.io/bun-engine limitation).
+ * emits back on `data:response` with `{ requestId, response }` instead of
+ * using Socket.IO ack callbacks. This avoids a deadlock where ack packets
+ * can't be delivered while the runner is processing a tunnel:request on the
+ * same connection (Bun's WebSocket / @socket.io/bun-engine limitation).
  *
  * Concurrency-limited to MAX_CONCURRENT_DATA_REQUESTS to prevent channel saturation.
  */
@@ -705,24 +753,14 @@ async function sendDataMessage(eventType: string, payload: Record<string, any>):
     }
 
     const requestId = nanoid();
-    const responseEvent = `data:response:${requestId}`;
 
     return await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        state.socket!.off(responseEvent, handler);
+      const timer = setTimeout(() => {
+        pendingDataRequests.delete(requestId);
         reject(new Error(`Data request timed out (${eventType})`));
       }, DATA_REQUEST_TIMEOUT);
 
-      const handler = (response: any) => {
-        clearTimeout(timeout);
-        if (response?.success === false && response?.error) {
-          reject(new Error(response.error));
-        } else {
-          resolve(response);
-        }
-      };
-
-      state.socket!.once(responseEvent, handler);
+      pendingDataRequests.set(requestId, { resolve, reject, timer });
       state.socket!.emit(eventType, { ...payload, _requestId: requestId });
     });
   } finally {

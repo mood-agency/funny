@@ -10,7 +10,7 @@
 
 import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
-import { basename, dirname, join, resolve } from 'path';
+import { basename, dirname, join, resolve, sep } from 'path';
 
 import {
   getStatusSummary,
@@ -502,16 +502,18 @@ function handlePtyMessage(type: string, data: any, userId: string, send: (msg: a
       });
 
       const resolvedCwd = resolve(data.cwd);
+      const isUnder = (target: string, scope: string) =>
+        target === scope || target.startsWith(scope + sep);
       const isCwdAllowed = (userProjects: Array<{ path: string }>) =>
         userProjects.some((p) => {
           const projectPath = resolve(p.path);
-          if (resolvedCwd.startsWith(projectPath)) return true;
+          if (isUnder(resolvedCwd, projectPath)) return true;
           const worktreeBase = resolve(
             dirname(projectPath),
             WORKTREE_DIR_NAME,
             basename(projectPath),
           );
-          return resolvedCwd.startsWith(worktreeBase);
+          return isUnder(resolvedCwd, worktreeBase);
         });
 
       const denyAccess = () => {

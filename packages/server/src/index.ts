@@ -87,6 +87,13 @@ app.use(
       frameSrc: ["'none'"],
     },
     strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+    // Security L3: X-Content-Type-Options: nosniff — applied to every response
+    // including the static client bundle served below, so a JS file uploaded
+    // with the wrong extension (or a transpiled chunk mis-typed by the CDN)
+    // cannot be executed as HTML/script via MIME sniffing. Set explicitly even
+    // though Hono defaults to true, so a future upstream default change can't
+    // silently regress this.
+    xContentTypeOptions: true,
   }),
 );
 // Relax COOP and CSP for the MCP OAuth callback page.
@@ -191,6 +198,10 @@ const { proxyToRunner } = await import('./middleware/proxy.js');
 app.all('/api/*', proxyToRunner);
 
 // Serve static files from client build (only if dist exists)
+// Security L3: static responses inherit X-Content-Type-Options: nosniff from
+// the global `secureHeaders()` middleware registered above — do not disable
+// its `xContentTypeOptions` default, or browsers will MIME-sniff bundled
+// assets and could execute attacker-controlled content under the server origin.
 const clientDistDir = resolve(import.meta.dir, '..', '..', 'client', 'dist');
 
 if (existsSync(clientDistDir)) {

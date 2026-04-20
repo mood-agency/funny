@@ -7,13 +7,22 @@
  *
  * The runtime always runs as a remote runner connected to the central server.
  * Auth priority:
- * 1. **X-Runner-Auth** — shared secret from server proxy (tunnel or direct HTTP)
+ * 1. **X-Runner-Auth + signed identity** — shared secret from server proxy
+ *    plus an HMAC over `userId|role|orgId|orgName|timestamp` in the
+ *    `X-Forwarded-Signature` / `X-Forwarded-Timestamp` headers. The signature
+ *    prevents a client that happens to know the shared secret from forging
+ *    `X-Forwarded-User`.
  * 2. **Server session** — browser cookie validated against TEAM_SERVER_URL
  * 3. **Better Auth** — local session fallback
  */
 
 import { timingSafeEqual } from 'crypto';
 
+import {
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  verifyForwardedIdentity,
+} from '@funny/shared/auth/forwarded-identity';
 import type { Context, Next } from 'hono';
 
 import { log } from '../lib/logger.js';
@@ -49,6 +58,11 @@ export async function authMiddleware(c: Context, next: Next) {
   if (PUBLIC_PATHS.has(path)) return next();
 
   // ── Forwarded auth from server via shared secret ──
+  //
+  // The shared secret proves the request went through the server proxy path.
+  // The HMAC signature proves the forwarded identity headers were set by the
+  // server (not spoofed by a client that happens to know the secret). Both
+  // checks must pass before we trust `X-Forwarded-User`.
   const RUNNER_AUTH_SECRET = process.env.RUNNER_AUTH_SECRET;
   const runnerAuthHeader = c.req.header('X-Runner-Auth');
   if (
@@ -59,10 +73,32 @@ export async function authMiddleware(c: Context, next: Next) {
   ) {
     const userId = c.req.header('X-Forwarded-User');
     if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+
+    const role = c.req.header('X-Forwarded-Role') || 'user';
+    const orgId = c.req.header('X-Forwarded-Org') || null;
+    const orgName = c.req.header('X-Forwarded-Org-Name') || null;
+
+    const signature = c.req.header(SIGNATURE_HEADER);
+    const timestamp = c.req.header(TIMESTAMP_HEADER);
+    const valid = verifyForwardedIdentity(
+      { userId, role, orgId, orgName },
+      RUNNER_AUTH_SECRET,
+      signature,
+      timestamp,
+    );
+    if (!valid) {
+      log.warn('Rejected forwarded identity with invalid signature', {
+        namespace: 'auth',
+        hasSignature: !!signature,
+        hasTimestamp: !!timestamp,
+      });
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
     c.set('userId', userId);
-    c.set('userRole', c.req.header('X-Forwarded-Role') || 'user');
-    c.set('organizationId', c.req.header('X-Forwarded-Org') || null);
-    c.set('organizationName', c.req.header('X-Forwarded-Org-Name') || null);
+    c.set('userRole', role);
+    c.set('organizationId', orgId);
+    c.set('organizationName', orgName);
     return next();
   }
 

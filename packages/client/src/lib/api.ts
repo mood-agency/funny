@@ -73,13 +73,53 @@ const serverPort = import.meta.env.VITE_SERVER_PORT || '3001';
 const BASE = isTauri ? `http://localhost:${serverPort}/api` : '/api';
 
 /**
+ * Security H11: normalise and validate a thread's containerUrl before we
+ * route API calls or open a WebSocket to it. The server is the primary trust
+ * boundary, but a bad containerUrl (e.g. `javascript:…`, a credential-bearing
+ * URL, a relative path, or a non-http(s) scheme) should never be followed
+ * blindly from the client. Returns the canonical origin (`https://host:port`)
+ * on success, or `null` when the URL is unsafe / unparseable — callers then
+ * fall back to the same-origin API base.
+ *
+ * An optional allowlist can be injected via `VITE_ALLOWED_CONTAINER_ORIGINS`
+ * (comma-separated origins). When the env var is set, a containerUrl whose
+ * origin is not on the list is rejected.
+ */
+const allowedContainerOrigins: string[] =
+  (import.meta.env.VITE_ALLOWED_CONTAINER_ORIGINS as string | undefined)
+    ?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean) ?? [];
+
+export function validateContainerUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  // Reject credentials in the URL — they'd be silently forwarded to the remote.
+  if (parsed.username || parsed.password) return null;
+  if (allowedContainerOrigins.length > 0 && !allowedContainerOrigins.includes(parsed.origin)) {
+    return null;
+  }
+  // Normalise to the bare origin so callers concatenate paths safely.
+  return parsed.origin;
+}
+
+/**
  * Get the API base URL for a thread.
  * Remote threads route to the container's Funny server.
  * Local threads (and non-thread calls) use the default base.
  */
 export function getBaseUrlForThread(thread?: { runtime?: string; containerUrl?: string }): string {
   if (thread?.runtime === 'remote' && thread.containerUrl) {
-    return `${thread.containerUrl}/api`;
+    const safe = validateContainerUrl(thread.containerUrl);
+    if (safe) return `${safe}/api`;
+    // Fall through to the same-origin base when the containerUrl fails
+    // validation — far better than silently calling an attacker-controlled host.
   }
   return BASE;
 }

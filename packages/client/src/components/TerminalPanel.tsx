@@ -1,4 +1,3 @@
-import AnsiToHtml from 'ansi-to-html';
 import { Plus, X, Square, Loader2, AlertCircle, RotateCcw, Zap } from 'lucide-react';
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +13,7 @@ import {
 import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getActiveWS } from '@/hooks/use-ws';
+import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
@@ -656,11 +656,10 @@ function CommandTabContent({
 
   const ansiConverter = useMemo(
     () =>
-      new AnsiToHtml({
+      createAnsiConverter({
         fg: getCssVar('--foreground'),
         bg: getCssVar('--background'),
         newline: true,
-        escapeXML: true,
       }),
     [],
   );

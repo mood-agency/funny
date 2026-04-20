@@ -2,8 +2,10 @@ import { vi, describe, test, expect, beforeEach } from 'vitest';
 
 vi.mock('../git/process.js', () => ({
   executeShell: vi.fn(),
+  execute: vi.fn(),
   gitRead: vi.fn(),
   gitWrite: vi.fn(),
+  SHELL: 'sh',
 }));
 
 vi.mock('../ports/config-reader.js', () => ({
@@ -22,12 +24,13 @@ vi.mock('../git/worktree.js', () => ({
 
 import { runHookCommand } from '../git/commit.js';
 // Must import after mocks
-import { executeShell } from '../git/process.js';
+import { execute, executeShell } from '../git/process.js';
 import { getWorktreeBase } from '../git/worktree.js';
 import { readProjectConfig } from '../ports/config-reader.js';
 import { setupWorktree } from '../ports/index.js';
 import { allocatePorts } from '../ports/port-allocator.js';
 
+const mockExecute = execute as ReturnType<typeof vi.fn>;
 const mockExecuteShell = executeShell as ReturnType<typeof vi.fn>;
 const mockReadProjectConfig = readProjectConfig as ReturnType<typeof vi.fn>;
 const mockAllocatePorts = allocatePorts as ReturnType<typeof vi.fn>;
@@ -39,7 +42,7 @@ describe('runHookCommand', () => {
   });
 
   test('returns ok({ success: true, output }) when command succeeds (exit code 0)', async () => {
-    mockExecuteShell.mockResolvedValue({
+    mockExecute.mockResolvedValue({
       exitCode: 0,
       stdout: 'lint passed',
       stderr: '',
@@ -52,15 +55,15 @@ describe('runHookCommand', () => {
       success: true,
       output: 'lint passed',
     });
-    expect(mockExecuteShell).toHaveBeenCalledWith('npm run lint', {
-      cwd: '/project',
-      reject: false,
-      timeout: 120_000,
-    });
+    expect(mockExecute).toHaveBeenCalledWith(
+      'sh',
+      [expect.stringMatching(/funny-hook-[\w-]+[\\/]hook\.sh$/)],
+      { cwd: '/project', reject: false, timeout: 120_000 },
+    );
   });
 
   test('returns ok({ success: false, output }) when command fails (non-zero exit code)', async () => {
-    mockExecuteShell.mockResolvedValue({
+    mockExecute.mockResolvedValue({
       exitCode: 1,
       stdout: '',
       stderr: 'lint errors found',
@@ -75,8 +78,8 @@ describe('runHookCommand', () => {
     });
   });
 
-  test('returns err(DomainError) when executeShell throws', async () => {
-    mockExecuteShell.mockRejectedValue(new Error('Command not found'));
+  test('returns err(DomainError) when execute throws', async () => {
+    mockExecute.mockRejectedValue(new Error('Command not found'));
 
     const result = await runHookCommand('/project', 'nonexistent-cmd');
 
@@ -84,6 +87,21 @@ describe('runHookCommand', () => {
     const error = result._unsafeUnwrapErr();
     expect(error.type).toBe('PROCESS_ERROR');
     expect(error.message).toBe('Command not found');
+  });
+
+  test('returns ok({ success: false }) for empty command', async () => {
+    const result = await runHookCommand('/project', '');
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().success).toBe(false);
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  test('returns ok({ success: false }) for oversized command', async () => {
+    const huge = 'x'.repeat(64 * 1024 + 1);
+    const result = await runHookCommand('/project', huge);
+    expect(result.isOk()).toBe(true);
+    expect(result._unsafeUnwrap().success).toBe(false);
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 

@@ -18,7 +18,11 @@ export const arcProjectRoutes = new Hono<HonoEnv>();
 
 // POST /api/projects/:id/arcs/directory — create arc directory on the filesystem
 arcProjectRoutes.post('/:id/arcs/directory', async (c) => {
-  const projectResult = await requireProject(c.req.param('id'));
+  const projectResult = await requireProject(
+    c.req.param('id'),
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 
@@ -45,7 +49,11 @@ arcRoutes.get('/:id/artifacts', async (c) => {
     return c.json({ error: 'name and projectId query params are required' }, 400);
   }
 
-  const projectResult = await requireProject(projectId);
+  const projectResult = await requireProject(
+    projectId,
+    c.get('userId'),
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 

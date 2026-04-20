@@ -34,12 +34,19 @@ function resolveShell(shellId?: string): { exe: string; args: string[] } {
     return { exe: process.env.SHELL || 'bash', args: [] };
   }
 
+  // Defense-in-depth: pty-manager already rejects unknown ids. If one still
+  // reaches here (e.g. a stale DB row from reattach), fall back to default
+  // rather than spawning an arbitrary binary.
   const detected = detectShells().find((s) => s.id === shellId);
   if (detected) {
     return { exe: detected.path, args: [] };
   }
 
-  return { exe: shellId, args: [] };
+  log.warn('Unknown shell id in headless backend — falling back to default', {
+    namespace: 'pty-headless',
+    requested: shellId,
+  });
+  return { exe: process.env.SHELL || 'bash', args: [] };
 }
 
 export class HeadlessPtyBackend implements PtyBackend {

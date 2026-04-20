@@ -169,11 +169,15 @@ gitRoutes.get('/status', async (c) => {
     return c.json(cached.data);
   }
 
-  const projectResult = await requireProject(projectId);
+  const userId = c.get('userId') as string;
+  const projectResult = await requireProject(
+    projectId,
+    userId,
+    c.get('organizationId') ?? undefined,
+  );
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 
-  const userId = c.get('userId') as string;
   const { threads } = await tm.listThreads({ projectId, userId });
   const worktreeThreads = threads.filter(
     (t) => t.mode === 'worktree' && t.worktreePath && t.branch,
@@ -1052,7 +1056,7 @@ gitRoutes.get('/:threadId/status', async (c) => {
   // after merge). Without this, local-mode threads with branch=null get
   // hardcoded zero stats instead of real git status.
   if (!thread.worktreePath && !thread.branch && thread.baseBranch && thread.mergedAt) {
-    const projectResult = await requireProject(thread.projectId);
+    const projectResult = await requireProject(thread.projectId, userId, orgId ?? undefined);
     const projectPath = projectResult.isOk() ? projectResult.value.path : null;
     const [unpushed, prInfo] = await Promise.all([
       projectPath ? countUnpushedCommits(projectPath, thread.baseBranch) : Promise.resolve(0),
@@ -1077,7 +1081,7 @@ gitRoutes.get('/:threadId/status', async (c) => {
     });
   }
 
-  const projectResult = await requireProject(thread.projectId);
+  const projectResult = await requireProject(thread.projectId, userId, orgId ?? undefined);
   if (projectResult.isErr()) return resultToResponse(c, projectResult);
   const project = projectResult.value;
 

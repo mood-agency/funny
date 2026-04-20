@@ -231,6 +231,22 @@ bun install -g @ironmussa/funny
 funny --team http://<central-server-ip>:3002
 ```
 
+> ⚠️ **Trust boundary — read before exposing a runner to a remote server.**
+>
+> A funny runner is **not sandboxed**. By design it spawns the Claude CLI, runs `git`, executes pre-commit hooks, and opens PTY shells on the host. A runner that points at a remote `TEAM_SERVER_URL` effectively grants that server:
+>
+> - Shell execution in the runner's `$HOME` under the OS user who launched `funny`.
+> - Read/write access to every git repo the OS user can reach, including worktrees, branches, and commits made under the git identity configured in **Settings > Profile**.
+> - Access to any GitHub Personal Access Tokens or provider API keys the user has saved to their profile (the runner decrypts these locally on demand).
+> - Access to files under `$HOME` that the path-scope allowlist permits (project dirs, worktrees, the file picker's `$HOME` scope), subject to the credential-dir blocklist (`.ssh`, `.aws`, `.gnupg`, `.kube`, `.config/gcloud`, `.docker`).
+>
+> Treat `TEAM_SERVER_URL` like an SSH destination: only point runners at a central server you *already trust* to run arbitrary code on the runner host. Hardening options:
+>
+> - Run each runner inside a dedicated unprivileged OS user, VM, or container with only the repos it needs mounted in.
+> - Use `FUNNY_DATA_DIR` to keep runner state out of the invoking user's main `$HOME`.
+> - Firewall the runner so it can only reach the central server and the git remotes it legitimately needs.
+> - Rotate `RUNNER_AUTH_SECRET` if a central server is ever decommissioned — any party with that secret and network reach to a runner inherits the same trust level.
+
 The runner machine needs:
 - Claude CLI installed and authenticated
 - Git installed and configured
@@ -489,3 +505,4 @@ Options:
 - Generate `RUNNER_AUTH_SECRET` with `openssl rand -hex 32` and keep it secret.
 - The `encryption.key` file at `~/.funny/encryption.key` encrypts stored GitHub tokens using AES-256-GCM. **Back it up** — if lost, saved tokens become unrecoverable.
 - When exposing the central server to the internet, use a reverse proxy (nginx, Caddy) with TLS.
+- **Runners are not sandboxed.** Pointing a runner at a remote `TEAM_SERVER_URL` gives that server shell access to the runner's `$HOME` under the OS user who launched `funny` — including every repo that user can read/write, saved GitHub tokens, and any provider API keys stored in **Settings > Profile**. Only connect runners to central servers you trust, and prefer running each runner in an isolated OS user, VM, or container. See the **Machine B — Runner** section above for the full trust boundary and hardening options.
