@@ -437,7 +437,15 @@ const MoreActionsMenu = memo(function MoreActionsMenu() {
   );
 });
 
-function StartupCommandsPopover({ projectId }: { projectId: string }) {
+function StartupCommandsPopover({
+  projectId,
+  threadId,
+  worktreeBranch,
+}: {
+  projectId: string;
+  threadId?: string;
+  worktreeBranch?: string;
+}) {
   const { t } = useTranslation();
   const [commands, setCommands] = useState<StartupCommand[]>([]);
   const [open, setOpen] = useState(false);
@@ -467,7 +475,7 @@ function StartupCommandsPopover({ projectId }: { projectId: string }) {
       commandId: cmd.id,
       projectId,
     });
-    await api.runCommand(projectId, cmd.id);
+    await api.runCommand(projectId, cmd.id, threadId);
   };
 
   const handleStop = async (cmd: StartupCommand) => {
@@ -494,6 +502,23 @@ function StartupCommandsPopover({ projectId }: { projectId: string }) {
         <TooltipContent>{t('startup.title', 'Startup Commands')}</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-64 p-2">
+        {threadId && (
+          <div
+            data-testid="startup-worktree-banner"
+            className="mb-2 flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground"
+          >
+            <GitBranch className="icon-xs flex-shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {t('startup.inWorktree', 'In worktree')}
+              {worktreeBranch ? (
+                <>
+                  {': '}
+                  <span className="font-mono text-foreground">{worktreeBranch}</span>
+                </>
+              ) : null}
+            </span>
+          </div>
+        )}
         {commands.length === 0 ? (
           <p className="py-3 text-center text-xs text-muted-foreground">
             {t('startup.noCommands')}
@@ -596,6 +621,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
     activeThreadStage,
     activeThreadStatus,
     activeThreadWorktreePath,
+    activeThreadBranch,
     activeThreadParentId,
     activeThreadArcId,
     activeThreadTemplateId,
@@ -607,6 +633,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
       activeThreadStage: s.activeThread?.stage,
       activeThreadStatus: s.activeThread?.status,
       activeThreadWorktreePath: s.activeThread?.worktreePath,
+      activeThreadBranch: s.activeThread?.branch,
       activeThreadParentId: s.activeThread?.parentThreadId,
       activeThreadArcId: s.activeThread?.arcId,
       activeThreadTemplateId: s.activeThread?.agentTemplateId,
@@ -615,6 +642,45 @@ export const ProjectHeader = memo(function ProjectHeader() {
   const activeTemplate = useAgentTemplateStore((s) =>
     activeThreadTemplateId ? s.templates.find((t) => t.id === activeThreadTemplateId) : undefined,
   );
+  const renameThread = useThreadStore((s) => s.renameThread);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  const startEditingTitle = useCallback(() => {
+    if (!activeThreadId) return;
+    setTitleDraft(activeThreadTitle ?? '');
+    setIsEditingTitle(true);
+  }, [activeThreadId, activeThreadTitle]);
+
+  const commitTitleEdit = useCallback(() => {
+    if (!activeThreadId || !activeThreadProjectId) {
+      setIsEditingTitle(false);
+      return;
+    }
+    const next = titleDraft.trim();
+    if (next && next !== (activeThreadTitle ?? '').trim()) {
+      renameThread(activeThreadId, activeThreadProjectId, next);
+      toast.success(t('toast.threadRenamed', { title: next }));
+    }
+    setIsEditingTitle(false);
+  }, [activeThreadId, activeThreadProjectId, activeThreadTitle, renameThread, t, titleDraft]);
+
+  const cancelTitleEdit = useCallback(() => {
+    setIsEditingTitle(false);
+  }, []);
+
+  useEffect(() => {
+    if (isEditingTitle) {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    }
+  }, [isEditingTitle]);
+
+  useEffect(() => {
+    setIsEditingTitle(false);
+  }, [activeThreadId]);
+
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const projects = useProjectStore((s) => s.projects);
   const setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
@@ -777,12 +843,56 @@ export const ProjectHeader = memo(function ProjectHeader() {
               {project && activeThreadId && <BreadcrumbSeparator />}
               {activeThreadId && (
                 <BreadcrumbItem className="min-w-0 max-w-[240px] sm:max-w-[360px] md:max-w-[520px]">
-                  <span
-                    className="block min-w-0 truncate text-sm font-medium"
-                    title={activeThreadTitle}
-                  >
-                    {activeThreadTitle}
-                  </span>
+                  {isEditingTitle ? (
+                    <span className="inline-grid min-w-0 max-w-full justify-start justify-items-start">
+                      <span
+                        aria-hidden
+                        className="invisible col-start-1 row-start-1 overflow-hidden whitespace-pre text-left text-sm font-medium"
+                      >
+                        {titleDraft || ' '}
+                      </span>
+                      <input
+                        ref={titleInputRef}
+                        data-testid="header-thread-title-input"
+                        value={titleDraft}
+                        onChange={(e) => setTitleDraft(e.target.value)}
+                        onBlur={commitTitleEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            commitTitleEdit();
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            cancelTitleEdit();
+                          }
+                        }}
+                        className="col-start-1 row-start-1 w-full min-w-0 border-0 bg-transparent p-0 text-left text-sm font-medium text-foreground outline-none ring-0 focus:outline-none focus:ring-0"
+                      />
+                    </span>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          data-testid="header-thread-title"
+                          onClick={startEditingTitle}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              startEditingTitle();
+                            }
+                          }}
+                          className="block min-w-0 max-w-full cursor-text truncate text-sm font-medium hover:text-accent-foreground"
+                        >
+                          {activeThreadTitle}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xl break-words">
+                        {activeThreadTitle}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </BreadcrumbItem>
               )}
               {activeTemplate && (
@@ -845,7 +955,11 @@ export const ProjectHeader = memo(function ProjectHeader() {
                 <TooltipContent>{t('kanban.viewOnBoard', 'View on Board')}</TooltipContent>
               </Tooltip>
             )}
-            <StartupCommandsPopover projectId={projectId!} />
+            <StartupCommandsPopover
+              projectId={projectId!}
+              threadId={activeThreadWorktreePath ? activeThreadId : undefined}
+              worktreeBranch={activeThreadWorktreePath ? activeThreadBranch : undefined}
+            />
             {runningWithPort.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>

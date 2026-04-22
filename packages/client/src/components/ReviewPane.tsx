@@ -2020,7 +2020,7 @@ export function ReviewPane() {
                           return (
                             <div
                               key={`folder-${row.path}`}
-                              className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground hover:bg-sidebar-accent/50"
+                              className="group flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground hover:bg-sidebar-accent/50"
                               style={{
                                 position: 'absolute',
                                 top: 0,
@@ -2054,9 +2054,41 @@ export function ReviewPane() {
                                 linesDeleted={row.deletions}
                                 size="xs"
                               />
-                              {/* Spacers to align with file rows (status letter + 3-dot menu) */}
+                              {/* Spacer to align with file rows' status letter */}
                               <span className="invisible flex-shrink-0 text-xs font-medium">M</span>
-                              <span className="h-6 w-6 flex-shrink-0" />
+                              <DropdownMenu
+                                onOpenChange={(open) => {
+                                  if (!open) dropdownCloseRef.current = Date.now();
+                                }}
+                              >
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    onClick={(e) => e.stopPropagation()}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    aria-label={t('review.moreActions', 'More actions')}
+                                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+                                    data-testid={`review-folder-menu-${row.path}`}
+                                  >
+                                    <MoreHorizontal className="icon-sm" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="end"
+                                  className="min-w-[220px]"
+                                  onCloseAutoFocus={(e) => e.preventDefault()}
+                                >
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleIgnore(row.path);
+                                    }}
+                                    data-testid={`review-folder-ignore-${row.path}`}
+                                  >
+                                    <FolderX />
+                                    {t('review.ignoreFolder')}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           );
                         }

@@ -23,6 +23,7 @@ import {
 } from '@funny/core/git';
 import { Hono } from 'hono';
 
+import { log } from '../lib/logger.js';
 import { requireAdmin } from '../middleware/auth.js';
 import {
   startCommand,
@@ -38,7 +39,7 @@ import * as tm from '../services/thread-manager.js';
 import { wsBroker } from '../services/ws-broker.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resultToResponse } from '../utils/result-response.js';
-import { requireProject } from '../utils/route-helpers.js';
+import { requireProject, requireThread } from '../utils/route-helpers.js';
 import {
   createCommandSchema,
   createHookSchema,
@@ -253,8 +254,9 @@ projectRoutes.post('/:id/commands/:cmdId/start', requireAdmin, async (c) => {
   const cmd = await getServices().startupCommands.getCommand(cmdId);
   if (!cmd) return c.json({ error: 'Command not found' }, 404);
 
-  // Optional auto-restart options from request body
+  // Optional body: auto-restart options + threadId (to run in a worktree cwd)
   let options: import('../services/command-runner.js').RestartOptions | undefined;
+  let threadId: string | undefined;
   try {
     const body = await c.req.json();
     if (body?.autoRestart !== undefined) {
@@ -264,11 +266,37 @@ projectRoutes.post('/:id/commands/:cmdId/start', requireAdmin, async (c) => {
         restartWindow: body.restartWindowSec ? body.restartWindowSec * 1000 : undefined,
       };
     }
+    if (typeof body?.threadId === 'string' && body.threadId.length > 0) {
+      threadId = body.threadId;
+    }
   } catch {
     // No body or invalid JSON — that's fine, defaults will be used
   }
 
-  await startCommand(cmdId, cmd.command, project.path, projectId, cmd.label, options);
+  let cwd = project.path;
+  if (threadId) {
+    const threadResult = await requireThread(
+      threadId,
+      c.get('userId'),
+      c.get('organizationId') ?? undefined,
+    );
+    if (threadResult.isErr()) return resultToResponse(c, threadResult);
+    const thread = threadResult.value;
+    if (thread.projectId !== projectId) {
+      return c.json({ error: 'Thread does not belong to project' }, 400);
+    }
+    if (thread.worktreePath) {
+      cwd = thread.worktreePath;
+      log.info('Starting command in thread worktree', {
+        namespace: 'routes:projects',
+        commandId: cmdId,
+        threadId,
+        cwd,
+      });
+    }
+  }
+
+  await startCommand(cmdId, cmd.command, cwd, projectId, cmd.label, options);
   return c.json({ ok: true });
 });
 

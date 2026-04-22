@@ -181,6 +181,13 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
         }
       }
 
+      // Ensure the project is expanded so the thread row is mounted in the
+      // projects list before we try to scroll to it.
+      const projectStore = useProjectStore.getState();
+      if (!projectStore.expandedProjects.has(projectId)) {
+        projectStore.toggleProject(projectId);
+      }
+
       startTransition(() => {
         const store = useThreadStore.getState();
         if (
@@ -190,6 +197,25 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
           store.selectThread(threadId);
         }
         navigate(buildPath(`/projects/${projectId}/threads/${threadId}`));
+      });
+
+      // Scroll the projects list to the selected thread. Scope the query to
+      // the project container so we match the row inside the projects list,
+      // not the same thread's row in the activity list above.
+      const scrollToThread = () => {
+        const el = document.querySelector(
+          `[data-project-id="${projectId}"] [data-testid="thread-item-${threadId}"]`,
+        );
+        if (el) {
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          return true;
+        }
+        return false;
+      };
+      requestAnimationFrame(() => {
+        if (scrollToThread()) return;
+        // Collapsible slide-down hasn't mounted the row yet — retry after it settles.
+        setTimeout(scrollToThread, 300);
       });
     },
     [navigate, ensureBranch],

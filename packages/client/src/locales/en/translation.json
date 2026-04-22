@@ -544,6 +544,7 @@
   },
   "startup": {
     "title": "Startup Commands",
+    "inWorktree": "In worktree",
     "addCommand": "Add Command",
     "noCommands": "No commands configured yet",
     "addFirst": "Add your first command",

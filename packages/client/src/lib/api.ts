@@ -941,8 +941,11 @@ export const api = {
     }),
   deleteCommand: (projectId: string, cmdId: string) =>
     request<{ ok: boolean }>(`/projects/${projectId}/commands/${cmdId}`, { method: 'DELETE' }),
-  runCommand: (projectId: string, cmdId: string) =>
-    request<{ ok: boolean }>(`/projects/${projectId}/commands/${cmdId}/start`, { method: 'POST' }),
+  runCommand: (projectId: string, cmdId: string, threadId?: string) =>
+    request<{ ok: boolean }>(`/projects/${projectId}/commands/${cmdId}/start`, {
+      method: 'POST',
+      body: JSON.stringify(threadId ? { threadId } : {}),
+    }),
   stopCommand: (projectId: string, cmdId: string) =>
     request<{ ok: boolean }>(`/projects/${projectId}/commands/${cmdId}/stop`, { method: 'POST' }),
 

@@ -250,8 +250,12 @@ export function ThreadView() {
   const handleToolRespond = useCallback((toolCallId: string, answer: string, _toolName: string) => {
     const thread = activeThreadRef.current;
     if (!thread) return;
+    // Optimistic UI update only — the server persists the tool output via
+    // sendMessage's findLastUnansweredInteractiveToolCall path. Calling
+    // api.updateToolCallOutput here would race with sendMessage and cause
+    // the pending tool-call to be marked answered before sendMessage reads
+    // it, skipping the ExitPlanMode → autoEdit permission-mode upgrade.
     useThreadStore.getState().handleWSToolOutput(thread.id, { toolCallId, output: answer });
-    api.updateToolCallOutput(thread.id, toolCallId, answer);
   }, []);
 
   // Stable ref to avoid recreating handleSend on every render.

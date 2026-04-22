@@ -29,9 +29,8 @@ export function createRemoteThreadManager(): IThreadManager {
     },
 
     async getThreadWithMessages(id: string) {
-      // Read-heavy — forwarded via HTTP tunnel
-      const { getServices } = await import('./service-registry.js');
-      return getServices().threads.getThreadWithMessages(id);
+      const { remoteGetThreadWithMessages } = await import('./team-client.js');
+      return remoteGetThreadWithMessages(id);
     },
 
     async insertMessage(data) {

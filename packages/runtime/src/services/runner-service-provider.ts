@@ -33,9 +33,9 @@ export function createRunnerServiceProvider(): RuntimeServiceProvider {
         const { remoteUpdateThread } = await import('./team-client.js');
         return remoteUpdateThread(id, updates);
       },
-      async getThreadWithMessages(_id) {
-        // Read-heavy — forwarded via HTTP tunnel, not here
-        return null;
+      async getThreadWithMessages(id) {
+        const { remoteGetThreadWithMessages } = await import('./team-client.js');
+        return remoteGetThreadWithMessages(id);
       },
       async listThreads() {
         return { threads: [], total: 0 };

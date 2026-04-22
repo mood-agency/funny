@@ -11,6 +11,7 @@
  */
 
 import { existsSync } from 'fs';
+import { rm } from 'fs/promises';
 import { resolve, isAbsolute, join } from 'path';
 
 import { execute, getRemoteUrl, listBranches } from '@funny/core/git';
@@ -33,6 +34,7 @@ import { badRequest, conflict, processError } from '@funny/shared/errors';
 import { Hono } from 'hono';
 import { err } from 'neverthrow';
 
+import { log } from '../lib/logger.js';
 import { getServices } from '../services/service-registry.js';
 import { wsBroker } from '../services/ws-broker.js';
 import type { HonoEnv } from '../types/hono-env.js';
@@ -291,13 +293,30 @@ githubRoutes.get('/repos', async (c) => {
     let hasMore: boolean;
 
     if (search) {
-      // Use search API to find repos matching query
-      const userRes = await githubApiFetch('/user', token);
+      // Search must scope the query to every account the user can see repos
+      // from — their own login plus each org they belong to. Without the org
+      // `user:` qualifiers, repos like `goliiive/banplus-facade` would never
+      // match even though they appear in the default (non-search) listing.
+      const [userRes, orgsRes] = await Promise.all([
+        githubApiFetch('/user', token),
+        githubApiFetch('/user/orgs?per_page=100', token),
+      ]);
       if (!userRes.ok) {
         return c.json({ error: 'Failed to fetch GitHub user for search' }, 502);
       }
       const user = (await userRes.json()) as { login: string };
-      const q = encodeURIComponent(`user:${user.login} ${search} fork:true`);
+      const orgLogins: string[] = orgsRes.ok
+        ? ((await orgsRes.json()) as Array<{ login: string }>).map((o) => o.login)
+        : [];
+      if (!orgsRes.ok) {
+        log.warn('github orgs fetch failed; search will be limited to user repos', {
+          namespace: 'github-routes',
+          status: orgsRes.status,
+        });
+      }
+      const owners = [user.login, ...orgLogins];
+      const ownerQualifiers = owners.map((o) => `user:${o}`).join(' ');
+      const q = encodeURIComponent(`${ownerQualifiers} ${search} fork:true`);
       const searchRes = await githubApiFetch(
         `/search/repositories?q=${q}&sort=${sort}&per_page=${perPage}&page=${page}`,
         token,
@@ -457,10 +476,65 @@ githubRoutes.post('/clone', async (c) => {
     return resultToResponse(c, err(processError(`Clone failed: ${safeMsg}`, 1, safeMsg)));
   }
 
-  // Create the project
-  const result = await getServices().projects.createProject(repoName, clonePath, userId);
-  if (result.isErr()) {
-    return resultToResponse(c, result);
+  // Create the project. The data channel to the server (Socket.IO) can be
+  // transiently saturated or in the middle of a reconnect right after a slow
+  // git clone, which causes `data:create_project` to time out even though a
+  // retry a second later succeeds. Retry a few times before giving up.
+  let result;
+  let lastError: any = null;
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      result = await getServices().projects.createProject(repoName, clonePath, userId);
+      lastError = null;
+      break;
+    } catch (error: any) {
+      lastError = error;
+      log.warn('createProject attempt failed', {
+        namespace: 'github-routes',
+        attempt,
+        maxAttempts: MAX_ATTEMPTS,
+        clonePath,
+        error: error?.message ?? String(error),
+      });
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 1_000 * attempt));
+      }
+    }
+  }
+
+  if (lastError) {
+    log.error('createProject failed after successful clone', {
+      namespace: 'github-routes',
+      clonePath,
+      attempts: MAX_ATTEMPTS,
+      error: lastError?.message ?? String(lastError),
+    });
+    await rm(clonePath, { recursive: true, force: true }).catch((rmErr) => {
+      log.warn('Failed to clean up clone directory after createProject error', {
+        namespace: 'github-routes',
+        clonePath,
+        error: rmErr?.message ?? String(rmErr),
+      });
+    });
+    const msg = lastError?.message ?? 'Failed to register project after clone';
+    emitProgress({ phase: 'Clone failed', percent: 0, error: msg });
+    return resultToResponse(c, err(processError(`Clone failed: ${msg}`, 1, msg)));
+  }
+
+  if (!result || result.isErr()) {
+    const errMsg = result?.isErr() ? result.error.message : 'Unknown error';
+    await rm(clonePath, { recursive: true, force: true }).catch((rmErr) => {
+      log.warn('Failed to clean up clone directory after createProject error', {
+        namespace: 'github-routes',
+        clonePath,
+        error: rmErr?.message ?? String(rmErr),
+      });
+    });
+    emitProgress({ phase: 'Clone failed', percent: 0, error: errMsg });
+    return result
+      ? resultToResponse(c, result)
+      : resultToResponse(c, err(processError(`Clone failed: ${errMsg}`, 1, errMsg)));
   }
 
   return c.json(result.value, 201);

@@ -13,15 +13,17 @@ import {
   LogOut,
   Settings,
 } from 'lucide-react';
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { HighlightText } from '@/components/ui/highlight-text';
 import { Input } from '@/components/ui/input';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { api } from '@/lib/api';
+import { createClientLogger } from '@/lib/client-logger';
 import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
 import { cn } from '@/lib/utils';
@@ -29,6 +31,8 @@ import { useAppStore } from '@/stores/app-store';
 import { useUIStore } from '@/stores/ui-store';
 
 import { FolderPicker } from './FolderPicker';
+
+const log = createClientLogger('clone-repo-view');
 
 type ViewState =
   | 'checking'
@@ -65,11 +69,16 @@ export function CloneRepoView() {
   // Repos state
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const listRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const loadingRef = useRef(false);
+  const fetchIdRef = useRef(0);
+  const pageRef = useRef(1);
 
   // Clone config state
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
@@ -140,53 +149,59 @@ export function CloneRepoView() {
     }
   };
 
-  // Load repos (always fetches without search — filtering is done client-side)
-  const fetchRepos = useCallback(async (pageNum: number, append = false) => {
+  // Load repos with optional server-side search. `append` keeps existing
+  // results when paginating; stale responses are dropped via fetchIdRef.
+  const fetchRepos = useCallback(async (pageNum: number, searchQuery: string, append: boolean) => {
+    const fetchId = ++fetchIdRef.current;
+    loadingRef.current = true;
     setLoadingRepos(true);
+    log.debug('github repo search', { page: pageNum, query: searchQuery, append });
     const result = await api.githubRepos({
       page: pageNum,
       per_page: 30,
       sort: 'updated',
+      search: searchQuery || undefined,
     });
+    if (fetchId !== fetchIdRef.current) return;
     if (result.isOk()) {
       setRepos((prev) => (append ? [...prev, ...result.value.repos] : result.value.repos));
       setHasMore(result.value.hasMore);
     }
+    loadingRef.current = false;
     setLoadingRepos(false);
   }, []);
 
-  // Client-side filtering — searches full_name, description, and language
-  const filteredRepos = useMemo(() => {
-    if (!search.trim()) return repos;
-    const q = search.toLowerCase();
-    return repos.filter(
-      (r) =>
-        r.full_name.toLowerCase().includes(q) ||
-        r.description?.toLowerCase().includes(q) ||
-        r.language?.toLowerCase().includes(q),
-    );
-  }, [repos, search]);
+  // Debounce the search input to avoid firing a GitHub search on every keystroke.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 200);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
 
-  // Reset highlight when search or filtered results change
+  // True while the user is typing ahead of the debounced query OR a fetch is
+  // in flight — used to show a spinner in the search input.
+  const searchPending = search !== debouncedSearch || loadingRepos;
+
+  // Reset highlight when the debounced query changes (new result set).
   useEffect(() => {
     setHighlightedIndex(-1);
-  }, [search]);
+  }, [debouncedSearch]);
 
   // Keyboard navigation for repo list
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightedIndex((prev) => Math.min(prev + 1, filteredRepos.length - 1));
+      setHighlightedIndex((prev) => Math.min(prev + 1, repos.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightedIndex((prev) => Math.max(prev - 1, 0));
-    } else if (
-      e.key === 'Enter' &&
-      highlightedIndex >= 0 &&
-      highlightedIndex < filteredRepos.length
-    ) {
+    } else if (e.key === 'Enter' && highlightedIndex >= 0 && highlightedIndex < repos.length) {
       e.preventDefault();
-      const repo = filteredRepos[highlightedIndex];
+      const repo = repos[highlightedIndex];
       setSelectedRepo(repo);
       setProjectName(repo.name);
       setView('clone-config');
@@ -200,12 +215,35 @@ export function CloneRepoView() {
     items[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [highlightedIndex]);
 
-  // Load repos when entering repo view
+  // Load repos when entering repo view or the debounced search changes.
+  // Always reset pagination to page 1 for a fresh result set.
   useEffect(() => {
-    if (view === 'repos') {
-      fetchRepos(1);
-    }
-  }, [view, fetchRepos]);
+    if (view !== 'repos') return;
+    pageRef.current = 1;
+    fetchRepos(1, debouncedSearch, false);
+  }, [view, debouncedSearch, fetchRepos]);
+
+  // Infinite scroll: when the sentinel enters the viewport, fetch the next page.
+  useEffect(() => {
+    if (view !== 'repos') return;
+    const root = listRef.current;
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (loadingRef.current || !hasMore) return;
+        const next = pageRef.current + 1;
+        pageRef.current = next;
+        fetchRepos(next, debouncedSearch, true);
+      },
+      { root, rootMargin: '0px 0px 200px 0px', threshold: 0 },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [view, hasMore, debouncedSearch, fetchRepos]);
 
   // Cleanup poll timer on unmount
   useEffect(() => {
@@ -491,18 +529,21 @@ export function CloneRepoView() {
         <div className="relative mb-3">
           <Search className="icon-sm absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-auto w-full py-1.5 pl-8 pr-3"
+            className="h-auto w-full py-1.5 pl-8 pr-8"
             placeholder={t('github.repos.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={handleSearchKeyDown}
             data-testid="clone-repo-search"
           />
+          {searchPending && (
+            <Loader2 className="icon-sm absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+          )}
         </div>
 
         {/* Repo list */}
         <div ref={listRef} className="-mx-1 max-h-[40vh] min-h-0 flex-1 overflow-y-auto">
-          {filteredRepos.map((repo, index) => (
+          {repos.map((repo, index) => (
             <button
               key={repo.id}
               data-repo-item
@@ -515,7 +556,11 @@ export function CloneRepoView() {
               )}
             >
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{repo.full_name}</span>
+                <HighlightText
+                  text={repo.full_name}
+                  query={debouncedSearch}
+                  className="truncate text-sm font-medium"
+                />
                 {repo.private ? (
                   <Lock className="icon-xs flex-shrink-0 text-status-pending" />
                 ) : (
@@ -523,10 +568,14 @@ export function CloneRepoView() {
                 )}
               </div>
               {repo.description && (
-                <p className="truncate text-xs text-muted-foreground">{repo.description}</p>
+                <HighlightText
+                  text={repo.description}
+                  query={debouncedSearch}
+                  className="truncate text-xs text-muted-foreground"
+                />
               )}
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                {repo.language && <span>{repo.language}</span>}
+                {repo.language && <HighlightText text={repo.language} query={debouncedSearch} />}
                 <span>{relativeTime(repo.updated_at)}</span>
               </div>
             </button>
@@ -538,27 +587,13 @@ export function CloneRepoView() {
             </div>
           )}
 
-          {!loadingRepos && filteredRepos.length === 0 && (
+          {!loadingRepos && repos.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
               {t('github.repos.noRepos')}
             </p>
           )}
 
-          {hasMore && !loadingRepos && (
-            <div className="flex justify-center py-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const nextPage = page + 1;
-                  setPage(nextPage);
-                  fetchRepos(nextPage, true);
-                }}
-              >
-                {t('github.repos.loadMore')}
-              </Button>
-            </div>
-          )}
+          <div ref={sentinelRef} aria-hidden className="h-1 w-full" />
         </div>
       </div>
     );

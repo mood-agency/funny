@@ -541,6 +541,7 @@
   },
   "startup": {
     "title": "Comandos de Inicio",
+    "inWorktree": "En worktree",
     "addCommand": "Agregar Comando",
     "noCommands": "No hay comandos configurados aún",
     "addFirst": "Agrega tu primer comando",
@@ -719,6 +720,7 @@
     "threadDeleted": "Hilo \"{{title}}\" eliminado",
     "threadCreated": "Hilo \"{{title}}\" creado",
     "projectRenamed": "Proyecto renombrado a \"{{name}}\"",
+    "threadRenamed": "Hilo renombrado a \"{{title}}\"",
     "projectDeleted": "Proyecto \"{{name}}\" eliminado",
     "worktreeDeleted": "Worktree \"{{branch}}\" eliminado",
     "worktreeDeleteFailed": "Error al eliminar worktree: {{message}}",

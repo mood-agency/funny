@@ -535,6 +535,7 @@
   },
   "startup": {
     "title": "Comandos de Inicialização",
+    "inWorktree": "No worktree",
     "addCommand": "Adicionar Comando",
     "noCommands": "Nenhum comando configurado ainda",
     "addFirst": "Adicione seu primeiro comando",
@@ -711,6 +712,7 @@
     "threadDeleted": "Thread \"{{title}}\" excluída",
     "threadCreated": "Thread \"{{title}}\" criada",
     "projectRenamed": "Projeto renomeado para \"{{name}}\"",
+    "threadRenamed": "Thread renomeada para \"{{title}}\"",
     "projectDeleted": "Projeto \"{{name}}\" excluído",
     "threadMoved": "\"{{title}}\" movido de {{from}} para {{to}}",
     "convertToWorktreeStarted": "Convertendo para worktree..."
