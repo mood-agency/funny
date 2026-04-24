@@ -5,46 +5,35 @@
  */
 
 import { validationErr, type DomainError } from '@funny/shared/errors';
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, DEFAULT_PERMISSION_MODE } from '@funny/shared/models';
+import {
+  DEFAULT_MODEL,
+  DEFAULT_PROVIDER,
+  DEFAULT_PERMISSION_MODE,
+  MODEL_REGISTRY,
+} from '@funny/shared/models';
 import { ok, err, type Result } from 'neverthrow';
 import { z } from 'zod';
 
 // ── Enums ────────────────────────────────────────────────────────
 
+/** Build a zod enum from the keys of a MODEL_REGISTRY sub-map. */
+function registryEnum<P extends keyof typeof MODEL_REGISTRY>(provider: P) {
+  const keys = Object.keys(MODEL_REGISTRY[provider]) as [string, ...string[]];
+  return z.enum(keys);
+}
+
 export const threadModeSchema = z.enum(['local', 'worktree']);
 export const threadRuntimeSchema = z.enum(['local', 'remote']);
-export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini', 'deepagent', 'openswe']);
-export const claudeModelSchema = z.enum(['sonnet', 'sonnet-4.6', 'opus', 'opus-4.7', 'haiku']);
-export const codexModelSchema = z.enum(['o3', 'o4-mini', 'codex-mini']);
-export const geminiModelSchema = z.enum([
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-  'gemini-3-flash-preview',
-  'gemini-3-pro-preview',
-]);
-export const deepagentModelSchema = z.enum([
-  'minimax-m2.7',
-  'minimax-m2.7-highspeed',
-  'deepagent-gpt-4o',
-  'deepagent-sonnet',
-  'deepagent-gemini-2.5-flash',
-  'deepagent-gemini-2.5-pro',
-  'deepagent-gemini-3-flash',
-  'deepagent-gemini-3-pro',
-  'deepagent-grok-3',
-  'deepagent-grok-3-mini',
-  'deepagent-glm-5.1',
-  'deepagent-glm-5-turbo',
-  'deepagent-glm-5v-turbo',
-]);
-export const opensweModelSchema = z.enum(['openswe-default']);
+export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini', 'deepagent']);
+export const claudeModelSchema = registryEnum('claude');
+export const codexModelSchema = registryEnum('codex');
+export const geminiModelSchema = registryEnum('gemini');
+export const deepagentModelSchema = registryEnum('deepagent');
 export const agentModelSchema = z.union([
   claudeModelSchema,
   codexModelSchema,
   geminiModelSchema,
   deepagentModelSchema,
-  opensweModelSchema,
 ]);
 export const permissionModeSchema = z.enum(['plan', 'auto', 'autoEdit', 'confirmEdit', 'ask']);
 export const threadStageSchema = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done']);

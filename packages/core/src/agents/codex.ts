@@ -68,12 +68,21 @@ export class CodexProcess extends BaseAgentProcess {
       thread = codex.startThread(threadOpts);
     }
 
-    // Generate a session ID (Codex threads persist to disk at ~/.codex/sessions)
-    const sessionId = this.options.sessionId ?? randomUUID();
-    this.threadId = sessionId;
-
-    // Emit init message
-    this.emitInit(sessionId, [], this.options.model ?? 'o4-mini', this.options.cwd);
+    // Session ID is assigned by Codex on first run (emitted via `thread.started`).
+    // For resumes we already have it; for new threads we wait for the event
+    // before emitting init so the persisted sessionId matches what Codex wrote
+    // to ~/.codex/sessions (otherwise resumeThread fails with
+    // "state db missing rollout path for thread ...").
+    let sessionId = this.options.sessionId ?? null;
+    let initEmitted = false;
+    const emitInitOnce = (id: string) => {
+      if (initEmitted) return;
+      sessionId = id;
+      this.threadId = id;
+      this.emitInit(id, [], this.options.model ?? 'gpt-5.4', this.options.cwd);
+      initEmitted = true;
+    };
+    if (sessionId) emitInitOnce(sessionId);
 
     const startTime = Date.now();
     let totalCost = 0;
@@ -88,6 +97,12 @@ export class CodexProcess extends BaseAgentProcess {
         if (this.isAborted) break;
 
         switch (event.type) {
+          case 'thread.started': {
+            const id = (event as any).thread_id;
+            if (id) emitInitOnce(id);
+            break;
+          }
+
           case 'item.completed': {
             const item = (event as any).item;
             if (!item) break;
@@ -99,7 +114,10 @@ export class CodexProcess extends BaseAgentProcess {
             }
 
             // Extract text for the final result
-            if (item.type === 'message' && item.role === 'assistant') {
+            if (
+              item.type === 'agent_message' ||
+              (item.type === 'message' && item.role === 'assistant')
+            ) {
               const text = this.extractText(item);
               if (text) lastResult = text;
             }
@@ -121,9 +139,16 @@ export class CodexProcess extends BaseAgentProcess {
         }
       }
 
+      // Fallback: if we never saw `thread.started` (older SDK), read the id
+      // off the Thread instance which is populated after the first turn.
+      if (!initEmitted) {
+        const id = (thread as any).id ?? randomUUID();
+        emitInitOnce(id);
+      }
+
       // Emit success result
       this.emitResult({
-        sessionId,
+        sessionId: sessionId!,
         subtype: 'success',
         startTime,
         numTurns,
@@ -132,8 +157,12 @@ export class CodexProcess extends BaseAgentProcess {
       });
     } catch (err: any) {
       if (!this.isAborted) {
+        if (!initEmitted) {
+          const id = (thread as any).id ?? randomUUID();
+          emitInitOnce(id);
+        }
         this.emitResult({
-          sessionId,
+          sessionId: sessionId!,
           subtype: 'error_during_execution',
           startTime,
           numTurns,
@@ -152,8 +181,9 @@ export class CodexProcess extends BaseAgentProcess {
   private translateItem(item: any, assistantMsgId: string): CLIMessage | null {
     if (!item) return null;
 
-    // Assistant message with text
-    if (item.type === 'message' && item.role === 'assistant') {
+    // Assistant message with text (codex-sdk emits `agent_message`;
+    // keep the legacy `message` + role shape for older SDK/response variants)
+    if (item.type === 'agent_message' || (item.type === 'message' && item.role === 'assistant')) {
       const text = this.extractText(item);
       if (!text) return null;
 
@@ -214,6 +244,8 @@ export class CodexProcess extends BaseAgentProcess {
 
   /** Extract text content from a Codex message item. */
   private extractText(item: any): string | null {
+    // codex-sdk AgentMessageItem: { type: 'agent_message', text: string }
+    if (typeof item.text === 'string' && item.text.length > 0) return item.text;
     if (typeof item.content === 'string') return item.content;
     if (Array.isArray(item.content)) {
       const texts = item.content

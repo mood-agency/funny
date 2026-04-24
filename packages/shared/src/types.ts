@@ -221,29 +221,9 @@ export type AgentProvider = 'claude' | 'codex' | 'gemini' | 'deepagent' | 'llm-a
 
 export type ThreadSource = 'web' | 'chrome_extension' | 'api' | 'automation' | 'ingest';
 
-export type ClaudeModel = 'sonnet' | 'sonnet-4.6' | 'opus' | 'opus-4.7' | 'haiku';
-export type CodexModel = 'o3' | 'o4-mini' | 'codex-mini';
-export type GeminiModel =
-  | 'gemini-2.0-flash'
-  | 'gemini-2.5-flash'
-  | 'gemini-2.5-pro'
-  | 'gemini-3-flash-preview'
-  | 'gemini-3-pro-preview';
-export type DeepAgentModel =
-  | 'minimax-m2.7'
-  | 'minimax-m2.7-highspeed'
-  | 'deepagent-gpt-4o'
-  | 'deepagent-sonnet'
-  | 'deepagent-gemini-2.5-flash'
-  | 'deepagent-gemini-2.5-pro'
-  | 'deepagent-gemini-3-flash'
-  | 'deepagent-gemini-3-pro'
-  | 'deepagent-grok-3'
-  | 'deepagent-grok-3-mini'
-  | 'deepagent-glm-5.1'
-  | 'deepagent-glm-5-turbo'
-  | 'deepagent-glm-5v-turbo';
-export type AgentModel = ClaudeModel | CodexModel | GeminiModel | DeepAgentModel;
+// Model type unions are derived from MODEL_REGISTRY — see ./models.ts
+import type { ClaudeModel, CodexModel, GeminiModel, DeepAgentModel, AgentModel } from './models.js';
+export type { ClaudeModel, CodexModel, GeminiModel, DeepAgentModel, AgentModel };
 export type PermissionMode = 'plan' | 'auto' | 'autoEdit' | 'confirmEdit' | 'ask';
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 

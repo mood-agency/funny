@@ -33,21 +33,25 @@ describe('resolveModelId', () => {
     });
 
     test('throws on codex model passed to claude', () => {
-      expect(() => resolveModelId('claude', 'o4-mini' as any)).toThrow('Unknown Claude model');
+      expect(() => resolveModelId('claude', 'gpt-5.4' as any)).toThrow('Unknown Claude model');
     });
   });
 
   describe('codex provider', () => {
-    test('resolves o3 to o3', () => {
-      expect(resolveModelId('codex', 'o3')).toBe('o3');
+    test('resolves gpt-5.4 to gpt-5.4', () => {
+      expect(resolveModelId('codex', 'gpt-5.4')).toBe('gpt-5.4');
     });
 
-    test('resolves o4-mini to o4-mini', () => {
-      expect(resolveModelId('codex', 'o4-mini')).toBe('o4-mini');
+    test('resolves gpt-5.4-mini to gpt-5.4-mini', () => {
+      expect(resolveModelId('codex', 'gpt-5.4-mini')).toBe('gpt-5.4-mini');
     });
 
-    test('resolves codex-mini to codex-mini', () => {
-      expect(resolveModelId('codex', 'codex-mini')).toBe('codex-mini');
+    test('resolves gpt-5.3-codex to gpt-5.3-codex', () => {
+      expect(resolveModelId('codex', 'gpt-5.3-codex')).toBe('gpt-5.3-codex');
+    });
+
+    test('resolves gpt-5.2 to gpt-5.2', () => {
+      expect(resolveModelId('codex', 'gpt-5.2')).toBe('gpt-5.2');
     });
 
     test('throws on unknown codex model', () => {
@@ -161,8 +165,8 @@ describe('getDefaultModel', () => {
     expect(getDefaultModel('claude')).toBe('opus');
   });
 
-  test('returns o4-mini for codex', () => {
-    expect(getDefaultModel('codex')).toBe('o4-mini');
+  test('returns gpt-5.4 for codex', () => {
+    expect(getDefaultModel('codex')).toBe('gpt-5.4');
   });
 
   test('returns gemini-3-flash-preview for gemini', () => {
@@ -193,10 +197,11 @@ describe('getProviderModels', () => {
 
   test('returns all codex models', () => {
     const models = getProviderModels('codex');
-    expect(models).toContain('o3');
-    expect(models).toContain('o4-mini');
-    expect(models).toContain('codex-mini');
-    expect(models).toHaveLength(3);
+    expect(models).toContain('gpt-5.4');
+    expect(models).toContain('gpt-5.4-mini');
+    expect(models).toContain('gpt-5.3-codex');
+    expect(models).toContain('gpt-5.2');
+    expect(models).toHaveLength(4);
   });
 
   test('returns all gemini models', () => {
@@ -342,23 +347,23 @@ describe('isModelForProvider', () => {
     });
 
     test('returns false for codex models', () => {
-      expect(isModelForProvider('claude', 'o3')).toBe(false);
-      expect(isModelForProvider('claude', 'o4-mini')).toBe(false);
-      expect(isModelForProvider('claude', 'codex-mini')).toBe(false);
+      expect(isModelForProvider('claude', 'gpt-5.4')).toBe(false);
+      expect(isModelForProvider('claude', 'gpt-5.2')).toBe(false);
+      expect(isModelForProvider('claude', 'gpt-5.3-codex')).toBe(false);
     });
   });
 
   describe('codex provider', () => {
-    test('returns true for o3', () => {
-      expect(isModelForProvider('codex', 'o3')).toBe(true);
+    test('returns true for gpt-5.4', () => {
+      expect(isModelForProvider('codex', 'gpt-5.4')).toBe(true);
     });
 
-    test('returns true for o4-mini', () => {
-      expect(isModelForProvider('codex', 'o4-mini')).toBe(true);
+    test('returns true for gpt-5.4-mini', () => {
+      expect(isModelForProvider('codex', 'gpt-5.4-mini')).toBe(true);
     });
 
-    test('returns true for codex-mini', () => {
-      expect(isModelForProvider('codex', 'codex-mini')).toBe(true);
+    test('returns true for gpt-5.3-codex', () => {
+      expect(isModelForProvider('codex', 'gpt-5.3-codex')).toBe(true);
     });
 
     test('returns false for claude models', () => {
@@ -376,14 +381,14 @@ describe('isModelForProvider', () => {
 
     test('returns false for non-gemini models', () => {
       expect(isModelForProvider('gemini', 'sonnet')).toBe(false);
-      expect(isModelForProvider('gemini', 'o3')).toBe(false);
+      expect(isModelForProvider('gemini', 'gpt-5.4')).toBe(false);
     });
   });
 
   describe('unknown provider', () => {
     test('returns false for any model', () => {
       expect(isModelForProvider('external' as any, 'sonnet')).toBe(false);
-      expect(isModelForProvider('unknown' as any, 'o3')).toBe(false);
+      expect(isModelForProvider('unknown' as any, 'gpt-5.4')).toBe(false);
     });
   });
 });
@@ -404,7 +409,7 @@ describe('getProviderModelsWithLabels', () => {
   test('returns labeled models for codex', () => {
     const models = getProviderModelsWithLabels('codex');
     expect(models.length).toBeGreaterThan(0);
-    expect(models.some((m) => m.value === 'o3')).toBe(true);
+    expect(models.some((m) => m.value === 'gpt-5.4')).toBe(true);
   });
 
   test('returns labeled models for gemini', () => {

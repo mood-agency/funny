@@ -1,113 +1,244 @@
 /**
  * Centralized model registry for all agent providers.
- * Maps friendly model names to full model IDs and provides helpers.
+ *
+ * Single source of truth: `MODEL_REGISTRY` drives model IDs, labels,
+ * context windows, i18n keys, and the TypeScript unions below. Zod
+ * schemas (runtime) and the client's provider catalog derive from
+ * this file too — do not duplicate model lists elsewhere.
  */
 
-import type {
-  AgentProvider,
-  AgentModel,
-  ClaudeModel,
-  CodexModel,
-  GeminiModel,
-  DeepAgentModel,
-  PermissionMode,
-} from './types.js';
-// ── Application defaults (single source of truth) ────────────────
+import type { AgentProvider, FollowUpMode, PermissionMode, ThreadMode } from './types.js';
+
+// ── Application defaults ────────────────────────────────────────
 // Change these values to update defaults across the entire codebase.
-import type { FollowUpMode, ThreadMode } from './types.js';
 
 export const DEFAULT_PROVIDER: AgentProvider = 'claude';
-export const DEFAULT_MODEL: AgentModel = 'opus';
 export const DEFAULT_THREAD_MODE: ThreadMode = 'local';
 export const DEFAULT_FOLLOW_UP_MODE: FollowUpMode = 'queue';
 export const DEFAULT_PERMISSION_MODE: PermissionMode = 'autoEdit';
 
-// ── Model ID mappings ─────────────────────────────────────────
+// ── Model registry (single source of truth) ────────────────────
 
-const CLAUDE_MODEL_IDS: Record<ClaudeModel, string> = {
-  sonnet: 'claude-sonnet-4-5-20250929',
-  'sonnet-4.6': 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-6',
-  'opus-4.7': 'claude-opus-4-7',
-  haiku: 'claude-haiku-4-5-20251001',
+export interface ModelDefinition {
+  /** Full model ID passed to the provider SDK / CLI. */
+  id: string;
+  /** Display label shown when no i18n translation is available. */
+  label: string;
+  /** Context window size in tokens. */
+  contextWindow: number;
+  /** i18n key under `thread.model.*` on the client. */
+  i18nKey: string;
+}
+
+const claudeModels = {
+  haiku: {
+    id: 'claude-haiku-4-5-20251001',
+    label: 'Haiku 4.5',
+    contextWindow: 200_000,
+    i18nKey: 'haiku',
+  },
+  sonnet: {
+    id: 'claude-sonnet-4-5-20250929',
+    label: 'Sonnet 4.5',
+    contextWindow: 200_000,
+    i18nKey: 'sonnet',
+  },
+  'sonnet-4.6': {
+    id: 'claude-sonnet-4-6',
+    label: 'Sonnet 4.6',
+    contextWindow: 200_000,
+    i18nKey: 'sonnet46',
+  },
+  opus: {
+    id: 'claude-opus-4-6',
+    label: 'Opus 4.6',
+    contextWindow: 200_000,
+    i18nKey: 'opus',
+  },
+  'opus-4.7': {
+    id: 'claude-opus-4-7',
+    label: 'Opus 4.7',
+    contextWindow: 200_000,
+    i18nKey: 'opus47',
+  },
+} as const satisfies Record<string, ModelDefinition>;
+
+const codexModels = {
+  'gpt-5.4': {
+    id: 'gpt-5.4',
+    label: 'GPT-5.4',
+    contextWindow: 400_000,
+    i18nKey: 'gpt54',
+  },
+  'gpt-5.4-mini': {
+    id: 'gpt-5.4-mini',
+    label: 'GPT-5.4 Mini',
+    contextWindow: 400_000,
+    i18nKey: 'gpt54mini',
+  },
+  'gpt-5.3-codex': {
+    id: 'gpt-5.3-codex',
+    label: 'GPT-5.3 Codex',
+    contextWindow: 400_000,
+    i18nKey: 'gpt53codex',
+  },
+  'gpt-5.2': {
+    id: 'gpt-5.2',
+    label: 'GPT-5.2',
+    contextWindow: 400_000,
+    i18nKey: 'gpt52',
+  },
+} as const satisfies Record<string, ModelDefinition>;
+
+const geminiModels = {
+  'gemini-3-flash-preview': {
+    id: 'gemini-3-flash-preview',
+    label: 'Gemini 3 Flash',
+    contextWindow: 1_000_000,
+    i18nKey: 'gemini3flash',
+  },
+  'gemini-3-pro-preview': {
+    id: 'gemini-3-pro-preview',
+    label: 'Gemini 3 Pro',
+    contextWindow: 1_000_000,
+    i18nKey: 'gemini3pro',
+  },
+  'gemini-2.5-flash': {
+    id: 'gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    contextWindow: 1_048_576,
+    i18nKey: 'gemini25flash',
+  },
+  'gemini-2.5-pro': {
+    id: 'gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
+    contextWindow: 1_048_576,
+    i18nKey: 'gemini25pro',
+  },
+  'gemini-2.0-flash': {
+    id: 'gemini-2.0-flash',
+    label: 'Gemini 2.0 Flash',
+    contextWindow: 1_048_576,
+    i18nKey: 'gemini20flash',
+  },
+} as const satisfies Record<string, ModelDefinition>;
+
+const deepagentModels = {
+  'minimax-m2.7': {
+    id: 'openai:MiniMax-M2.7',
+    label: 'MiniMax M2.7',
+    contextWindow: 204_800,
+    i18nKey: 'minimaxM27',
+  },
+  'minimax-m2.7-highspeed': {
+    id: 'openai:MiniMax-M2.7-highspeed',
+    label: 'MiniMax M2.7 Highspeed',
+    contextWindow: 204_800,
+    i18nKey: 'minimaxM27Highspeed',
+  },
+  'deepagent-gpt-4o': {
+    id: 'gpt-4o',
+    label: 'GPT-4o',
+    contextWindow: 128_000,
+    i18nKey: 'deepagentGpt4o',
+  },
+  'deepagent-sonnet': {
+    id: 'claude-sonnet-4-5-20250929',
+    label: 'Sonnet 4.5',
+    contextWindow: 200_000,
+    i18nKey: 'deepagentSonnet',
+  },
+  'deepagent-gemini-2.5-flash': {
+    id: 'google-genai:gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    contextWindow: 1_048_576,
+    i18nKey: 'deepagentGemini25flash',
+  },
+  'deepagent-gemini-2.5-pro': {
+    id: 'google-genai:gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
+    contextWindow: 1_048_576,
+    i18nKey: 'deepagentGemini25pro',
+  },
+  'deepagent-gemini-3-flash': {
+    id: 'google-genai:gemini-3-flash-preview',
+    label: 'Gemini 3 Flash',
+    contextWindow: 1_000_000,
+    i18nKey: 'deepagentGemini3flash',
+  },
+  'deepagent-gemini-3-pro': {
+    id: 'google-genai:gemini-3-pro-preview',
+    label: 'Gemini 3 Pro',
+    contextWindow: 1_000_000,
+    i18nKey: 'deepagentGemini3pro',
+  },
+  'deepagent-grok-3': {
+    id: 'openai:grok-3',
+    label: 'Grok 3',
+    contextWindow: 131_072,
+    i18nKey: 'deepagentGrok3',
+  },
+  'deepagent-grok-3-mini': {
+    id: 'openai:grok-3-mini',
+    label: 'Grok 3 Mini',
+    contextWindow: 131_072,
+    i18nKey: 'deepagentGrok3mini',
+  },
+  'deepagent-glm-5.1': {
+    id: 'openai:glm-5.1',
+    label: 'GLM-5.1',
+    contextWindow: 128_000,
+    i18nKey: 'deepagentGlm51',
+  },
+  'deepagent-glm-5-turbo': {
+    id: 'openai:glm-5-turbo',
+    label: 'GLM-5 Turbo',
+    contextWindow: 128_000,
+    i18nKey: 'deepagentGlm5turbo',
+  },
+  'deepagent-glm-5v-turbo': {
+    id: 'openai:glm-5v-turbo',
+    label: 'GLM-5V Turbo',
+    contextWindow: 128_000,
+    i18nKey: 'deepagentGlm5vturbo',
+  },
+} as const satisfies Record<string, ModelDefinition>;
+
+export const MODEL_REGISTRY = {
+  claude: claudeModels,
+  codex: codexModels,
+  gemini: geminiModels,
+  deepagent: deepagentModels,
+} as const;
+
+// ── Derived model type unions ─────────────────────────────────
+
+export type ClaudeModel = keyof typeof claudeModels;
+export type CodexModel = keyof typeof codexModels;
+export type GeminiModel = keyof typeof geminiModels;
+export type DeepAgentModel = keyof typeof deepagentModels;
+export type AgentModel = ClaudeModel | CodexModel | GeminiModel | DeepAgentModel;
+
+// Helper: narrow a provider string to keys of its sub-registry.
+type ModelsOf<P extends keyof typeof MODEL_REGISTRY> = keyof (typeof MODEL_REGISTRY)[P];
+
+export const DEFAULT_MODEL: AgentModel = 'opus';
+
+// ── Per-provider defaults ─────────────────────────────────────
+
+const PROVIDER_DEFAULT_MODEL: Record<keyof typeof MODEL_REGISTRY, AgentModel> = {
+  claude: DEFAULT_MODEL,
+  codex: 'gpt-5.4',
+  gemini: 'gemini-3-flash-preview',
+  deepagent: 'minimax-m2.7',
 };
 
-const CODEX_MODEL_IDS: Record<CodexModel, string> = {
-  o3: 'o3',
-  'o4-mini': 'o4-mini',
-  'codex-mini': 'codex-mini',
-};
-
-const GEMINI_MODEL_IDS: Record<GeminiModel, string> = {
-  'gemini-2.0-flash': 'gemini-2.0-flash',
-  'gemini-2.5-flash': 'gemini-2.5-flash',
-  'gemini-2.5-pro': 'gemini-2.5-pro',
-  'gemini-3-flash-preview': 'gemini-3-flash-preview',
-  'gemini-3-pro-preview': 'gemini-3-pro-preview',
-};
-
-const DEEPAGENT_MODEL_IDS: Record<DeepAgentModel, string> = {
-  'minimax-m2.7': 'openai:MiniMax-M2.7',
-  'minimax-m2.7-highspeed': 'openai:MiniMax-M2.7-highspeed',
-  'deepagent-gpt-4o': 'gpt-4o',
-  'deepagent-sonnet': 'claude-sonnet-4-5-20250929',
-  'deepagent-gemini-2.5-flash': 'google-genai:gemini-2.5-flash',
-  'deepagent-gemini-2.5-pro': 'google-genai:gemini-2.5-pro',
-  'deepagent-gemini-3-flash': 'google-genai:gemini-3-flash-preview',
-  'deepagent-gemini-3-pro': 'google-genai:gemini-3-pro-preview',
-  'deepagent-grok-3': 'openai:grok-3',
-  'deepagent-grok-3-mini': 'openai:grok-3-mini',
-  'deepagent-glm-5.1': 'openai:glm-5.1',
-  'deepagent-glm-5-turbo': 'openai:glm-5-turbo',
-  'deepagent-glm-5v-turbo': 'openai:glm-5v-turbo',
-};
-
-// ── Model display labels ────────────────────────────────────────
+// ── Provider labels ──────────────────────────────────────────
 
 export interface ModelInfo {
   value: AgentModel;
   label: string;
 }
-
-const CLAUDE_MODEL_LABELS: Record<ClaudeModel, string> = {
-  haiku: 'Haiku 4.5',
-  sonnet: 'Sonnet 4.5',
-  'sonnet-4.6': 'Sonnet 4.6',
-  opus: 'Opus 4.6',
-  'opus-4.7': 'Opus 4.7',
-};
-
-const CODEX_MODEL_LABELS: Record<CodexModel, string> = {
-  o3: 'o3',
-  'o4-mini': 'o4-mini',
-  'codex-mini': 'Codex Mini',
-};
-
-const GEMINI_MODEL_LABELS: Record<GeminiModel, string> = {
-  'gemini-3-flash-preview': 'Gemini 3 Flash',
-  'gemini-3-pro-preview': 'Gemini 3 Pro',
-  'gemini-2.5-flash': 'Gemini 2.5 Flash',
-  'gemini-2.5-pro': 'Gemini 2.5 Pro',
-  'gemini-2.0-flash': 'Gemini 2.0 Flash',
-};
-
-const DEEPAGENT_MODEL_LABELS: Record<DeepAgentModel, string> = {
-  'minimax-m2.7': 'MiniMax M2.7',
-  'minimax-m2.7-highspeed': 'MiniMax M2.7 Highspeed',
-  'deepagent-gpt-4o': 'GPT-4o',
-  'deepagent-sonnet': 'Sonnet 4.5',
-  'deepagent-gemini-2.5-flash': 'Gemini 2.5 Flash',
-  'deepagent-gemini-2.5-pro': 'Gemini 2.5 Pro',
-  'deepagent-gemini-3-flash': 'Gemini 3 Flash',
-  'deepagent-gemini-3-pro': 'Gemini 3 Pro',
-  'deepagent-grok-3': 'Grok 3',
-  'deepagent-grok-3-mini': 'Grok 3 Mini',
-  'deepagent-glm-5.1': 'GLM-5.1',
-  'deepagent-glm-5-turbo': 'GLM-5 Turbo',
-  'deepagent-glm-5v-turbo': 'GLM-5V Turbo',
-};
-
-// ── Provider labels ─────────────────────────────────────────────
 
 export const PROVIDER_LABELS: Record<string, string> = {
   claude: 'Claude',
@@ -150,6 +281,12 @@ const CODEX_DEFAULT_TOOLS: string[] = [];
 
 // Gemini manages its own tools via ACP — no default tool list needed
 const GEMINI_DEFAULT_TOOLS: string[] = [];
+
+// Deep Agent manages its own tools via LangGraph — no default tool list needed
+const DEEPAGENT_DEFAULT_TOOLS: string[] = [];
+
+// LLM API manages its own tools via ToolRunner — no default tool list needed
+const LLM_API_DEFAULT_TOOLS = ['bash', 'read', 'edit', 'glob', 'grep'];
 
 // ── Provider Key Registry ────────────────────────────────────
 // Central registry of per-user API keys. Adding a new provider here
@@ -226,84 +363,74 @@ export const PROVIDER_KEY_REGISTRY: ProviderKeyConfig[] = [
   },
 ];
 
+// ── Internal lookup helpers ──────────────────────────────────
+
+function isRegistryProvider(provider: AgentProvider): provider is keyof typeof MODEL_REGISTRY {
+  return provider in MODEL_REGISTRY;
+}
+
+function getModelDefinition(
+  provider: AgentProvider,
+  model: AgentModel,
+): ModelDefinition | undefined {
+  if (!isRegistryProvider(provider)) return undefined;
+  const bucket = MODEL_REGISTRY[provider] as Record<string, ModelDefinition>;
+  return bucket[model as string];
+}
+
 // ── Public API ────────────────────────────────────────────────
 
 /** Resolve a friendly model name to the full model ID for the given provider. */
 export function resolveModelId(provider: AgentProvider, model: AgentModel): string {
-  if (provider === 'claude') {
-    const id = CLAUDE_MODEL_IDS[model as ClaudeModel];
-    if (!id) throw new Error(`Unknown Claude model: ${model}`);
-    return id;
-  }
-  if (provider === 'codex') {
-    const id = CODEX_MODEL_IDS[model as CodexModel];
-    if (!id) throw new Error(`Unknown Codex model: ${model}`);
-    return id;
-  }
-  if (provider === 'gemini') {
-    const id = GEMINI_MODEL_IDS[model as GeminiModel];
-    if (!id) throw new Error(`Unknown Gemini model: ${model}`);
-    return id;
-  }
-  if (provider === 'deepagent') {
-    const id = DEEPAGENT_MODEL_IDS[model as DeepAgentModel];
-    if (!id) throw new Error(`Unknown Deep Agent model: ${model}`);
-    return id;
-  }
   if (provider === 'llm-api') {
     // LLM API uses full model IDs directly — pass through
     return model as string;
   }
-  throw new Error(`Unknown provider: ${provider}`);
+  if (!isRegistryProvider(provider)) {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+  const def = getModelDefinition(provider, model);
+  if (!def) {
+    const providerLabel = PROVIDER_LABELS[provider] ?? provider;
+    throw new Error(`Unknown ${providerLabel} model: ${model}`);
+  }
+  return def.id;
 }
 
 /** Get the default model for a provider. */
 export function getDefaultModel(provider: AgentProvider): AgentModel {
-  if (provider === 'claude') return DEFAULT_MODEL;
-  if (provider === 'codex') return 'o4-mini';
-  if (provider === 'gemini') return 'gemini-3-flash-preview';
-  if (provider === 'deepagent') return 'minimax-m2.7';
-  if (provider === 'llm-api') return DEFAULT_MODEL; // Default to claude-equivalent
+  if (provider === 'llm-api') return DEFAULT_MODEL;
+  if (isRegistryProvider(provider)) return PROVIDER_DEFAULT_MODEL[provider];
   throw new Error(`Unknown provider: ${provider}`);
 }
 
 /** Get all available models for a provider. */
 export function getProviderModels(provider: AgentProvider): AgentModel[] {
-  if (provider === 'claude') return Object.keys(CLAUDE_MODEL_IDS) as ClaudeModel[];
-  if (provider === 'codex') return Object.keys(CODEX_MODEL_IDS) as CodexModel[];
-  if (provider === 'gemini') return Object.keys(GEMINI_MODEL_IDS) as GeminiModel[];
-  if (provider === 'deepagent') return Object.keys(DEEPAGENT_MODEL_IDS) as DeepAgentModel[];
-  if (provider === 'llm-api') return []; // LLM API accepts any model ID
+  if (provider === 'llm-api') return [];
+  if (isRegistryProvider(provider)) {
+    return Object.keys(MODEL_REGISTRY[provider]) as AgentModel[];
+  }
   throw new Error(`Unknown provider: ${provider}`);
 }
 
 /** Get all available models for a provider with display labels. */
 export function getProviderModelsWithLabels(provider: AgentProvider): ModelInfo[] {
-  if (provider === 'claude') {
-    return (Object.keys(CLAUDE_MODEL_LABELS) as ClaudeModel[]).map((k) => ({
-      value: k,
-      label: CLAUDE_MODEL_LABELS[k],
-    }));
-  }
-  if (provider === 'codex') {
-    return (Object.keys(CODEX_MODEL_LABELS) as CodexModel[]).map((k) => ({
-      value: k,
-      label: CODEX_MODEL_LABELS[k],
-    }));
-  }
-  if (provider === 'gemini') {
-    return (Object.keys(GEMINI_MODEL_LABELS) as GeminiModel[]).map((k) => ({
-      value: k,
-      label: GEMINI_MODEL_LABELS[k],
-    }));
-  }
-  if (provider === 'deepagent') {
-    return (Object.keys(DEEPAGENT_MODEL_LABELS) as DeepAgentModel[]).map((k) => ({
-      value: k,
-      label: DEEPAGENT_MODEL_LABELS[k],
-    }));
-  }
-  return [];
+  if (!isRegistryProvider(provider)) return [];
+  const bucket = MODEL_REGISTRY[provider] as Record<string, ModelDefinition>;
+  return Object.entries(bucket).map(([value, def]) => ({
+    value: value as AgentModel,
+    label: def.label,
+  }));
+}
+
+/** Get the context window for a model (falls back to 200k if unknown). */
+export function getModelContextWindow(provider: AgentProvider, model: AgentModel): number {
+  return getModelDefinition(provider, model)?.contextWindow ?? 200_000;
+}
+
+/** Get the i18n key for a model, or undefined if unknown. */
+export function getModelI18nKey(provider: AgentProvider, model: AgentModel): string | undefined {
+  return getModelDefinition(provider, model)?.i18nKey;
 }
 
 /**
@@ -333,12 +460,6 @@ export function resolveResumePermissionMode(
   return resolvedMode;
 }
 
-// Deep Agent manages its own tools via LangGraph — no default tool list needed
-const DEEPAGENT_DEFAULT_TOOLS: string[] = [];
-
-// LLM API manages its own tools via ToolRunner — no default tool list needed
-const LLM_API_DEFAULT_TOOLS = ['bash', 'read', 'edit', 'glob', 'grep'];
-
 /** Get default allowed tools for a provider. */
 export function getDefaultAllowedTools(provider: AgentProvider): string[] {
   if (provider === 'claude') return [...CLAUDE_DEFAULT_TOOLS];
@@ -356,10 +477,9 @@ export function getAskModeTools(): string[] {
 
 /** Check if a model belongs to the given provider. */
 export function isModelForProvider(provider: AgentProvider, model: AgentModel): boolean {
-  if (provider === 'claude') return model in CLAUDE_MODEL_IDS;
-  if (provider === 'codex') return model in CODEX_MODEL_IDS;
-  if (provider === 'gemini') return model in GEMINI_MODEL_IDS;
-  if (provider === 'deepagent') return model in DEEPAGENT_MODEL_IDS;
-  if (provider === 'openswe') return model in OPENSWE_MODEL_IDS;
-  return false;
+  if (!isRegistryProvider(provider)) return false;
+  return (model as string) in MODEL_REGISTRY[provider];
 }
+
+// Suppress unused-type warning on ModelsOf for consumers that only want the value map.
+export type _ModelsOf<P extends keyof typeof MODEL_REGISTRY> = ModelsOf<P>;

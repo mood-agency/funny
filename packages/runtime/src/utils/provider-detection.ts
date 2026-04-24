@@ -109,15 +109,6 @@ export async function getAvailableProviders(): Promise<Map<AgentProvider, Provid
   cachedProviders.set('claude', claude);
   cachedProviders.set('codex', codex);
 
-  // OpenSWE is available when OPENSWE_URL is configured (remote LangGraph server)
-  const opensweUrl = process.env.OPENSWE_URL;
-  cachedProviders.set('openswe', {
-    available: !!opensweUrl,
-    sdkAvailable: true,
-    cliAvailable: false,
-    error: !opensweUrl ? 'Set OPENSWE_URL to enable (e.g. http://localhost:2024)' : undefined,
-  });
-
   return cachedProviders;
 }
 

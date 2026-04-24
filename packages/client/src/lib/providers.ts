@@ -1,11 +1,14 @@
 /**
- * Centralized provider and model configuration for the client UI.
+ * Client-facing provider and model configuration.
  *
- * Single source of truth — used by PromptInput, SettingsDetailView,
- * NewThreadDialog, and any other component that needs provider/model lists.
+ * Thin adapter over the shared MODEL_REGISTRY (see @funny/shared/models).
+ * All provider/model lists, context windows, and i18n keys live in
+ * @funny/shared — this file only adds client concerns (translation
+ * function, unified `provider:model` keys, effort availability).
  */
 
 import type { AgentProvider } from '@funny/shared';
+import { MODEL_REGISTRY, PROVIDER_LABELS } from '@funny/shared/models';
 
 export interface ProviderConfig {
   value: AgentProvider;
@@ -24,153 +27,34 @@ export interface ModelConfig {
 
 // ── Providers ──────────────────────────────────────────────────
 
-export const PROVIDERS: ProviderConfig[] = [
-  { value: 'claude', label: 'Claude' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'deepagent', label: 'Deep Agent' },
-  { value: 'openswe', label: 'OpenSWE' },
-];
+const REGISTRY_PROVIDERS = Object.keys(MODEL_REGISTRY) as (keyof typeof MODEL_REGISTRY)[];
 
-// ── Models per provider ────────────────────────────────────────
+export const PROVIDERS: ProviderConfig[] = REGISTRY_PROVIDERS.map((value) => ({
+  value: value as AgentProvider,
+  label: PROVIDER_LABELS[value] ?? value,
+}));
 
-export const PROVIDER_MODELS: Record<string, ModelConfig[]> = {
-  claude: [
-    { value: 'haiku', i18nKey: 'haiku', fallback: 'Haiku 4.5', contextWindow: 200_000 },
-    { value: 'sonnet', i18nKey: 'sonnet', fallback: 'Sonnet 4.5', contextWindow: 200_000 },
-    { value: 'sonnet-4.6', i18nKey: 'sonnet46', fallback: 'Sonnet 4.6', contextWindow: 200_000 },
-    { value: 'opus', i18nKey: 'opus', fallback: 'Opus 4.6', contextWindow: 200_000 },
-    { value: 'opus-4.7', i18nKey: 'opus47', fallback: 'Opus 4.7', contextWindow: 200_000 },
-  ],
-  codex: [
-    { value: 'o3', i18nKey: 'o3', fallback: 'o3', contextWindow: 200_000 },
-    { value: 'o4-mini', i18nKey: 'o4mini', fallback: 'o4-mini', contextWindow: 200_000 },
-    { value: 'codex-mini', i18nKey: 'codexMini', fallback: 'Codex Mini', contextWindow: 200_000 },
-  ],
-  gemini: [
-    {
-      value: 'gemini-3-flash-preview',
-      i18nKey: 'gemini3flash',
-      fallback: 'Gemini 3 Flash',
-      contextWindow: 1_000_000,
-    },
-    {
-      value: 'gemini-3-pro-preview',
-      i18nKey: 'gemini3pro',
-      fallback: 'Gemini 3 Pro',
-      contextWindow: 1_000_000,
-    },
-    {
-      value: 'gemini-2.5-flash',
-      i18nKey: 'gemini25flash',
-      fallback: 'Gemini 2.5 Flash',
-      contextWindow: 1_048_576,
-    },
-    {
-      value: 'gemini-2.5-pro',
-      i18nKey: 'gemini25pro',
-      fallback: 'Gemini 2.5 Pro',
-      contextWindow: 1_048_576,
-    },
-    {
-      value: 'gemini-2.0-flash',
-      i18nKey: 'gemini20flash',
-      fallback: 'Gemini 2.0 Flash',
-      contextWindow: 1_048_576,
-    },
-  ],
-  deepagent: [
-    {
-      value: 'minimax-m2.7',
-      i18nKey: 'minimaxM27',
-      fallback: 'MiniMax M2.7',
-      contextWindow: 204_800,
-    },
-    {
-      value: 'minimax-m2.7-highspeed',
-      i18nKey: 'minimaxM27Highspeed',
-      fallback: 'MiniMax M2.7 Highspeed',
-      contextWindow: 204_800,
-    },
-    {
-      value: 'deepagent-gpt-4o',
-      i18nKey: 'deepagentGpt4o',
-      fallback: 'GPT-4o',
-      contextWindow: 128_000,
-    },
-    {
-      value: 'deepagent-sonnet',
-      i18nKey: 'deepagentSonnet',
-      fallback: 'Sonnet 4.5',
-      contextWindow: 200_000,
-    },
-    {
-      value: 'deepagent-gemini-2.5-flash',
-      i18nKey: 'deepagentGemini25flash',
-      fallback: 'Gemini 2.5 Flash',
-      contextWindow: 1_048_576,
-    },
-    {
-      value: 'deepagent-gemini-2.5-pro',
-      i18nKey: 'deepagentGemini25pro',
-      fallback: 'Gemini 2.5 Pro',
-      contextWindow: 1_048_576,
-    },
-    {
-      value: 'deepagent-gemini-3-flash',
-      i18nKey: 'deepagentGemini3flash',
-      fallback: 'Gemini 3 Flash',
-      contextWindow: 1_000_000,
-    },
-    {
-      value: 'deepagent-gemini-3-pro',
-      i18nKey: 'deepagentGemini3pro',
-      fallback: 'Gemini 3 Pro',
-      contextWindow: 1_000_000,
-    },
-    {
-      value: 'deepagent-grok-3',
-      i18nKey: 'deepagentGrok3',
-      fallback: 'Grok 3',
-      contextWindow: 131_072,
-    },
-    {
-      value: 'deepagent-grok-3-mini',
-      i18nKey: 'deepagentGrok3mini',
-      fallback: 'Grok 3 Mini',
-      contextWindow: 131_072,
-    },
-    {
-      value: 'deepagent-glm-5.1',
-      i18nKey: 'deepagentGlm51',
-      fallback: 'GLM-5.1',
-      contextWindow: 128_000,
-    },
-    {
-      value: 'deepagent-glm-5-turbo',
-      i18nKey: 'deepagentGlm5turbo',
-      fallback: 'GLM-5 Turbo',
-      contextWindow: 128_000,
-    },
-    {
-      value: 'deepagent-glm-5v-turbo',
-      i18nKey: 'deepagentGlm5vturbo',
-      fallback: 'GLM-5V Turbo',
-      contextWindow: 128_000,
-    },
-  ],
-  openswe: [
-    {
-      value: 'openswe-default',
-      i18nKey: 'opensweDefault',
-      fallback: 'OpenSWE Default',
-      contextWindow: 200_000,
-    },
-  ],
-};
+// ── Models per provider (derived from shared registry) ─────────
+
+export const PROVIDER_MODELS: Record<string, ModelConfig[]> = Object.fromEntries(
+  REGISTRY_PROVIDERS.map((provider) => [
+    provider,
+    Object.entries(MODEL_REGISTRY[provider]).map(([value, def]) => ({
+      value,
+      i18nKey: def.i18nKey,
+      fallback: def.label,
+      contextWindow: def.contextWindow,
+    })),
+  ]),
+);
 
 /** All models across all providers (flattened). */
 export const ALL_MODELS: ModelConfig[] = Object.values(PROVIDER_MODELS).flat();
+
+function translateOrFallback(t: (key: string) => string, m: ModelConfig): string {
+  const translated = t(`thread.model.${m.i18nKey}`);
+  return translated.startsWith('thread.model.') ? m.fallback : translated;
+}
 
 /**
  * Get models for a provider as `{ value, label }` pairs using a translation function.
@@ -181,23 +65,14 @@ export function getModelOptions(
   t: (key: string) => string,
 ): { value: string; label: string }[] {
   const models = PROVIDER_MODELS[provider] ?? PROVIDER_MODELS.claude;
-  return models.map((m) => {
-    const translated = t(`thread.model.${m.i18nKey}`);
-    // If i18next returns the key itself, use fallback
-    const label = translated.startsWith('thread.model.') ? m.fallback : translated;
-    return { value: m.value, label };
-  });
+  return models.map((m) => ({ value: m.value, label: translateOrFallback(t, m) }));
 }
 
 /**
  * Get all models across all providers as `{ value, label }` pairs.
  */
 export function getAllModelOptions(t: (key: string) => string): { value: string; label: string }[] {
-  return ALL_MODELS.map((m) => {
-    const translated = t(`thread.model.${m.i18nKey}`);
-    const label = translated.startsWith('thread.model.') ? m.fallback : translated;
-    return { value: m.value, label };
-  });
+  return ALL_MODELS.map((m) => ({ value: m.value, label: translateOrFallback(t, m) }));
 }
 
 export interface UnifiedModelOption {
@@ -221,17 +96,13 @@ export function getUnifiedModelOptions(
     return {
       provider: p.value,
       providerLabel: p.label,
-      models: models.map((m) => {
-        const translated = t(`thread.model.${m.i18nKey}`);
-        const label = translated.startsWith('thread.model.') ? m.fallback : translated;
-        return {
-          value: `${p.value}:${m.value}`,
-          label,
-          provider: p.value,
-          providerLabel: p.label,
-          model: m.value,
-        };
-      }),
+      models: models.map((m) => ({
+        value: `${p.value}:${m.value}`,
+        label: translateOrFallback(t, m),
+        provider: p.value,
+        providerLabel: p.label,
+        model: m.value,
+      })),
     };
   });
 }

@@ -230,7 +230,7 @@ export function createThreadRepository(deps: ThreadRepositoryDeps) {
     );
   }
 
-  /** Get a thread by its sessionId (used by ingest mapper for OpenSWE threads) */
+  /** Get a thread by its sessionId (used by ingest mapper) */
   async function getThreadBySessionId(sessionId: string) {
     return dbGet(db.select().from(schema.threads).where(eq(schema.threads.sessionId, sessionId)));
   }

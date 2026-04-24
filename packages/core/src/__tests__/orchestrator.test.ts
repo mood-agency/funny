@@ -460,11 +460,11 @@ describe('AgentOrchestrator', () => {
       await orchestrator.startAgent(
         baseOpts({
           provider: 'codex',
-          model: 'o4-mini',
+          model: 'gpt-5.4',
         }),
       );
 
-      expect(factory.lastProcess.options.model).toBe('o4-mini');
+      expect(factory.lastProcess.options.model).toBe('gpt-5.4');
       expect(factory.lastProcess.options.provider).toBe('codex');
     });
 
