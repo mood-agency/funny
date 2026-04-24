@@ -29,7 +29,7 @@ function checkOwnership(thread: { userId: string }, userId: string): Result<void
 export async function requireThread(
   id: string,
   userId?: string,
-  organizationId?: string,
+  organizationId?: string | null,
 ): Promise<Result<Awaited<ReturnType<typeof tm.getThread>> & {}, DomainError>> {
   const thread = await tm.getThread(id);
   if (!thread) return err(notFound('Thread not found'));
@@ -54,7 +54,7 @@ export async function requireThread(
 export async function requireThreadWithMessages(
   id: string,
   userId?: string,
-  organizationId?: string,
+  organizationId?: string | null,
 ): Promise<Result<NonNullable<Awaited<ReturnType<typeof tm.getThreadWithMessages>>>, DomainError>> {
   const result = await tm.getThreadWithMessages(id);
   if (!result) return err(notFound('Thread not found'));
@@ -78,7 +78,7 @@ export async function requireThreadWithMessages(
 export async function requireProject(
   id: string,
   userId?: string,
-  organizationId?: string,
+  organizationId?: string | null,
 ): Promise<
   Result<NonNullable<Awaited<ReturnType<IProjectRepository['getProject']>>>, DomainError>
 > {
@@ -105,7 +105,7 @@ export async function requireProject(
 export async function requireThreadCwd(
   threadId: string,
   userId?: string,
-  organizationId?: string,
+  organizationId?: string | null,
 ): Promise<Result<string, DomainError>> {
   const threadResult = await requireThread(threadId, userId, organizationId);
   if (threadResult.isErr()) return err(threadResult.error);
