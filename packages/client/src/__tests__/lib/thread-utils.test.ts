@@ -103,16 +103,10 @@ describe('stageConfig', () => {
     }
   });
 
-  test('done has green color class', () => {
-    expect(stageConfig.done.className).toContain('green');
-  });
-
-  test('in_progress has blue color class', () => {
-    expect(stageConfig.in_progress.className).toContain('blue');
-  });
-
-  test('review has amber color class', () => {
-    expect(stageConfig.review.className).toContain('amber');
+  test('all stages use the muted-foreground class', () => {
+    for (const stage of allStages) {
+      expect(stageConfig[stage].className).toBe('text-muted-foreground');
+    }
   });
 });
 
