@@ -200,7 +200,12 @@ bunx tsc --noEmit
 
 ### Error Handling with `neverthrow`
 
-**Always prefer `neverthrow` for error handling over try/catch when possible.** The `neverthrow` library is already installed across all packages and widely used in the codebase. Use `Result<T, E>`, `ok()`, and `err()` to represent fallible operations instead of throwing exceptions.
+Scoped mandate — the policy is narrow on purpose so it can actually be enforced:
+
+- **Required** in `packages/core/**` — all fallible functions MUST return `Result<T, E>` / `ResultAsync<T, E>`. No raw `throw` in new code under `core`.
+- **Required at service-method boundaries** in `packages/runtime/src/services/**` and `packages/server/src/services/**` — public methods on service classes MUST return `Result` / `ResultAsync` so callers can compose failure handling.
+- **Allowed to `throw`**: Hono route handlers, top-level entry points (`src/index.ts`), test code, and third-party libraries that throw (wrap at the boundary with `Result.fromThrowable` / `ResultAsync.fromPromise`).
+- **Client code**: preferred but not required; use whatever fits the call-site.
 
 ```typescript
 import { Result, ok, err } from 'neverthrow';
@@ -210,10 +215,9 @@ function parseConfig(raw: string): Result<Config, string> {
 }
 ```
 
-- Use `ResultAsync` for async operations that can fail
-- Chain results with `.map()`, `.mapErr()`, `.andThen()` instead of nested try/catch
-- Reserve try/catch for boundaries (route handlers, top-level entry points) or third-party code that throws
-- On the server, use `result-response.ts` helpers to convert `Result` values into HTTP responses
+- Use `ResultAsync` for async operations that can fail.
+- Chain results with `.map()`, `.mapErr()`, `.andThen()` instead of nested try/catch.
+- On the server, use `result-response.ts` helpers to convert `Result` values into HTTP responses.
 
 ## Agent Safety Rules
 

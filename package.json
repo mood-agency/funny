@@ -58,7 +58,12 @@
     "format:check": "oxfmt --check .",
     "test:e2e": "bunx playwright test",
     "test:e2e:ui": "bunx playwright test --ui",
-    "codegen": "bunx playwright codegen http://localhost:5173"
+    "codegen": "bunx playwright codegen http://localhost:5173",
+    "fitness": "bun run fitness:layering && bun run fitness:circular && bun run fitness:size",
+    "fitness:layering": "bun scripts/fitness/check-layering.ts",
+    "fitness:circular": "bun scripts/fitness/check-circular.ts",
+    "fitness:size": "bun scripts/fitness/check-file-size.ts",
+    "fitness:growth": "bun scripts/fitness/check-file-growth.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.19.0",

@@ -24,14 +24,18 @@
     "react/no-array-index-key": "off",
     "no-new": "off",
     "react/iframe-missing-sandbox": "off",
-    "no-unmodified-loop-condition": "off"
+    "no-unmodified-loop-condition": "off",
+    "max-lines": ["warn", { "max": 500, "skipBlankLines": true, "skipComments": true }],
+    "max-lines-per-function": ["warn", { "max": 150, "skipBlankLines": true, "skipComments": true, "IIFEs": true }]
   },
   "overrides": [
     {
       "files": ["**/__tests__/**", "**/*.test.*", "**/*.spec.*"],
       "rules": {
         "no-constant-condition": "off",
-        "no-constant-binary-expression": "off"
+        "no-constant-binary-expression": "off",
+        "max-lines": "off",
+        "max-lines-per-function": "off"
       }
     }
   ],
