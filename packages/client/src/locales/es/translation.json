@@ -37,7 +37,50 @@
     "threadsTitle": "Actividad",
     "noProjects": "No hay proyectos. Presiona + para agregar uno.",
     "analytics": "Analíticas",
-    "githubIssues": "GitHub Issues"
+    "githubIssues": "GitHub Issues",
+    "createDesign": "Crear diseño"
+  },
+  "createDesign": {
+    "title": "Crear diseño",
+    "projectName": "Nombre del proyecto",
+    "create": "Crear",
+    "privacy": "Solo tú puedes ver tu proyecto por defecto.",
+    "tabs": {
+      "prototype": "Prototipo",
+      "slides": "Presentación",
+      "template": "Desde plantilla",
+      "other": "Otro"
+    },
+    "prototype": {
+      "heading": "Nuevo prototipo",
+      "wireframe": "Wireframe",
+      "highFidelity": "Alta fidelidad"
+    },
+    "slides": {
+      "heading": "Nueva presentación",
+      "speakerNotes": "Usar notas del orador",
+      "speakerNotesHint": "Menos texto en las diapositivas"
+    },
+    "template": {
+      "empty": "Plantillas próximamente."
+    },
+    "other": {
+      "empty": "Más tipos de diseño próximamente."
+    },
+    "toast": {
+      "created": "Diseño \"{{name}}\" creado"
+    }
+  },
+  "designView": {
+    "loading": "Cargando diseño…",
+    "folder": "Carpeta",
+    "placeholder": "El lienzo de diseño llegará pronto.",
+    "types": {
+      "prototype": "Prototipo",
+      "slides": "Presentación",
+      "template": "Plantilla",
+      "other": "Otro"
+    }
   },
   "thread": {
     "status": {
@@ -67,6 +110,8 @@
       "gpt54mini": "GPT-5.4 Mini",
       "gpt53codex": "GPT-5.3 Codex",
       "gpt52": "GPT-5.2",
+      "gemini31proHigh": "Gemini 3.1 Pro (Alto)",
+      "gemini31proLow": "Gemini 3.1 Pro (Bajo)",
       "gemini3flash": "Gemini 3 Flash",
       "gemini3pro": "Gemini 3 Pro",
       "gemini25flash": "Gemini 2.5 Flash",
@@ -1075,6 +1120,12 @@
     "createThread": {
       "INTERNAL": "Error al crear el hilo. El servidor puede estar experimentando problemas.",
       "BAD_REQUEST": "No se pudo crear el hilo. Revisa tu configuración."
+    },
+    "createProject": {
+      "BAD_REQUEST": "{{message}}",
+      "CONFLICT": "{{message}}",
+      "PROCESS_ERROR": "{{message}}",
+      "INTERNAL": "Error al crear el proyecto. El servidor puede estar experimentando problemas."
     }
   }
 }

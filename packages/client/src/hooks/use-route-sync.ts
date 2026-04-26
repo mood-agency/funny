@@ -69,6 +69,23 @@ function parseRoute(pathname: string) {
     };
   }
 
+  const designMatch = matchPath('/projects/:projectId/designs/:designId', p);
+  if (designMatch) {
+    return {
+      orgSlug,
+      settingsPage: null,
+      preferencesPage: null,
+      projectId: designMatch.params.projectId!,
+      threadId: null,
+      designId: designMatch.params.designId!,
+      globalSearch: false,
+      inbox: false,
+      analytics: false,
+      liveColumns: false,
+      addProject: false,
+    };
+  }
+
   const threadMatch = matchPath('/projects/:projectId/threads/:threadId', p);
   if (threadMatch) {
     return {
@@ -241,6 +258,7 @@ export function useRouteSync() {
   useEffect(() => {
     if (!initialized) return;
 
+    const parsed = parseRoute(location.pathname);
     const {
       orgSlug,
       settingsPage,
@@ -252,7 +270,8 @@ export function useRouteSync() {
       analytics,
       liveColumns,
       addProject,
-    } = parseRoute(location.pathname);
+    } = parsed;
+    const designId = (parsed as { designId?: string | null }).designId ?? null;
 
     // Restore last route on cold load at root path
     if (!restoredRef.current) {
@@ -442,6 +461,21 @@ export function useRouteSync() {
     // Clear search view if navigating away
     if (uiStore.allThreadsProjectId) {
       uiStore.closeAllThreads();
+    }
+
+    if (designId && projectId) {
+      if (uiStore.designViewProjectId !== projectId || uiStore.designViewDesignId !== designId) {
+        uiStore.setDesignView(projectId, designId);
+      }
+      if (projectId !== projectStore.selectedProjectId) {
+        projectStore.selectProject(projectId);
+      }
+      return;
+    }
+
+    // Close design view when navigating away
+    if (uiStore.designViewDesignId) {
+      uiStore.closeDesignView();
     }
 
     if (threadId) {

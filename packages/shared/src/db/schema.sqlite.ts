@@ -63,6 +63,21 @@ export const arcs = sqliteTable('arcs', {
   createdAt: text('created_at').notNull(),
 });
 
+export const designs = sqliteTable('designs', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  type: text('type').notNull(),
+  fidelity: text('fidelity'),
+  speakerNotes: integer('speaker_notes').notNull().default(0),
+  folderPath: text('folder_path').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const threads = sqliteTable('threads', {
   id: text('id').primaryKey(),
   projectId: text('project_id')

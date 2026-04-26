@@ -592,7 +592,7 @@ export class AgentMessageHandler {
 
           // Detect permission denial pattern (includes SDK native messages and hook denial messages)
           const permissionDeniedMatch = decodedOutput.match(
-            /(?:requested permissions? to use|hasn't been granted|hasn't granted|permission.*denied|not in the allowed tools list|hook error:.*(?:approval|permission)|denied this tool|Blocked by hook)/i,
+            /(?:requested permissions? to (?:use|edit)|is a sensitive file|hasn't been granted|hasn't granted|permission.*denied|not in the allowed tools list|hook error:.*(?:approval|permission)|denied this tool|Blocked by hook)/i,
           );
 
           if (permissionDeniedMatch && tc?.name) {

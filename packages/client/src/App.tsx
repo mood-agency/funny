@@ -9,10 +9,11 @@ import { Toaster } from '@/components/ui/sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WorkflowErrorModal } from '@/components/WorkflowErrorModal';
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useRouteSync } from '@/hooks/use-route-sync';
 import { useThreadHistoryTracker } from '@/hooks/use-thread-history-tracker';
 import { useWS } from '@/hooks/use-ws';
-import { TOAST_DURATION } from '@/lib/utils';
+import { cn, TOAST_DURATION } from '@/lib/utils';
 import { useAgentTemplateStore } from '@/stores/agent-template-store';
 import { useInternalEditorStore } from '@/stores/internal-editor-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -151,6 +152,8 @@ export function App() {
   const addProjectOpen = useUIStore((s) => s.addProjectOpen);
   const analyticsOpen = useUIStore((s) => s.analyticsOpen);
   const liveColumnsOpen = useUIStore((s) => s.liveColumnsOpen);
+  const designViewDesignId = useUIStore((s) => s.designViewDesignId);
+  const designViewOpen = !!designViewDesignId;
   const testRunnerOpen = useUIStore((s) => s.testRunnerOpen);
   const internalEditorOpen = useInternalEditorStore((s) => s.isOpen);
   const internalEditorFilePath = useInternalEditorStore((s) => s.filePath);
@@ -194,6 +197,9 @@ export function App() {
   // Connect WebSocket on mount
   useWS();
 
+  // Refresh git state when the tab/window regains focus (catches external commits)
+  useRefreshOnFocus();
+
   // Sync URL ↔ store
   useRouteSync();
 
@@ -233,12 +239,14 @@ export function App() {
 
   return (
     <SidebarProvider defaultOpen={true} className="h-screen overflow-hidden">
-      <ErrorBoundary area="sidebar">
-        <Suspense fallback={<SidebarPlaceholder />}>
-          <AppSidebar />
-        </Suspense>
-      </ErrorBoundary>
-      <CollapsedSidebarStrip />
+      {!designViewOpen && (
+        <ErrorBoundary area="sidebar">
+          <Suspense fallback={<SidebarPlaceholder />}>
+            <AppSidebar />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+      {!designViewOpen && <CollapsedSidebarStrip />}
 
       <div className="flex min-h-0 flex-1 overflow-hidden" data-testid="main-panel-group">
         {/* Center panel — main content + terminal */}
@@ -296,14 +304,20 @@ export function App() {
           />
         )}
 
-        {/* Right panel — Review / Tasks / Activity. Mounted only while open;
-            the chunk is prefetched on idle so first open is near-instant. */}
-        {rightPaneVisible && (
-          <div
-            className="flex min-w-0 flex-shrink-0 flex-col overflow-hidden bg-sidebar"
-            style={{ width: `${reviewPaneWidth}vw` }}
-          >
-            <div className="min-h-0 flex-1 overflow-hidden">
+        {/* Right panel — Review / Tasks / Activity. Wrapper stays mounted so
+            width can animate open/closed; inner content unmounts when hidden. */}
+        <div
+          className={cn(
+            'flex min-w-0 flex-shrink-0 flex-col overflow-hidden bg-sidebar',
+            !resizing && 'transition-[width] duration-200 ease-linear',
+          )}
+          style={{ width: rightPaneVisible ? `${reviewPaneWidth}vw` : 0 }}
+        >
+          {rightPaneVisible && (
+            <div
+              className="min-h-0 flex-1 overflow-hidden"
+              style={{ width: `${reviewPaneWidth}vw` }}
+            >
               <ErrorBoundary area="right-pane">
                 <Suspense>
                   {rightPaneTab === 'review' ? (
@@ -318,8 +332,8 @@ export function App() {
                 </Suspense>
               </ErrorBoundary>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <Toaster position="bottom-right" duration={TOAST_DURATION} />

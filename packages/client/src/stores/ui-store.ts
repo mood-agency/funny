@@ -37,6 +37,8 @@ interface UIState {
   analyticsOpen: boolean;
   liveColumnsOpen: boolean;
   testRunnerOpen: boolean;
+  designViewProjectId: string | null;
+  designViewDesignId: string | null;
   generalSettingsOpen: boolean;
   activePreferencesPage: string | null;
   timelineVisible: boolean;
@@ -64,6 +66,8 @@ interface UIState {
   showGlobalSearch: () => void;
   setAnalyticsOpen: (open: boolean) => void;
   setLiveColumnsOpen: (open: boolean) => void;
+  setDesignView: (projectId: string, designId: string) => void;
+  closeDesignView: () => void;
   setTimelineVisible: (visible: boolean) => void;
   setKanbanContext: (
     context: { projectId?: string; search?: string; threadId?: string } | null,
@@ -114,6 +118,8 @@ export const useUIStore = create<UIState>((set) => ({
   analyticsOpen: false,
   liveColumnsOpen: false,
   testRunnerOpen: false,
+  designViewProjectId: null,
+  designViewDesignId: null,
   generalSettingsOpen: false,
   activePreferencesPage: null,
   timelineVisible: (() => {
@@ -370,6 +376,27 @@ export const useUIStore = create<UIState>((set) => ({
           }
         : { liveColumnsOpen: false },
     );
+  },
+
+  setDesignView: (projectId, designId) => {
+    set({
+      designViewProjectId: projectId,
+      designViewDesignId: designId,
+      settingsOpen: false,
+      activeSettingsPage: null,
+      generalSettingsOpen: false,
+      activePreferencesPage: null,
+      allThreadsProjectId: null,
+      addProjectOpen: false,
+      automationInboxOpen: false,
+      analyticsOpen: false,
+      liveColumnsOpen: false,
+      testRunnerOpen: false,
+    });
+  },
+
+  closeDesignView: () => {
+    set({ designViewProjectId: null, designViewDesignId: null });
   },
 
   setTimelineVisible: (visible) => {

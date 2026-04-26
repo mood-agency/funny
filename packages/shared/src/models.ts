@@ -91,6 +91,18 @@ const codexModels = {
 } as const satisfies Record<string, ModelDefinition>;
 
 const geminiModels = {
+  'gemini-3.1-pro-high': {
+    id: 'gemini-3.1-pro-high',
+    label: 'Gemini 3.1 Pro (High)',
+    contextWindow: 1_000_000,
+    i18nKey: 'gemini31proHigh',
+  },
+  'gemini-3.1-pro-low': {
+    id: 'gemini-3.1-pro-low',
+    label: 'Gemini 3.1 Pro (Low)',
+    contextWindow: 1_000_000,
+    i18nKey: 'gemini31proLow',
+  },
   'gemini-3-flash-preview': {
     id: 'gemini-3-flash-preview',
     label: 'Gemini 3 Flash',

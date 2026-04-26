@@ -56,12 +56,18 @@ function saveCollapsed(basePath: string | undefined, set: Set<string>): void {
 export function ProjectFilesPane() {
   const { t } = useTranslation();
   const setReviewPaneOpen = useUIStore((s) => s.setReviewPaneOpen);
+  const designViewDesignId = useUIStore((s) => s.designViewDesignId);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
   const projects = useProjectStore((s) => s.projects);
   const project = projects.find((p) => p.id === selectedProjectId);
   const activeThreadWorktreePath = useThreadStore((s) => s.activeThread?.worktreePath);
 
-  const basePath = activeThreadWorktreePath || project?.path;
+  const basePath = useMemo(() => {
+    if (designViewDesignId && project?.path) {
+      return `${project.path}/designs/${designViewDesignId}`;
+    }
+    return activeThreadWorktreePath || project?.path;
+  }, [designViewDesignId, project?.path, activeThreadWorktreePath]);
 
   const [files, setFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);

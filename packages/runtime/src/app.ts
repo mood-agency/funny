@@ -38,6 +38,7 @@ import { tracingMiddleware } from './middleware/tracing.js';
 import { arcRoutes, arcProjectRoutes } from './routes/arcs.js';
 import { automationRoutes } from './routes/automations.js';
 import browseRoutes from './routes/browse.js';
+import { designProjectRoutes } from './routes/designs.js';
 import filesRoutes from './routes/files.js';
 import { gitRoutes, invalidateGitStatusCacheByProject } from './routes/git.js';
 import { githubRoutes } from './routes/github.js';
@@ -309,6 +310,7 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
   app.route('/api/automations', automationRoutes);
   app.route('/api/arcs', arcRoutes);
   app.route('/api/projects', arcProjectRoutes);
+  app.route('/api/projects', designProjectRoutes);
 
   // Serve static files from client build
   if (!options.skipStaticServing && existsSync(clientDistDir)) {

@@ -211,7 +211,9 @@ describe('getProviderModels', () => {
     expect(models).toContain('gemini-2.5-pro');
     expect(models).toContain('gemini-3-flash-preview');
     expect(models).toContain('gemini-3-pro-preview');
-    expect(models).toHaveLength(5);
+    expect(models).toContain('gemini-3.1-pro-high');
+    expect(models).toContain('gemini-3.1-pro-low');
+    expect(models).toHaveLength(7);
   });
 
   test('returns empty array for llm-api', () => {

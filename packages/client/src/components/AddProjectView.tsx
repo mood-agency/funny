@@ -43,13 +43,13 @@ export function AddProjectView() {
     setIsCreating(true);
     const initResult = await api.gitInit(newProjectPath);
     if (initResult.isErr()) {
-      toastError(initResult.error);
+      toastError(initResult.error, 'createProject');
       setIsCreating(false);
       return;
     }
     const retryResult = await api.createProject(newProjectName, newProjectPath);
     if (retryResult.isErr()) {
-      toastError(retryResult.error);
+      toastError(retryResult.error, 'createProject');
       setIsCreating(false);
       return;
     }
@@ -60,7 +60,6 @@ export function AddProjectView() {
         defaultValue: `Project "${newProjectName}" created`,
       }),
     );
-    navigate(buildPath('/'));
     navigate(buildPath(`/projects/${retryResult.value.id}`));
     setIsCreating(false);
   };
@@ -70,12 +69,15 @@ export function AddProjectView() {
     setIsCreating(true);
     const result = await api.createProject(newProjectName, newProjectPath);
     if (result.isErr()) {
-      if (result.error.message?.includes('Not a git repository')) {
+      if (
+        result.error.message?.includes('Not a git repository') ||
+        result.error.message?.includes('nested inside another git repository')
+      ) {
         setIsCreating(false);
         setGitInitDialogOpen(true);
         return;
       }
-      toastError(result.error);
+      toastError(result.error, 'createProject');
       setIsCreating(false);
       return;
     }
@@ -86,7 +88,6 @@ export function AddProjectView() {
         defaultValue: `Project "${newProjectName}" created`,
       }),
     );
-    navigate(buildPath('/'));
     navigate(buildPath(`/projects/${result.value.id}`));
     setIsCreating(false);
   };

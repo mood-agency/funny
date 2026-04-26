@@ -166,6 +166,7 @@ const { teamSettingsRoutes } = await import('./routes/team-settings.js');
 const { analyticsRoutes } = await import('./routes/analytics.js');
 const { pipelineRoutes } = await import('./routes/pipelines.js');
 const { arcRoutes, arcProjectRoutes } = await import('./routes/arcs.js');
+const { designRoutes, designProjectRoutes } = await import('./routes/designs.js');
 const { agentTemplateRoutes } = await import('./routes/agent-templates.js');
 
 app.route('/api/auth', authRoutes);
@@ -182,6 +183,8 @@ app.route('/api/pipelines', pipelineRoutes);
 app.route('/api/invite-links', inviteLinkRoutes);
 app.route('/api/arcs', arcRoutes);
 app.route('/api/projects', arcProjectRoutes);
+app.route('/api/designs', designRoutes);
+app.route('/api/projects', designProjectRoutes);
 app.route('/api/agent-templates', agentTemplateRoutes);
 
 // Setup status — proxy to runner

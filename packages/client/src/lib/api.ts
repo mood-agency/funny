@@ -4,6 +4,7 @@ import { analyticsApi } from './api/analytics';
 import { arcsApi } from './api/arcs';
 import { automationsApi } from './api/automations';
 import { browseApi } from './api/browse';
+import { designsApi } from './api/designs';
 import { gitApi } from './api/git';
 import { githubApi } from './api/github';
 import { mcpApi } from './api/mcp';
@@ -41,4 +42,5 @@ export const api = {
   ...teamApi, // Team / Organization / Invites / Runners
   ...testsApi, // Test Runner
   ...arcsApi, // Arcs
+  ...designsApi, // Designs
 };

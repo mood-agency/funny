@@ -942,8 +942,26 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
         return false;
       },
     },
-    onUpdate: () => {
+    onUpdate: ({ editor: ed }) => {
       onChangeRef.current?.();
+      // Keep the caret in view — PM's scrollIntoView can lag behind our height
+      // animation, so we re-assert it on the next frame.
+      requestAnimationFrame(() => {
+        try {
+          const dom = ed.view.dom as HTMLElement;
+          const coords = ed.view.coordsAtPos(ed.state.selection.from);
+          const rect = dom.getBoundingClientRect();
+          const offsetBottom = coords.bottom - rect.top;
+          const offsetTop = coords.top - rect.top;
+          if (offsetBottom > dom.clientHeight) {
+            dom.scrollTop += offsetBottom - dom.clientHeight + 4;
+          } else if (offsetTop < 0) {
+            dom.scrollTop += offsetTop - 4;
+          }
+        } catch {
+          /* selection may be invalid mid-update */
+        }
+      });
     },
     editable: !disabled,
   });
@@ -1078,6 +1096,34 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(fu
   const handleSuggestionSelect = useCallback((item: SuggestionItem) => {
     suggestionCommandRef.current?.(item as unknown as Record<string, unknown>);
   }, []);
+
+  // ── Animate height changes when text wraps to a new line ──
+  useEffect(() => {
+    const el = editor?.view.dom as HTMLElement | undefined;
+    if (!el) return;
+    let prev = el.offsetHeight;
+    let anim: Animation | null = null;
+    const ro = new ResizeObserver(() => {
+      if (anim?.playState === 'running') return; // skip self-triggered fires
+      const next = el.offsetHeight;
+      if (next === prev) return;
+      const prevOverflow = el.style.overflowY;
+      el.style.overflowY = 'hidden';
+      anim = el.animate(
+        { height: [`${prev}px`, `${next}px`] },
+        { duration: 150, easing: 'ease-out' },
+      );
+      anim.onfinish = anim.oncancel = () => {
+        el.style.overflowY = prevOverflow;
+      };
+      prev = next;
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      anim?.cancel();
+    };
+  }, [editor]);
 
   // ── Close suggestion popup on click outside ──
   useEffect(() => {

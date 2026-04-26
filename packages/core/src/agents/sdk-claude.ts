@@ -213,6 +213,25 @@ export class SDKClaudeProcess extends BaseAgentProcess {
           subtype: (sdkMsg as any).subtype,
         });
 
+        // Synthetic assistant messages (model: "<synthetic>") carry provider
+        // errors like "API Error: 529 {...}" as plain text. Render them as a
+        // collapsible ProviderError tool card instead of an opaque text bubble.
+        if (sdkMsg.type === 'assistant') {
+          const rawMsg = (sdkMsg as any).message;
+          if (rawMsg?.model === '<synthetic>') {
+            const errorText = (rawMsg.content ?? [])
+              .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+              .map((b: any) => b.text)
+              .join('\n')
+              .trim();
+            if (errorText) {
+              dlog.info('Synthetic provider error', { preview: errorText.slice(0, 200) });
+              this.emitErrorToolCall(errorText);
+              continue;
+            }
+          }
+        }
+
         const cliMsg = this.translateMessage(sdkMsg);
         if (cliMsg) {
           dlog.debug('Translated to CLIMessage', {
@@ -343,6 +362,59 @@ export class SDKClaudeProcess extends BaseAgentProcess {
               hookEventName: 'PreToolUse',
               permissionDecision: 'deny',
               permissionDecisionReason: 'Waiting for user approval in confirmEdit mode',
+            },
+          });
+        };
+        if (signal.aborted) {
+          onAbort();
+        } else {
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
+      });
+    }
+
+    // Sensitive-path guard: even in autoEdit, pause when a tool touches a
+    // protected location (e.g. ~/.claude/, ~/.config/claude/). Without this,
+    // the SDK silently denies the call with a generic "sensitive file"
+    // message and the user never sees a permission prompt — the agent just
+    // keeps retrying. Skip when the tool was explicitly allowed (user chose
+    // "Always Allow") or the user has opted into bypassPermissions/plan.
+    const SENSITIVE_PATH_TOOLS = new Set(['Bash', 'Edit', 'Write', 'NotebookEdit', 'Read']);
+    const SENSITIVE_PATH_PATTERNS = [
+      /(?:^|[^A-Za-z0-9_])\.claude(?:[/\s'"`]|$)/,
+      /\.config\/claude/,
+    ];
+    const collectPathTargets = (tool: string, ti: any): string[] => {
+      if (!ti || typeof ti !== 'object') return [];
+      if (tool === 'Bash' && typeof ti.command === 'string') return [ti.command];
+      const out: string[] = [];
+      if (typeof ti.file_path === 'string') out.push(ti.file_path);
+      if (typeof ti.notebook_path === 'string') out.push(ti.notebook_path);
+      return out;
+    };
+    const touchesSensitive =
+      SENSITIVE_PATH_TOOLS.has(toolName) &&
+      collectPathTargets(toolName, input.tool_input).some((t) =>
+        SENSITIVE_PATH_PATTERNS.some((rx) => rx.test(t)),
+      );
+    const modeAllowsBypass =
+      this.options.originalPermissionMode === 'bypassPermissions' ||
+      this.options.originalPermissionMode === 'plan';
+    if (touchesSensitive && !isExplicitlyAllowed && !modeAllowsBypass) {
+      dlog.info(`preToolUseHook PAUSING for ${toolName} (sensitive path)`, {
+        toolName,
+        alreadyAborted: signal.aborted,
+      });
+      return new Promise<any>((resolve) => {
+        const onAbort = () => {
+          dlog.info(`preToolUseHook RESUMED (abort signal) for ${toolName} (sensitive path)`, {
+            toolName,
+          });
+          resolve({
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'deny',
+              permissionDecisionReason: 'Waiting for user approval — sensitive path',
             },
           });
         };

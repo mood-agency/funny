@@ -38,7 +38,50 @@
     "threadsTitle": "Activity",
     "noProjects": "No projects yet. Click + to add one.",
     "analytics": "Analytics",
-    "githubIssues": "GitHub Issues"
+    "githubIssues": "GitHub Issues",
+    "createDesign": "Create design"
+  },
+  "createDesign": {
+    "title": "Create design",
+    "projectName": "Project name",
+    "create": "Create",
+    "privacy": "Only you can see your project by default.",
+    "tabs": {
+      "prototype": "Prototype",
+      "slides": "Slide deck",
+      "template": "From template",
+      "other": "Other"
+    },
+    "prototype": {
+      "heading": "New prototype",
+      "wireframe": "Wireframe",
+      "highFidelity": "High fidelity"
+    },
+    "slides": {
+      "heading": "New slide deck",
+      "speakerNotes": "Use speaker notes",
+      "speakerNotesHint": "Less text on slides"
+    },
+    "template": {
+      "empty": "Templates coming soon."
+    },
+    "other": {
+      "empty": "More design types coming soon."
+    },
+    "toast": {
+      "created": "Design \"{{name}}\" created"
+    }
+  },
+  "designView": {
+    "loading": "Loading design…",
+    "folder": "Folder",
+    "placeholder": "Design canvas coming soon.",
+    "types": {
+      "prototype": "Prototype",
+      "slides": "Slide deck",
+      "template": "Template",
+      "other": "Other"
+    }
   },
   "thread": {
     "status": {
@@ -68,6 +111,8 @@
       "gpt54mini": "GPT-5.4 Mini",
       "gpt53codex": "GPT-5.3 Codex",
       "gpt52": "GPT-5.2",
+      "gemini31proHigh": "Gemini 3.1 Pro (High)",
+      "gemini31proLow": "Gemini 3.1 Pro (Low)",
       "gemini3flash": "Gemini 3 Flash",
       "gemini3pro": "Gemini 3 Pro",
       "gemini25flash": "Gemini 2.5 Flash",
@@ -1083,6 +1128,12 @@
     "createThread": {
       "INTERNAL": "Failed to create the thread. The server may be experiencing issues.",
       "BAD_REQUEST": "Could not create the thread. Please check your settings."
+    },
+    "createProject": {
+      "BAD_REQUEST": "{{message}}",
+      "CONFLICT": "{{message}}",
+      "PROCESS_ERROR": "{{message}}",
+      "INTERNAL": "Failed to create the project. The server may be experiencing issues."
     }
   }
 }

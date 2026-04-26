@@ -6,6 +6,7 @@ import type { GitSyncState } from '@funny/shared';
 import { processError, type DomainError } from '@funny/shared/errors';
 import { ResultAsync } from 'neverthrow';
 
+import { shouldSkipUntrackedDiff } from './diff.js';
 import { getNativeGit } from './native.js';
 import { gitRead } from './process.js';
 
@@ -181,10 +182,38 @@ export function getStatusSummary(
         }
       }
 
-      // NOTE: Untracked file line counts are intentionally NOT added to linesAdded.
-      // Counting entire file contents as "additions" inflates the stats and creates
-      // a mismatch with the per-file diff stats shown in the ReviewPane (which only
-      // reports actual diff lines from git diff --numstat).
+      // Untracked files don't appear in `git diff --numstat`, so add their line counts
+      // separately via `git diff --no-index` to match the per-file stats shown in
+      // ReviewPane. Skip oversized files and binaries.
+      const untrackedFiles =
+        untrackedResult.exitCode === 0 && untrackedResult.stdout.trim()
+          ? untrackedResult.stdout.trim().split('\n')
+          : [];
+      const untrackedToStat = untrackedFiles.filter(
+        (p) => !p.endsWith('/') && !shouldSkipUntrackedDiff(worktreeCwd, p),
+      );
+      if (untrackedToStat.length > 0) {
+        const numstats = await Promise.all(
+          untrackedToStat.map((p) =>
+            gitRead(['diff', '--no-index', '--numstat', '--', '/dev/null', p], {
+              cwd: worktreeCwd,
+              reject: false,
+            }),
+          ),
+        );
+        for (const r of numstats) {
+          // Exit code 1 is expected (differences found); only bail on 2+ (error).
+          if (r.exitCode !== 0 && r.exitCode !== 1) continue;
+          const line = r.stdout.trim().split('\n')[0];
+          if (!line) continue;
+          const parts = line.split('\t');
+          if (parts.length < 3) continue;
+          const a = parseInt(parts[0], 10);
+          const d = parseInt(parts[1], 10);
+          if (!isNaN(a)) linesAdded += a;
+          if (!isNaN(d)) linesDeleted += d;
+        }
+      }
 
       if (!branch) {
         const result: GitStatusSummary = {

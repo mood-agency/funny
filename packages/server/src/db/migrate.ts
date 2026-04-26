@@ -1000,6 +1000,30 @@ const migrations: Migration[] = [
       await ctx().addColumn('threads', 'template_variables', 'TEXT');
     },
   },
+  {
+    name: '042_designs',
+    async up() {
+      await ctx().exec(sql`
+        CREATE TABLE IF NOT EXISTS designs (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          fidelity TEXT,
+          speaker_notes INTEGER NOT NULL DEFAULT 0,
+          folder_path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+
+      await ctx().exec(sql`
+        CREATE INDEX IF NOT EXISTS idx_designs_project_user
+        ON designs (project_id, user_id)
+      `);
+    },
+  },
 ];
 
 export async function autoMigrate() {

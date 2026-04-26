@@ -411,15 +411,15 @@ describe('git operations', () => {
       }
     });
 
-    test('does not count untracked file lines as linesAdded', async () => {
+    test('counts untracked file lines as linesAdded', async () => {
       writeFileSync(resolve(repoPath, 'new-file.txt'), 'line1\nline2\nline3\n');
       writeFileSync(resolve(repoPath, 'another.txt'), 'single line\n');
       const result = await getStatusSummary(repoPath);
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
-        // Untracked file content is not included in linesAdded — only actual
-        // diff lines from git diff are counted, consistent with ReviewPane.
-        expect(result.value.linesAdded).toBe(0);
+        // Untracked content is added via `git diff --no-index` so the totals
+        // match the per-file numstat shown in ReviewPane.
+        expect(result.value.linesAdded).toBe(4);
         expect(result.value.linesDeleted).toBe(0);
       }
     });
@@ -434,7 +434,7 @@ describe('git operations', () => {
       }
     });
 
-    test('does not count untracked files even when mixed with binary', async () => {
+    test('counts only text untracked files when mixed with binary', async () => {
       writeFileSync(
         resolve(repoPath, 'image.png'),
         Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00]),
@@ -443,8 +443,8 @@ describe('git operations', () => {
       const result = await getStatusSummary(repoPath);
       expect(result.isOk()).toBe(true);
       if (result.isOk()) {
-        // Untracked files don't contribute to linesAdded
-        expect(result.value.linesAdded).toBe(0);
+        // Binary file is skipped; only the text file contributes its 1 line.
+        expect(result.value.linesAdded).toBe(1);
       }
     });
   });

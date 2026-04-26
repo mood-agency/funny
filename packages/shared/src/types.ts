@@ -199,6 +199,24 @@ export interface Arc {
   threadCount?: number;
 }
 
+// ─── Designs ─────────────────────────────────────────────
+
+export type DesignType = 'prototype' | 'slides' | 'template' | 'other';
+export type DesignFidelity = 'wireframe' | 'high';
+
+export interface Design {
+  id: string;
+  projectId: string;
+  userId: string;
+  name: string;
+  type: DesignType;
+  fidelity: DesignFidelity | null;
+  speakerNotes: boolean;
+  folderPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Threads ─────────────────────────────────────────────
 
 export type ThreadPurpose = 'explore' | 'plan' | 'implement';
