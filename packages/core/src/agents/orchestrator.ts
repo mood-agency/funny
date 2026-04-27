@@ -55,6 +55,25 @@ export interface StartAgentOptions {
   customSkillPaths?: string[];
   /** Custom agent name (Deep Agent only) */
   agentName?: string;
+  /**
+   * Lookup callback for persisted "always allow / always deny" permission
+   * rules. Forwarded to the agent process so the preToolUseHook can
+   * short-circuit on a matching rule without prompting the user. See
+   * `ClaudeProcessOptions.permissionRuleLookup`.
+   */
+  permissionRuleLookup?: (query: {
+    toolName: string;
+    toolInput?: string;
+  }) => Promise<{ decision: 'allow' | 'deny' } | null>;
+  /**
+   * Bypass executor for sensitive-path operations whose rule resolves to
+   * "allow". See `ClaudeProcessOptions.bypassExecutor` for the rationale.
+   */
+  bypassExecutor?: (query: {
+    toolName: string;
+    toolInput: unknown;
+    cwd?: string;
+  }) => Promise<{ output: string } | null>;
 }
 
 export interface OrchestratorEvents {
@@ -101,6 +120,8 @@ export class AgentOrchestrator extends EventEmitter {
       builtinSkillsDisabled,
       customSkillPaths,
       agentName,
+      permissionRuleLookup,
+      bypassExecutor,
     } = options;
 
     dlog.info('startAgent', {
@@ -172,6 +193,8 @@ export class AgentOrchestrator extends EventEmitter {
       builtinSkillsDisabled,
       customSkillPaths,
       agentName,
+      permissionRuleLookup,
+      bypassExecutor,
     };
 
     dlog.info('processOpts systemPrefix', {

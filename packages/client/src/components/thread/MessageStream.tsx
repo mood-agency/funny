@@ -49,7 +49,7 @@ export interface MessageStreamProps {
   /** Waiting reason when status=waiting */
   waitingReason?: WaitingReason;
   /** Pending permission data */
-  pendingPermission?: { toolName: string };
+  pendingPermission?: { toolName: string; toolInput?: string };
   /** Whether agent runs on an external provider */
   isExternal?: boolean;
   /** Send handler — called by status cards and tool card onRespond */
@@ -578,6 +578,7 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
             >
               <PermissionApprovalCard
                 toolName={pendingPermission.toolName}
+                toolInput={pendingPermission.toolInput}
                 onApprove={handlePermissionApprove}
                 onAlwaysAllow={handlePermissionAlwaysAllow}
                 onDeny={handlePermissionDeny}

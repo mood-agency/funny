@@ -111,12 +111,11 @@
       "gpt54mini": "GPT-5.4 Mini",
       "gpt53codex": "GPT-5.3 Codex",
       "gpt52": "GPT-5.2",
-      "gemini31proHigh": "Gemini 3.1 Pro (High)",
-      "gemini31proLow": "Gemini 3.1 Pro (Low)",
+      "gemini31pro": "Gemini 3.1 Pro",
       "gemini3flash": "Gemini 3 Flash",
-      "gemini3pro": "Gemini 3 Pro",
-      "gemini25flash": "Gemini 2.5 Flash",
+      "gemini31flashLite": "Gemini 3.1 Flash Lite",
       "gemini25pro": "Gemini 2.5 Pro",
+      "gemini25flash": "Gemini 2.5 Flash",
       "gemini20flash": "Gemini 2.0 Flash",
       "minimaxM27": "MiniMax M2.7",
       "minimaxM27Highspeed": "MiniMax M2.7 Highspeed",
@@ -159,7 +158,8 @@
     "permissionRequired": "Tool permission required",
     "permissionMessage": "Claude wants to use {{tool}}. Would you like to allow it?",
     "approvePermission": "Allow",
-    "alwaysAllow": "Always Allow",
+    "approveJustOnce": "Just this once",
+    "alwaysAllow": "Always allow in this project",
     "denyPermission": "Deny",
     "startTask": "Start Task",
     "orTypeNewPrompt": "Or type a new prompt below...",
@@ -573,7 +573,8 @@
     "sortAsc": "Oldest first",
     "filterProject": "Project",
     "allProjects": "All projects",
-    "loadMore": "Load more threads"
+    "loadMore": "Load more threads",
+    "backToList": "Back to list"
   },
   "archived": {
     "searchPlaceholder": "Search archived threads by title, project, branch, or status...",
@@ -752,7 +753,9 @@
     "unassign": "Unassign",
     "run": "Run",
     "copyLink": "Copy link",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "editor": {
     "failedToLoad": "Failed to load file",
@@ -824,7 +827,8 @@
   },
   "duration": {
     "seconds": "{{count}}s",
-    "minutesSeconds": "{{minutes}}m {{seconds}}s"
+    "minutesSeconds": "{{minutes}}m {{seconds}}s",
+    "hoursMinutes": "{{hours}}h {{minutes}}m"
   },
   "initInfo": {
     "model": "Model:",

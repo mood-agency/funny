@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { buildPath } from '@/lib/url';
 import { useGitStatusStore, branchKey as computeBranchKey } from '@/stores/git-status-store';
 import { useProjectStore } from '@/stores/project-store';
@@ -24,6 +25,7 @@ export function RunningThreads() {
   const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const projects = useProjectStore((s) => s.projects);
   const statusByBranch = useGitStatusStore((s) => s.statusByBranch);
+  useMinuteTick(); // re-render every 60s so timeAgo stays fresh
   const runningThreads = useMemo(() => {
     const result: RunningThread[] = [];
     const projectMap = new Map(
@@ -79,6 +81,7 @@ export function RunningThreads() {
             subtitle={thread.projectName}
             projectColor={thread.projectColor}
             gitStatus={statusByBranch[computeBranchKey(thread)]}
+            href={buildPath(`/projects/${thread.projectId}/threads/${thread.id}`)}
             onSelect={() => {
               const store = useThreadStore.getState();
               if (

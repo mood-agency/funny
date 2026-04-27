@@ -705,6 +705,9 @@ function setupRunnerDataHandlers(
     'data:get_arc',
     'data:mark_and_list_stale_threads',
     'data:get_agent_template',
+    'data:create_permission_rule',
+    'data:find_permission_rule',
+    'data:list_permission_rules',
   ];
 
   // Regex to validate requestId is a safe identifier (UUID or nanoid-like)

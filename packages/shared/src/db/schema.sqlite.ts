@@ -350,6 +350,27 @@ export const instanceSettings = sqliteTable('instance_settings', {
   updatedAt: text('updated_at').notNull(),
 });
 
+/**
+ * Per-user, per-project tool permission rules. Used to persist
+ * "always allow in this project" choices the user makes from the
+ * permission approval card.
+ *
+ * - `pattern` is null to match any input for that tool, otherwise
+ *   for Bash it's a command prefix and for other tools it's an
+ *   exact match against the serialized tool input (see
+ *   serializeToolInput in agent-message-handler).
+ * - `decision` is 'allow' or 'deny'.
+ */
+export const permissionRules = sqliteTable('permission_rules', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  projectPath: text('project_path').notNull(),
+  toolName: text('tool_name').notNull(),
+  pattern: text('pattern'),
+  decision: text('decision').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 // ── Server-only tables (multi/team mode) ───────────────────────
 
 export const runners = sqliteTable('runners', {

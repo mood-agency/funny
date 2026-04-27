@@ -91,17 +91,11 @@ const codexModels = {
 } as const satisfies Record<string, ModelDefinition>;
 
 const geminiModels = {
-  'gemini-3.1-pro-high': {
-    id: 'gemini-3.1-pro-high',
-    label: 'Gemini 3.1 Pro (High)',
+  'gemini-3.1-pro-preview': {
+    id: 'gemini-3.1-pro-preview',
+    label: 'Gemini 3.1 Pro',
     contextWindow: 1_000_000,
-    i18nKey: 'gemini31proHigh',
-  },
-  'gemini-3.1-pro-low': {
-    id: 'gemini-3.1-pro-low',
-    label: 'Gemini 3.1 Pro (Low)',
-    contextWindow: 1_000_000,
-    i18nKey: 'gemini31proLow',
+    i18nKey: 'gemini31pro',
   },
   'gemini-3-flash-preview': {
     id: 'gemini-3-flash-preview',
@@ -109,23 +103,23 @@ const geminiModels = {
     contextWindow: 1_000_000,
     i18nKey: 'gemini3flash',
   },
-  'gemini-3-pro-preview': {
-    id: 'gemini-3-pro-preview',
-    label: 'Gemini 3 Pro',
+  'gemini-3.1-flash-lite-preview': {
+    id: 'gemini-3.1-flash-lite-preview',
+    label: 'Gemini 3.1 Flash Lite',
     contextWindow: 1_000_000,
-    i18nKey: 'gemini3pro',
-  },
-  'gemini-2.5-flash': {
-    id: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    contextWindow: 1_048_576,
-    i18nKey: 'gemini25flash',
+    i18nKey: 'gemini31flashLite',
   },
   'gemini-2.5-pro': {
     id: 'gemini-2.5-pro',
     label: 'Gemini 2.5 Pro',
     contextWindow: 1_048_576,
     i18nKey: 'gemini25pro',
+  },
+  'gemini-2.5-flash': {
+    id: 'gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
+    contextWindow: 1_048_576,
+    i18nKey: 'gemini25flash',
   },
   'gemini-2.0-flash': {
     id: 'gemini-2.0-flash',
@@ -241,7 +235,7 @@ export const DEFAULT_MODEL: AgentModel = 'opus';
 const PROVIDER_DEFAULT_MODEL: Record<keyof typeof MODEL_REGISTRY, AgentModel> = {
   claude: DEFAULT_MODEL,
   codex: 'gpt-5.4',
-  gemini: 'gemini-3-flash-preview',
+  gemini: 'gemini-3.1-pro-preview',
   deepagent: 'minimax-m2.7',
 };
 

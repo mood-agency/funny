@@ -104,4 +104,41 @@ export interface ClaudeProcessOptions {
     env: Record<string, string | undefined>;
     signal: AbortSignal;
   }) => any;
+  /**
+   * Optional lookup callback for "always allow / always deny" permission
+   * rules persisted on the central server. The hook calls it before
+   * pausing on confirmEdit / sensitive-path tools — when it resolves with
+   * a matching rule, the hook short-circuits with that decision instead
+   * of waiting for user approval.
+   *
+   * Returns `null` when no rule matches. The runtime is expected to
+   * swallow lookup errors and resolve to `null`.
+   *
+   * Lives in `core` as a callback (not a direct import) so this package
+   * stays free of server / runtime dependencies.
+   */
+  permissionRuleLookup?: (query: {
+    toolName: string;
+    toolInput?: string;
+  }) => Promise<{ decision: 'allow' | 'deny' } | null>;
+
+  /**
+   * Optional bypass executor invoked by the hook when a tool that touches a
+   * sensitive path (e.g. `~/.claude/`) has a matching "allow" rule. The SDK
+   * applies its own hardcoded sensitive-path block AFTER the hook returns —
+   * so even when we tell it `permissionDecision: 'allow'`, the operation is
+   * silently denied. To honor the user's saved rule we execute the operation
+   * ourselves here, then surface the result via a synthetic tool_result so
+   * the model sees it as success.
+   *
+   * Should return the text to use as the tool_result on success. Throwing or
+   * resolving `null` causes the hook to fall back to the normal allow path
+   * (which will end up denied by the SDK's sensitive-path guard, surfacing a
+   * fresh permission request to the user).
+   */
+  bypassExecutor?: (query: {
+    toolName: string;
+    toolInput: unknown;
+    cwd?: string;
+  }) => Promise<{ output: string } | null>;
 }

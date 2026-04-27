@@ -61,6 +61,7 @@ import {
   setSelectingThreadId,
   rebuildThreadProjectIndex,
   invalidateSelectThread as _internalInvalidate,
+  setCacheInvalidator,
 } from './thread-store-internals';
 import * as wsHandlers from './thread-ws-handlers';
 
@@ -108,7 +109,7 @@ export interface ThreadWithMessages extends Thread {
   initInfo?: AgentInitInfo;
   resultInfo?: AgentResultInfo;
   waitingReason?: WaitingReason;
-  pendingPermission?: { toolName: string };
+  pendingPermission?: { toolName: string; toolInput?: string };
   hasMore?: boolean;
   loadingMore?: boolean;
   contextUsage?: ContextUsage;
@@ -177,6 +178,7 @@ export interface ThreadState {
     approved: boolean,
     allowedTools?: string[],
     disallowedTools?: string[],
+    options?: { scope?: 'once' | 'always'; pattern?: string; toolInput?: string },
   ) => Promise<boolean>;
   searchThreadContent: (query: string, projectId?: string) => Promise<any>;
 
@@ -221,6 +223,58 @@ export interface ThreadState {
     threadId: string,
     data: { branch: string; worktreePath?: string },
   ) => void;
+}
+
+// ── Waiting reconstruction ───────────────────────────────────────
+
+const PERMISSION_DENIAL_PATTERN =
+  /permission|hasn't been granted|not in the allowed tools|hook error:.*approval|denied this tool|Blocked by hook|is a sensitive file/i;
+
+/**
+ * Walk a message list backwards looking for the trailing tool call that
+ * indicates the agent is waiting on user input. Returns undefined when the
+ * last tool call doesn't match a known waiting trigger.
+ */
+function reconstructWaitingFromMessages(
+  messages: ThreadWithMessages['messages'],
+):
+  | { waitingReason: WaitingReason; pendingPermission?: { toolName: string; toolInput?: string } }
+  | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const tcs = messages[i].toolCalls;
+    if (!tcs?.length) continue;
+    const lastTC = tcs[tcs.length - 1];
+    if (lastTC.name === 'AskUserQuestion') {
+      return { waitingReason: 'question' };
+    }
+    if (lastTC.name === 'ExitPlanMode') {
+      return { waitingReason: 'plan' };
+    }
+    if (lastTC.output && PERMISSION_DENIAL_PATTERN.test(lastTC.output)) {
+      const ti = (lastTC as { input?: unknown }).input;
+      const serializedInput =
+        lastTC.name === 'Bash' &&
+        ti &&
+        typeof ti === 'object' &&
+        typeof (ti as { command?: unknown }).command === 'string'
+          ? ((ti as { command: string }).command as string)
+          : ti
+            ? (() => {
+                try {
+                  return JSON.stringify(ti);
+                } catch {
+                  return undefined;
+                }
+              })()
+            : undefined;
+      return {
+        waitingReason: 'permission',
+        pendingPermission: { toolName: lastTC.name, toolInput: serializedInput },
+      };
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 // ── Buffer replay ────────────────────────────────────────────────
@@ -315,6 +369,10 @@ function cachePut(id: string, thread: ThreadWithMessages): void {
 function cacheInvalidate(id: string): void {
   _threadCache.delete(id);
 }
+
+// Expose cache invalidation to WS handlers via the internals registry to avoid
+// a direct value import cycle (thread-store ↔ thread-ws-handlers).
+setCacheInvalidator(cacheInvalidate);
 
 function cacheClear(): void {
   _threadCache.clear();
@@ -492,34 +550,34 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           ? {
               status: thread.status as 'completed' | 'failed',
               cost: thread.cost,
-              duration: 0,
+              duration:
+                thread.completedAt && thread.createdAt
+                  ? Math.max(
+                      0,
+                      new Date(thread.completedAt).getTime() - new Date(thread.createdAt).getTime(),
+                    )
+                  : 0,
               error: (thread as any).error,
             }
           : undefined;
 
-      // Derive waitingReason and pendingPermission from the last tool call when reloading a waiting thread
+      // Derive waitingReason / pendingPermission from the last tool call so a
+      // refreshed page can re-render the approval card. Reconstruct also for
+      // 'running' threads — sometimes the persisted status lags behind the
+      // last tool result (e.g. when the SDK denied a sensitive path and the
+      // agent gracefully exited but the WAIT row commit hadn't landed yet).
       let waitingReason: WaitingReason | undefined;
-      let pendingPermission: { toolName: string } | undefined;
-      if (thread.status === 'waiting' && thread.messages?.length) {
-        for (let i = thread.messages.length - 1; i >= 0; i--) {
-          const tcs = thread.messages[i].toolCalls;
-          if (tcs?.length) {
-            const lastTC = tcs[tcs.length - 1];
-            if (lastTC.name === 'AskUserQuestion') {
-              waitingReason = 'question';
-            } else if (lastTC.name === 'ExitPlanMode') {
-              waitingReason = 'plan';
-            } else if (
-              lastTC.output &&
-              /permission|hasn't been granted|not in the allowed tools|hook error:.*approval|denied this tool|Blocked by hook/i.test(
-                lastTC.output,
-              )
-            ) {
-              waitingReason = 'permission';
-              pendingPermission = { toolName: lastTC.name };
-            }
-            break;
-          }
+      let pendingPermission: { toolName: string; toolInput?: string } | undefined;
+      const isTerminalStatus =
+        thread.status === 'completed' ||
+        thread.status === 'failed' ||
+        thread.status === 'stopped' ||
+        thread.status === 'interrupted';
+      if (!isTerminalStatus && thread.messages?.length) {
+        const reconstructed = reconstructWaitingFromMessages(thread.messages);
+        if (reconstructed) {
+          waitingReason = reconstructed.waitingReason;
+          pendingPermission = reconstructed.pendingPermission;
         }
       }
 
@@ -569,6 +627,18 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       metric('thread.select.duration', Math.round(performance.now() - selectStart), {
         attributes: { cacheHit: 'false' },
       });
+
+      // If the initial window doesn't start on a user-message boundary, extend
+      // it now so the sticky section header always has its owner loaded.
+      const seeded = get().activeThread;
+      if (
+        seeded?.id === threadId &&
+        seeded.hasMore &&
+        seeded.messages.length > 0 &&
+        seeded.messages[0].role !== 'user'
+      ) {
+        void get().loadOlderMessages();
+      }
     } finally {
       // Clear in-flight tracker so future selectThread calls for this thread can proceed
       if (getSelectingThreadId() === threadId) {
@@ -931,27 +1001,49 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     cacheInvalidate(activeThread.id);
     set({ activeThread: { ...activeThread, loadingMore: true } });
 
-    const result = await api.getThreadMessages(activeThread.id, oldestMessage.timestamp, 50);
+    // Keep paginating until the oldest loaded message is a user message OR
+    // the server says there's nothing older. Sections are anchored on user
+    // messages, and the sticky section header reads from the topmost loaded
+    // user item — so every loaded window must end on a section boundary,
+    // otherwise scrolling near the top shows assistant/tool content with no
+    // sticky owner.
+    const MAX_BATCHES = 10;
+    let cursor = oldestMessage.timestamp;
+    let aggregated: typeof activeThread.messages = [];
+    let hasMoreFlag: boolean = activeThread.hasMore;
+
+    for (let i = 0; i < MAX_BATCHES; i++) {
+      const result = await api.getThreadMessages(activeThread.id, cursor, 50);
+
+      const inflight = get().activeThread;
+      if (!inflight || inflight.id !== activeThread.id) return;
+
+      if (result.isErr()) {
+        set({ activeThread: { ...inflight, loadingMore: false } });
+        return;
+      }
+
+      const { messages: olderMessages, hasMore } = result.value;
+      hasMoreFlag = hasMore;
+      if (olderMessages.length === 0) break;
+
+      aggregated = [...olderMessages, ...aggregated];
+
+      if (aggregated[0].role === 'user' || !hasMore) break;
+      cursor = olderMessages[0].timestamp;
+    }
 
     const current = get().activeThread;
     if (!current || current.id !== activeThread.id) return;
 
-    if (result.isErr()) {
-      set({ activeThread: { ...current, loadingMore: false } });
-      return;
-    }
-
-    const { messages: olderMessages, hasMore } = result.value;
-
-    // Deduplicate in case of overlapping timestamps
     const existingIds = new Set(current.messages.map((m) => m.id));
-    const newMessages = olderMessages.filter((m) => !existingIds.has(m.id));
+    const newMessages = aggregated.filter((m) => !existingIds.has(m.id));
 
     set({
       activeThread: {
         ...current,
         messages: [...newMessages, ...current.messages],
-        hasMore,
+        hasMore: hasMoreFlag,
         loadingMore: false,
       },
     });
@@ -972,7 +1064,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         ? {
             status: thread.status as 'completed' | 'failed',
             cost: thread.cost,
-            duration: 0,
+            duration:
+              thread.completedAt && thread.createdAt
+                ? Math.max(
+                    0,
+                    new Date(thread.completedAt).getTime() - new Date(thread.createdAt).getTime(),
+                  )
+                : 0,
             error: (thread as any).error,
           }
         : undefined);
@@ -991,9 +1089,28 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           timestamp: data.timestamp ?? e.createdAt,
         };
       });
-    // Clear waitingReason/pendingPermission if server status is no longer waiting
-    // (handles case where agent:result WS event was lost during disconnect)
-    const isServerWaiting = thread.status === 'waiting';
+    // Only clear pendingPermission when the server reports a terminal status
+    // (completed/failed/stopped/interrupted). Tab-switch can race with persisted
+    // status (e.g. server is still 'running' while WS already pushed waiting),
+    // and clobbering the WS-derived approval card on every refresh would make
+    // it disappear. Reconstruct from messages when local state has nothing yet.
+    const isTerminal =
+      thread.status === 'completed' ||
+      thread.status === 'failed' ||
+      thread.status === 'stopped' ||
+      thread.status === 'interrupted';
+
+    let nextWaitingReason = isTerminal ? undefined : activeThread.waitingReason;
+    let nextPendingPermission = isTerminal ? undefined : activeThread.pendingPermission;
+
+    if (!isTerminal && !nextPendingPermission && activeThread.messages?.length) {
+      const reconstructed = reconstructWaitingFromMessages(activeThread.messages);
+      if (reconstructed) {
+        nextWaitingReason = reconstructed.waitingReason;
+        nextPendingPermission = reconstructed.pendingPermission;
+      }
+    }
+
     set({
       activeThread: {
         ...activeThread,
@@ -1014,8 +1131,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         compactionEvents:
           persistedCompaction.length > 0 ? persistedCompaction : activeThread.compactionEvents,
         contextUsage: activeThread.contextUsage,
-        waitingReason: isServerWaiting ? activeThread.waitingReason : undefined,
-        pendingPermission: isServerWaiting ? activeThread.pendingPermission : undefined,
+        waitingReason: nextWaitingReason,
+        pendingPermission: nextPendingPermission,
       },
     });
   },
@@ -1168,13 +1285,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     await api.stopThread(threadId);
   },
 
-  approveTool: async (threadId, toolName, approved, allowedTools, disallowedTools) => {
+  approveTool: async (threadId, toolName, approved, allowedTools, disallowedTools, options) => {
     const result = await api.approveTool(
       threadId,
       toolName,
       approved,
       allowedTools,
       disallowedTools,
+      options,
     );
     return result.isOk();
   },

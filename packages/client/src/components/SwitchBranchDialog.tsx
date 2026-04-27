@@ -7,6 +7,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -116,10 +117,9 @@ export function SwitchBranchDialog({
           </button>
         </div>
 
-        <div className="mt-2 flex justify-end gap-2">
+        <DialogFooter>
           <Button
             variant="outline"
-            size="sm"
             onClick={onCancel}
             disabled={loading}
             data-testid="switch-branch-cancel"
@@ -127,7 +127,6 @@ export function SwitchBranchDialog({
             {t('common.cancel', 'Cancel')}
           </Button>
           <Button
-            size="sm"
             onClick={() => onSwitch(strategy)}
             disabled={loading}
             data-testid="switch-branch-confirm"
@@ -135,7 +134,7 @@ export function SwitchBranchDialog({
             {loading && <Loader2 className="icon-sm mr-1.5 animate-spin" />}
             {t('switchBranch.switchButton', 'Switch branch')}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -43,7 +43,12 @@ interface UIState {
   activePreferencesPage: string | null;
   timelineVisible: boolean;
   reviewSubTab: ReviewSubTab;
-  kanbanContext: { projectId?: string; search?: string; threadId?: string } | null;
+  kanbanContext: {
+    projectId?: string;
+    search?: string;
+    threadId?: string;
+    viewMode?: 'board' | 'list';
+  } | null;
   /** Pre-fill context for creating a thread from a GitHub issue */
   newThreadIssueContext: { prompt: string; branchName: string; title: string } | null;
   setReviewSubTab: (tab: ReviewSubTab) => void;
@@ -70,7 +75,12 @@ interface UIState {
   closeDesignView: () => void;
   setTimelineVisible: (visible: boolean) => void;
   setKanbanContext: (
-    context: { projectId?: string; search?: string; threadId?: string } | null,
+    context: {
+      projectId?: string;
+      search?: string;
+      threadId?: string;
+      viewMode?: 'board' | 'list';
+    } | null,
   ) => void;
   startNewThreadFromIssue: (
     projectId: string,

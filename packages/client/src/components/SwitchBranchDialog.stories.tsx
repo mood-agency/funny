@@ -44,7 +44,7 @@ function SwitchBranchTrigger({
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/SwitchBranchDialog',
+  title: 'Dialogs/SwitchBranchDialog',
   component: SwitchBranchDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

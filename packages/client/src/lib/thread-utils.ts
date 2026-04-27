@@ -106,11 +106,13 @@ const MODEL_ID_TO_KEY: Record<string, string> = {
   'gemini-2.0-flash': 'gemini20flash',
   'gemini-2.5-flash': 'gemini25flash',
   'gemini-2.5-pro': 'gemini25pro',
+  'gemini-3.1-pro-preview': 'gemini31pro',
   'gemini-3-flash-preview': 'gemini3flash',
-  'gemini-3-pro-preview': 'gemini3pro',
-  // Legacy model IDs (threads created before rename)
+  'gemini-3.1-flash-lite-preview': 'gemini31flashLite',
+  // Legacy model IDs (threads created with previous IDs — fall back to current labels)
+  'gemini-3-pro-preview': 'gemini31pro',
+  'gemini-3.1-pro': 'gemini31pro',
   'gemini-3-flash': 'gemini3flash',
-  'gemini-3.1-pro': 'gemini3pro',
 };
 
 export function resolveModelLabel(modelId: string, t: (key: string, opts?: any) => string): string {

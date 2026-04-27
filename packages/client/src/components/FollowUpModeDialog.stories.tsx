@@ -32,7 +32,7 @@ function FollowUpTrigger({ label }: { label?: string }) {
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/FollowUpModeDialog',
+  title: 'Dialogs/FollowUpModeDialog',
   component: FollowUpModeDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

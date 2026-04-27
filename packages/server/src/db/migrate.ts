@@ -1024,6 +1024,26 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    name: '043_permission_rules',
+    async up() {
+      await ctx().exec(sql`
+        CREATE TABLE IF NOT EXISTS permission_rules (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          project_path TEXT NOT NULL,
+          tool_name TEXT NOT NULL,
+          pattern TEXT,
+          decision TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        )
+      `);
+      await ctx().exec(sql`
+        CREATE INDEX IF NOT EXISTS idx_permission_rules_lookup
+        ON permission_rules (user_id, project_path, tool_name)
+      `);
+    },
+  },
 ];
 
 export async function autoMigrate() {

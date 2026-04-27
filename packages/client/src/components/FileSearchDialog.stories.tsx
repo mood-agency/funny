@@ -74,7 +74,7 @@ function FileSearchTrigger({ label, setupMocks }: { label: string; setupMocks: (
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/FileSearchDialog',
+  title: 'Dialogs/FileSearchDialog',
   component: FileSearchDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

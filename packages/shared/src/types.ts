@@ -417,14 +417,14 @@ export interface WSToolOutputData {
 export interface WSStatusData {
   status: ThreadStatus;
   waitingReason?: WaitingReason;
-  permissionRequest?: { toolName: string };
+  permissionRequest?: { toolName: string; toolInput?: string };
   permissionMode?: PermissionMode;
 }
 
 export interface WSResultData {
   status?: ThreadStatus;
   waitingReason?: WaitingReason;
-  permissionRequest?: { toolName: string };
+  permissionRequest?: { toolName: string; toolInput?: string };
   cost?: number;
   duration?: number;
   result?: string;

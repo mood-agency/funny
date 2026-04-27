@@ -7,11 +7,13 @@ import {
   ShieldCheck,
   ShieldQuestion,
 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Input } from '@/components/ui/input';
+import { ensureLanguage, highlightCode } from '@/hooks/use-highlight';
 import { cn } from '@/lib/utils';
+import { CODE_FONT_SIZE_PX, CODE_LINE_HEIGHT_PX, useSettingsStore } from '@/stores/settings-store';
 
 export function WaitingActions({ onSend }: { onSend: (text: string) => void }) {
   const { t } = useTranslation();
@@ -92,17 +94,55 @@ export function WaitingActions({ onSend }: { onSend: (text: string) => void }) {
 
 export function PermissionApprovalCard({
   toolName,
+  toolInput,
   onApprove,
   onAlwaysAllow,
   onDeny,
 }: {
   toolName: string;
+  toolInput?: string;
   onApprove: () => void;
   onAlwaysAllow?: () => void;
   onDeny: () => void;
 }) {
   const { t } = useTranslation();
+  const fontSize = useSettingsStore((s) => s.fontSize);
   const [loading, setLoading] = useState<'approve' | 'always' | 'deny' | null>(null);
+  const [showFullInput, setShowFullInput] = useState(false);
+
+  const bashCommand = useMemo(() => {
+    if (toolName !== 'Bash' || !toolInput) return null;
+    try {
+      const parsed = JSON.parse(toolInput) as { command?: unknown };
+      return typeof parsed.command === 'string' ? parsed.command : null;
+    } catch {
+      return null;
+    }
+  }, [toolName, toolInput]);
+
+  const rawInput = bashCommand ?? toolInput;
+  const TRUNCATE_LIMIT = 400;
+  const isLongInput = !!rawInput && rawInput.length > TRUNCATE_LIMIT;
+  const displayedInput = rawInput
+    ? showFullInput || !isLongInput
+      ? rawInput
+      : rawInput.slice(0, TRUNCATE_LIMIT) + '…'
+    : undefined;
+
+  const [highlightedBash, setHighlightedBash] = useState<string | null>(null);
+  useEffect(() => {
+    if (!displayedInput || !bashCommand) {
+      setHighlightedBash(null);
+      return;
+    }
+    let cancelled = false;
+    ensureLanguage('bash').then(() => {
+      if (!cancelled) setHighlightedBash(highlightCode(displayedInput, 'bash'));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [displayedInput, bashCommand]);
 
   const handleApprove = () => {
     setLoading('approve');
@@ -126,9 +166,48 @@ export function PermissionApprovalCard({
         {t('thread.permissionRequired')}
       </div>
       <p className="text-xs text-foreground">{t('thread.permissionMessage', { tool: toolName })}</p>
-      <div className="flex gap-2">
+      {displayedInput && (
+        <div className="space-y-1">
+          {bashCommand && highlightedBash ? (
+            <pre
+              data-testid="permission-card-tool-input"
+              style={{
+                fontSize: `${CODE_FONT_SIZE_PX[fontSize]}px`,
+                lineHeight: `${CODE_LINE_HEIGHT_PX[fontSize]}px`,
+              }}
+              className={cn(
+                'hljs bg-muted rounded p-2 overflow-auto whitespace-pre-wrap break-all font-mono max-h-32',
+              )}
+              dangerouslySetInnerHTML={{ __html: highlightedBash }}
+            />
+          ) : (
+            <pre
+              data-testid="permission-card-tool-input"
+              style={{
+                fontSize: `${CODE_FONT_SIZE_PX[fontSize]}px`,
+                lineHeight: `${CODE_LINE_HEIGHT_PX[fontSize]}px`,
+              }}
+              className={cn(
+                'bg-muted text-muted-foreground rounded p-2 overflow-auto whitespace-pre-wrap break-all font-mono max-h-32',
+              )}
+            >
+              {displayedInput}
+            </pre>
+          )}
+          {isLongInput && (
+            <button
+              data-testid="permission-card-tool-input-toggle"
+              onClick={() => setShowFullInput((v) => !v)}
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              {showFullInput ? t('common.showLess') : t('common.showMore')}
+            </button>
+          )}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
         <button
-          data-testid="permission-approve"
+          data-testid="permission-approve-once"
           onClick={handleApprove}
           disabled={!!loading}
           className={cn(
@@ -141,11 +220,11 @@ export function PermissionApprovalCard({
           ) : (
             <CheckCircle2 className="icon-sm" />
           )}
-          {t('thread.approvePermission')}
+          {t('thread.approveJustOnce')}
         </button>
         {onAlwaysAllow && (
           <button
-            data-testid="permission-always-allow"
+            data-testid="permission-approve-always"
             onClick={handleAlwaysAllow}
             disabled={!!loading}
             className={cn(

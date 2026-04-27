@@ -14,7 +14,7 @@ import {
   GitBranch,
   Loader2,
 } from 'lucide-react';
-import { useState, memo, useCallback, useRef } from 'react';
+import { useState, memo, useCallback, useRef, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { PRBadge } from '@/components/PRBadge';
@@ -48,6 +48,13 @@ export interface ThreadItemProps {
   projectPath: string;
   isSelected: boolean;
   onSelect: () => void;
+  /**
+   * URL the thread row navigates to. When provided, the row renders as an
+   * anchor so Ctrl/Cmd/middle-click open the thread in a new tab natively.
+   * Plain left-click is intercepted and routed through `onSelect` for SPA
+   * navigation (and any pre-navigation work like branch switching).
+   */
+  href?: string;
   subtitle?: string;
   projectColor?: string;
   timeValue?: string;
@@ -64,6 +71,7 @@ export interface ThreadItemProps {
 function threadItemAreEqual(prev: ThreadItemProps, next: ThreadItemProps): boolean {
   if (prev.isSelected !== next.isSelected) return false;
   if (prev.onSelect !== next.onSelect) return false;
+  if (prev.href !== next.href) return false;
   if (prev.onRename !== next.onRename) return false;
   if (prev.onArchive !== next.onArchive) return false;
   if (prev.onPin !== next.onPin) return false;
@@ -81,6 +89,7 @@ export const ThreadItem = memo(function ThreadItem({
   projectPath,
   isSelected,
   onSelect,
+  href,
   subtitle,
   projectColor,
   timeValue,
@@ -152,6 +161,18 @@ export const ThreadItem = memo(function ThreadItem({
   if (gitStatus) lastGitStatusRef.current = gitStatus;
   const effectiveGitStatus = gitStatus ?? lastGitStatusRef.current;
 
+  // Anchor click handler: let modifier+click / middle-click fall through to
+  // the browser (so it opens a new tab/window). For a plain left-click,
+  // preventDefault and route through onSelect for SPA navigation.
+  const handleAnchorClick = useCallback(
+    (e: MouseEvent<HTMLAnchorElement>) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      onSelect();
+    },
+    [onSelect],
+  );
+
   // Whether to show the second row (has project subtitle or git diff stats)
   const hasDiffStats =
     !!effectiveGitStatus &&
@@ -167,6 +188,149 @@ export const ThreadItem = memo(function ThreadItem({
   const hasMetadataRow = hasDiffStats || hasPR || hasPowerline;
   const hasSnippetRow = hasSnippet || showLaunching || isBacklog;
 
+  const rowContent = (
+    <>
+      {/* Row 1: Status icon + Title */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        {/* Thread status / pin icon — pin only shown when onPin is provided (i.e. pin has effect on ordering) */}
+        <div className="relative h-3.5 w-3.5 flex-shrink-0">
+          {onPin &&
+          thread.pinned &&
+          thread.status !== 'running' &&
+          thread.status !== 'setting_up' ? (
+            <span
+              className={cn(
+                'absolute inset-0 flex items-center justify-center text-muted-foreground',
+                'group-hover/thread:hidden',
+              )}
+            >
+              <Pin className="icon-sm" />
+            </span>
+          ) : (
+            <span className={cn('absolute inset-0', onPin && 'group-hover/thread:hidden')}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <StatusIcon className={cn('icon-sm', threadStatusCfg.className)} />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {t(`thread.status.${thread.status}`)}
+                </TooltipContent>
+              </Tooltip>
+            </span>
+          )}
+          {onPin && (
+            <span
+              className="absolute inset-0 hidden cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground group-hover/thread:flex"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPin();
+              }}
+            >
+              {thread.pinned ? <PinOff className="icon-sm" /> : <Pin className="icon-sm" />}
+            </span>
+          )}
+        </div>
+        <span className="truncate text-sm leading-tight">{thread.title}</span>
+        {/* External creator icon */}
+        {thread.createdBy && thread.createdBy !== 'user' && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Bot className="icon-xs flex-shrink-0 text-muted-foreground" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {t('thread.createdBy', { creator: thread.createdBy })}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {/* Arc purpose badge */}
+        {thread.arcId && thread.purpose === 'explore' && (
+          <span className="flex-shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-amber-500">
+            {t('thread.purposeExplore', 'Explore')}
+          </span>
+        )}
+        {thread.arcId && thread.purpose === 'plan' && (
+          <span className="flex-shrink-0 rounded bg-blue-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-blue-500">
+            {t('thread.purposePlan', 'Plan')}
+          </span>
+        )}
+        {/* Remote runtime badge */}
+        {thread.runtime === 'remote' && (
+          <span className="flex-shrink-0 rounded bg-violet-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-violet-500">
+            Remote
+          </span>
+        )}
+        {/* Agent template badge */}
+        {agentTemplate && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium leading-none"
+                style={{
+                  backgroundColor: agentTemplate.color
+                    ? `${agentTemplate.color}22`
+                    : 'hsl(var(--muted))',
+                  color: agentTemplate.color ?? 'hsl(var(--muted-foreground))',
+                }}
+                data-testid={`thread-template-badge-${thread.id}`}
+              >
+                {agentTemplate.color && (
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: agentTemplate.color }}
+                  />
+                )}
+                {agentTemplate.name}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              {agentTemplate.description || agentTemplate.name}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* Row 2: Powerline (project → branch) + Git status + Snippet + Time */}
+      {(hasMetadataRow || hasSnippetRow) && (
+        <div className="flex min-h-[22px] min-w-0 items-center gap-1.5 pl-5">
+          <ThreadPowerline
+            thread={thread}
+            projectName={subtitle}
+            projectColor={projectColor}
+            projectTooltip={projectPath}
+            gitStatus={effectiveGitStatus}
+            diffStatsSize="xs"
+            variant={isSelected ? 'arrow' : undefined}
+            data-testid={`thread-powerline-${thread.id}`}
+          />
+          {hasPR && effectiveGitStatus && (
+            <PRBadge
+              prNumber={effectiveGitStatus.prNumber!}
+              prState={effectiveGitStatus.prState ?? 'OPEN'}
+              prUrl={effectiveGitStatus.prUrl}
+              size="xs"
+              data-testid={`thread-pr-badge-${thread.id}`}
+            />
+          )}
+          {hasSnippet ? (
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/50">
+              {thread.lastAssistantMessage}
+            </span>
+          ) : showLaunching ? (
+            <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground/50">
+              {t('thread.launching', 'Launching...')}
+            </span>
+          ) : isBacklog ? (
+            <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground/50">
+              {t('thread.readyToLaunch', 'Ready to Launch')}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </>
+  );
+
+  const rowClassName = 'flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1.5 pl-2 text-left';
+
   return (
     <div
       className={cn(
@@ -176,148 +340,24 @@ export const ThreadItem = memo(function ThreadItem({
           : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
       )}
     >
-      <button
-        data-testid={`thread-item-${thread.id}`}
-        onClick={onSelect}
-        className="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden py-1.5 pl-2 text-left"
-      >
-        {/* Row 1: Status icon + Title */}
-        <div className="flex min-w-0 items-center gap-1.5">
-          {/* Thread status / pin icon — pin only shown when onPin is provided (i.e. pin has effect on ordering) */}
-          <div className="relative h-3.5 w-3.5 flex-shrink-0">
-            {onPin &&
-            thread.pinned &&
-            thread.status !== 'running' &&
-            thread.status !== 'setting_up' ? (
-              <span
-                className={cn(
-                  'absolute inset-0 flex items-center justify-center text-muted-foreground',
-                  'group-hover/thread:hidden',
-                )}
-              >
-                <Pin className="icon-sm" />
-              </span>
-            ) : (
-              <span className={cn('absolute inset-0', onPin && 'group-hover/thread:hidden')}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <StatusIcon className={cn('icon-sm', threadStatusCfg.className)} />
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    {t(`thread.status.${thread.status}`)}
-                  </TooltipContent>
-                </Tooltip>
-              </span>
-            )}
-            {onPin && (
-              <span
-                className="absolute inset-0 hidden cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground group-hover/thread:flex"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPin();
-                }}
-              >
-                {thread.pinned ? <PinOff className="icon-sm" /> : <Pin className="icon-sm" />}
-              </span>
-            )}
-          </div>
-          <span className="truncate text-sm leading-tight">{thread.title}</span>
-          {/* External creator icon */}
-          {thread.createdBy && thread.createdBy !== 'user' && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Bot className="icon-xs flex-shrink-0 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                {t('thread.createdBy', { creator: thread.createdBy })}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {/* Arc purpose badge */}
-          {thread.arcId && thread.purpose === 'explore' && (
-            <span className="flex-shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-amber-500">
-              {t('thread.purposeExplore', 'Explore')}
-            </span>
-          )}
-          {thread.arcId && thread.purpose === 'plan' && (
-            <span className="flex-shrink-0 rounded bg-blue-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-blue-500">
-              {t('thread.purposePlan', 'Plan')}
-            </span>
-          )}
-          {/* Remote runtime badge */}
-          {thread.runtime === 'remote' && (
-            <span className="flex-shrink-0 rounded bg-violet-500/15 px-1 py-0.5 text-[10px] font-medium leading-none text-violet-500">
-              Remote
-            </span>
-          )}
-          {/* Agent template badge */}
-          {agentTemplate && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="flex flex-shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium leading-none"
-                  style={{
-                    backgroundColor: agentTemplate.color
-                      ? `${agentTemplate.color}22`
-                      : 'hsl(var(--muted))',
-                    color: agentTemplate.color ?? 'hsl(var(--muted-foreground))',
-                  }}
-                  data-testid={`thread-template-badge-${thread.id}`}
-                >
-                  {agentTemplate.color && (
-                    <span
-                      className="inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ backgroundColor: agentTemplate.color }}
-                    />
-                  )}
-                  {agentTemplate.name}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                {agentTemplate.description || agentTemplate.name}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-
-        {/* Row 2: Powerline (project → branch) + Git status + Snippet + Time */}
-        {(hasMetadataRow || hasSnippetRow) && (
-          <div className="flex min-h-[22px] min-w-0 items-center gap-1.5 pl-5">
-            <ThreadPowerline
-              thread={thread}
-              projectName={subtitle}
-              projectColor={projectColor}
-              projectTooltip={projectPath}
-              gitStatus={effectiveGitStatus}
-              diffStatsSize="xs"
-              variant={isSelected ? 'arrow' : undefined}
-              data-testid={`thread-powerline-${thread.id}`}
-            />
-            {hasPR && effectiveGitStatus && (
-              <PRBadge
-                prNumber={effectiveGitStatus.prNumber!}
-                prState={effectiveGitStatus.prState ?? 'OPEN'}
-                prUrl={effectiveGitStatus.prUrl}
-                size="xs"
-                data-testid={`thread-pr-badge-${thread.id}`}
-              />
-            )}
-            {hasSnippet ? (
-              <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground/50">
-                {thread.lastAssistantMessage}
-              </span>
-            ) : showLaunching ? (
-              <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground/50">
-                {t('thread.launching', 'Launching...')}
-              </span>
-            ) : isBacklog ? (
-              <span className="min-w-0 flex-1 truncate text-xs italic text-muted-foreground/50">
-                {t('thread.readyToLaunch', 'Ready to Launch')}
-              </span>
-            ) : null}
-          </div>
-        )}
-      </button>
+      {href ? (
+        <a
+          data-testid={`thread-item-${thread.id}`}
+          href={href}
+          onClick={handleAnchorClick}
+          className={cn(rowClassName, 'no-underline text-inherit')}
+        >
+          {rowContent}
+        </a>
+      ) : (
+        <button
+          data-testid={`thread-item-${thread.id}`}
+          onClick={onSelect}
+          className={rowClassName}
+        >
+          {rowContent}
+        </button>
+      )}
       <div className="flex flex-shrink-0 items-center gap-1.5 py-1 pl-2 pr-1.5">
         <div className="grid min-w-[2.5rem] place-items-center justify-items-center">
           <span

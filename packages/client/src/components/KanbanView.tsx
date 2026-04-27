@@ -149,7 +149,7 @@ export const KanbanCard = memo(function KanbanCard({
       onClick={() => {
         if (!isDragging) {
           startTransition(() => {
-            setKanbanContext({ projectId, search, threadId: thread.id });
+            setKanbanContext({ projectId, search, threadId: thread.id, viewMode: 'board' });
             navigate(buildPath(`/projects/${thread.projectId}/threads/${thread.id}`));
           });
         }

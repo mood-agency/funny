@@ -140,7 +140,7 @@ function IssuesTrigger({
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/IssuesDialog',
+  title: 'Dialogs/IssuesDialog',
   component: IssuesDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

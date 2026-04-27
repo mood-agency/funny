@@ -284,7 +284,7 @@ function PRDetailDialogTrigger({
 // ── Storybook meta ──────────────────────────────────────────────────────────
 
 const meta = {
-  title: 'Components/PRDetailDialog',
+  title: 'Dialogs/PRDetailDialog',
   component: PRDetailDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

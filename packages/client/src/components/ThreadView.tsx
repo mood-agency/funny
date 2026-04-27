@@ -592,11 +592,10 @@ export function ThreadView() {
       const thread = activeThreadRef.current;
       if (!thread) return;
 
-      // When "Always Allow" is selected, persist the decision in user settings
-      // so this tool won't require approval in future threads.
-      if (approved && alwaysAllow) {
-        useSettingsStore.getState().setToolPermission(toolName, 'allow');
-      }
+      // The server-side permission rules table is the source of truth for
+      // "always allow in this project". Pass scope='always' so the runtime
+      // persists a row that subsequent runs / threads will honor.
+      const toolInput = thread.pendingPermission?.toolInput;
 
       useThreadStore
         .getState()
@@ -617,6 +616,7 @@ export function ThreadView() {
         approved,
         allowedTools,
         disallowedTools,
+        approved && alwaysAllow ? { scope: 'always', toolInput } : { scope: 'once' },
       );
       if (result.isErr()) {
         console.error('Permission approval failed:', result.error);

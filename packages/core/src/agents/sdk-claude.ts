@@ -343,6 +343,110 @@ export class SDKClaudeProcess extends BaseAgentProcess {
     // Skip if the tool is already in allowedTools (user chose "Always Allow").
     const CONFIRM_EDIT_TOOLS = new Set(['Edit', 'Write', 'Bash', 'NotebookEdit']);
     const isExplicitlyAllowed = this.options.allowedTools?.includes(toolName);
+
+    // Serialize once for lookup + sensitive-path checks below
+    const serializedToolInputForRule = ((): string | undefined => {
+      const ti = input.tool_input;
+      if (!ti || typeof ti !== 'object') return undefined;
+      if (toolName === 'Bash' && typeof (ti as any).command === 'string') {
+        return (ti as any).command as string;
+      }
+      try {
+        return JSON.stringify(ti);
+      } catch {
+        return undefined;
+      }
+    })();
+
+    // Sensitive-path detection — used by both the persisted-rule lookup
+    // (for the bypass executor) and the regular sensitive-path guard below.
+    const SENSITIVE_PATH_TOOLS = new Set(['Bash', 'Edit', 'Write', 'NotebookEdit', 'Read']);
+    const SENSITIVE_PATH_PATTERNS = [
+      /(?:^|[^A-Za-z0-9_])\.claude(?:[/\s'"`]|$)/,
+      /\.config\/claude/,
+    ];
+    const collectPathTargets = (tool: string, ti: any): string[] => {
+      if (!ti || typeof ti !== 'object') return [];
+      if (tool === 'Bash' && typeof ti.command === 'string') return [ti.command];
+      const out: string[] = [];
+      if (typeof ti.file_path === 'string') out.push(ti.file_path);
+      if (typeof ti.notebook_path === 'string') out.push(ti.notebook_path);
+      return out;
+    };
+    const touchesSensitive =
+      SENSITIVE_PATH_TOOLS.has(toolName) &&
+      collectPathTargets(toolName, input.tool_input).some((t) =>
+        SENSITIVE_PATH_PATTERNS.some((rx) => rx.test(t)),
+      );
+
+    // Consult persisted "always allow / always deny" rules first. The
+    // runtime injects this lookup; in tests / standalone runs it may be
+    // undefined. Errors inside the lookup are swallowed by the caller.
+    if (this.options.permissionRuleLookup) {
+      try {
+        const match = await this.options.permissionRuleLookup({
+          toolName,
+          toolInput: serializedToolInputForRule,
+        });
+        if (match?.decision === 'allow') {
+          // Sensitive paths trigger an SDK-internal block AFTER the hook
+          // decision, even when we say `allow`. Honor the user's saved rule
+          // by performing the operation ourselves and returning a synthetic
+          // tool_result via the deny channel — the model treats the
+          // permissionDecisionReason as the tool's output.
+          if (touchesSensitive && this.options.bypassExecutor) {
+            try {
+              const bypass = await this.options.bypassExecutor({
+                toolName,
+                toolInput: input.tool_input,
+                cwd: this.options.cwd,
+              });
+              if (bypass) {
+                dlog.info(`preToolUseHook BYPASS via persisted rule for sensitive ${toolName}`, {
+                  toolName,
+                  outputLen: bypass.output.length,
+                });
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: 'PreToolUse',
+                    permissionDecision: 'deny',
+                    permissionDecisionReason: bypass.output,
+                  },
+                };
+              }
+            } catch (err) {
+              dlog.warn('bypassExecutor threw — falling through to plain allow', {
+                toolName,
+                error: String(err).slice(0, 200),
+              });
+            }
+          }
+          dlog.info(`preToolUseHook ALLOW via persisted rule for ${toolName}`, { toolName });
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+            },
+          };
+        }
+        if (match?.decision === 'deny') {
+          dlog.info(`preToolUseHook DENY via persisted rule for ${toolName}`, { toolName });
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'deny',
+              permissionDecisionReason: 'Denied by saved permission rule',
+            },
+          };
+        }
+      } catch (err) {
+        dlog.warn('permissionRuleLookup threw — falling through to interactive prompt', {
+          toolName,
+          error: String(err).slice(0, 200),
+        });
+      }
+    }
+
     if (
       this.options.originalPermissionMode === 'confirmEdit' &&
       CONFIRM_EDIT_TOOLS.has(toolName) &&
@@ -379,24 +483,7 @@ export class SDKClaudeProcess extends BaseAgentProcess {
     // message and the user never sees a permission prompt — the agent just
     // keeps retrying. Skip when the tool was explicitly allowed (user chose
     // "Always Allow") or the user has opted into bypassPermissions/plan.
-    const SENSITIVE_PATH_TOOLS = new Set(['Bash', 'Edit', 'Write', 'NotebookEdit', 'Read']);
-    const SENSITIVE_PATH_PATTERNS = [
-      /(?:^|[^A-Za-z0-9_])\.claude(?:[/\s'"`]|$)/,
-      /\.config\/claude/,
-    ];
-    const collectPathTargets = (tool: string, ti: any): string[] => {
-      if (!ti || typeof ti !== 'object') return [];
-      if (tool === 'Bash' && typeof ti.command === 'string') return [ti.command];
-      const out: string[] = [];
-      if (typeof ti.file_path === 'string') out.push(ti.file_path);
-      if (typeof ti.notebook_path === 'string') out.push(ti.notebook_path);
-      return out;
-    };
-    const touchesSensitive =
-      SENSITIVE_PATH_TOOLS.has(toolName) &&
-      collectPathTargets(toolName, input.tool_input).some((t) =>
-        SENSITIVE_PATH_PATTERNS.some((rx) => rx.test(t)),
-      );
+    // Reuses `touchesSensitive` computed above for the rule lookup.
     const modeAllowsBypass =
       this.options.originalPermissionMode === 'bypassPermissions' ||
       this.options.originalPermissionMode === 'plan';

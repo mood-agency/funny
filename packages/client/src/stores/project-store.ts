@@ -38,6 +38,10 @@ interface ProjectState {
   projects: Project[];
   expandedProjects: Set<string>;
   selectedProjectId: string | null;
+  // Bumped every time selectProject is called, even when the same project is
+  // re-selected. Subscribers (e.g. the sidebar) use this to re-trigger
+  // reveal/scroll behavior on repeated selections (Ctrl+K → same project).
+  revealNonce: number;
   initialized: boolean;
   branchByProject: Record<string, string>;
 
@@ -75,6 +79,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   expandedProjects: loadExpandedProjects(),
   selectedProjectId: null,
+  revealNonce: 0,
   initialized: false,
   branchByProject: {},
 
@@ -177,9 +182,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (get().selectedProjectId != null) set({ selectedProjectId: null });
       return;
     }
-    const { selectedProjectId } = get();
-    if (selectedProjectId === projectId) return;
-    set({ selectedProjectId: projectId });
+    const { selectedProjectId, revealNonce } = get();
+    // Always bump revealNonce so subscribers can re-trigger reveal behavior
+    // (sidebar auto-scroll/expand) even when the same project is re-selected.
+    if (selectedProjectId === projectId) {
+      set({ revealNonce: revealNonce + 1 });
+      return;
+    }
+    set({ selectedProjectId: projectId, revealNonce: revealNonce + 1 });
     ensureThreadsLoaded(projectId);
     // Fetch branch name for the selected project
     get().fetchBranch(projectId);

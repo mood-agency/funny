@@ -110,12 +110,11 @@
       "gpt54mini": "GPT-5.4 Mini",
       "gpt53codex": "GPT-5.3 Codex",
       "gpt52": "GPT-5.2",
-      "gemini31proHigh": "Gemini 3.1 Pro (Alto)",
-      "gemini31proLow": "Gemini 3.1 Pro (Bajo)",
+      "gemini31pro": "Gemini 3.1 Pro",
       "gemini3flash": "Gemini 3 Flash",
-      "gemini3pro": "Gemini 3 Pro",
-      "gemini25flash": "Gemini 2.5 Flash",
+      "gemini31flashLite": "Gemini 3.1 Flash Lite",
       "gemini25pro": "Gemini 2.5 Pro",
+      "gemini25flash": "Gemini 2.5 Flash",
       "gemini20flash": "Gemini 2.0 Flash",
       "minimaxM27": "MiniMax M2.7",
       "minimaxM27Highspeed": "MiniMax M2.7 Highspeed",
@@ -157,7 +156,8 @@
     "permissionRequired": "Permiso de herramienta requerido",
     "permissionMessage": "Claude quiere usar {{tool}}. ¿Deseas permitirlo?",
     "approvePermission": "Permitir",
-    "alwaysAllow": "Permitir siempre",
+    "approveJustOnce": "Sólo esta vez",
+    "alwaysAllow": "Permitir siempre en este proyecto",
     "denyPermission": "Denegar",
     "startTask": "Iniciar Tarea",
     "orTypeNewPrompt": "O escribe un nuevo prompt abajo...",
@@ -570,7 +570,8 @@
     "sortAsc": "Más antiguo",
     "filterProject": "Proyecto",
     "allProjects": "Todos los proyectos",
-    "loadMore": "Cargar más hilos"
+    "loadMore": "Cargar más hilos",
+    "backToList": "Volver a la lista"
   },
   "archived": {
     "searchPlaceholder": "Buscar hilos archivados por título, proyecto, rama o estado...",
@@ -749,7 +750,9 @@
     "unassign": "Desasignar",
     "run": "Ejecutar",
     "copyLink": "Copiar enlace",
-    "dismiss": "Descartar"
+    "dismiss": "Descartar",
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos"
   },
   "editor": {
     "failedToLoad": "No se pudo cargar el archivo",
@@ -818,7 +821,8 @@
   },
   "duration": {
     "seconds": "{{count}}s",
-    "minutesSeconds": "{{minutes}}m {{seconds}}s"
+    "minutesSeconds": "{{minutes}}m {{seconds}}s",
+    "hoursMinutes": "{{hours}}h {{minutes}}m"
   },
   "initInfo": {
     "model": "Modelo:",

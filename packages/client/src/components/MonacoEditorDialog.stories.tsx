@@ -1,18 +1,46 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { useState } from 'react';
 import { fn } from 'storybook/test';
+
+import { Button } from '@/components/ui/button';
 
 import { MonacoEditorDialog } from './MonacoEditorDialog';
 
+interface TriggerProps {
+  filePath: string;
+  initialContent: string;
+  onOpenChange: (open: boolean) => void;
+}
+
+function MonacoEditorTrigger(args: TriggerProps) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="outline" data-testid="monaco-editor-trigger" onClick={() => setOpen(true)}>
+        Open editor
+      </Button>
+      <MonacoEditorDialog
+        filePath={args.filePath}
+        initialContent={args.initialContent}
+        open={open}
+        onOpenChange={(v) => {
+          setOpen(v);
+          args.onOpenChange(v);
+        }}
+      />
+    </>
+  );
+}
+
 const meta = {
-  title: 'Components/MonacoEditorDialog',
-  component: MonacoEditorDialog,
-  parameters: { layout: 'fullscreen' },
+  title: 'Dialogs/MonacoEditorDialog',
+  component: MonacoEditorTrigger,
+  parameters: { layout: 'centered' },
   tags: ['autodocs'],
   args: {
-    open: true,
     onOpenChange: fn(),
   },
-} satisfies Meta<typeof MonacoEditorDialog>;
+} satisfies Meta<typeof MonacoEditorTrigger>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

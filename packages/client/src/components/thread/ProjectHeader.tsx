@@ -832,19 +832,20 @@ export const ProjectHeader = memo(function ProjectHeader() {
     if (!kanbanContext) return;
 
     const targetProjectId = kanbanContext.projectId || '__all__';
+    const basePath = kanbanContext.viewMode === 'list' ? '/list' : '/kanban';
 
-    // Close the review pane when returning to Kanban
+    // Close the review pane when returning to the origin view
     setReviewPaneOpen(false);
 
-    // Navigate to kanban view.
-    // kanbanContext is cleared by useRouteSync when it detects the /kanban route,
+    // Navigate back to origin view (kanban or list).
+    // kanbanContext is cleared by useRouteSync when it detects the /kanban or /list route,
     // ensuring both allThreadsProjectId and kanbanContext update in the same render.
     const params = new URLSearchParams();
     if (targetProjectId !== '__all__') params.set('project', targetProjectId);
     if (kanbanContext.search) params.set('search', kanbanContext.search);
     if (kanbanContext.threadId) params.set('highlight', kanbanContext.threadId);
     const qs = params.toString();
-    navigate(buildPath(qs ? `/kanban?${qs}` : '/kanban'));
+    navigate(buildPath(qs ? `${basePath}?${qs}` : basePath));
   }, [kanbanContext, navigate, setReviewPaneOpen]);
 
   return (
@@ -864,7 +865,11 @@ export const ProjectHeader = memo(function ProjectHeader() {
                   <ArrowLeft className="icon-base" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t('kanban.backToBoard', 'Back to Kanban')}</TooltipContent>
+              <TooltipContent>
+                {kanbanContext.viewMode === 'list'
+                  ? t('allThreads.backToList', 'Back to list')
+                  : t('kanban.backToBoard', 'Back to Kanban')}
+              </TooltipContent>
             </Tooltip>
           )}
           {!kanbanContext && activeThreadParentId && (

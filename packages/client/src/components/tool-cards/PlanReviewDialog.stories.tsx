@@ -102,7 +102,7 @@ function PlanReviewTrigger({ plan }: { plan: string }) {
 /* -------------------------------------------------------------------------- */
 
 const meta = {
-  title: 'ToolCards/PlanReviewDialog',
+  title: 'Dialogs/PlanReviewDialog',
   component: PlanReviewDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

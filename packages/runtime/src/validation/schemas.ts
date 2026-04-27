@@ -414,6 +414,9 @@ export const approveToolSchema = z.object({
   approved: z.boolean(),
   allowedTools: z.array(z.string()).optional(),
   disallowedTools: z.array(z.string()).optional(),
+  scope: z.enum(['once', 'always']).optional(),
+  pattern: z.string().optional(),
+  toolInput: z.string().optional(),
 });
 
 // ── Helper ───────────────────────────────────────────────────────

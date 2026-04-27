@@ -26,8 +26,6 @@ const result = await Bun.build({
   external: [
     // Native binary — optional, dynamically imported in @funny/core
     'playwright',
-    // Optional provider — dynamically imported in provider-detection.ts
-    '@openai/codex-sdk',
     // node-pty is NOT imported by the server bundle directly.
     // It's only used in pty-helper.mjs which runs under Node.js.
     // Listed here just in case any transitive import pulls it in.

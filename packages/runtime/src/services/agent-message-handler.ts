@@ -29,6 +29,24 @@ function decodeUnicodeEscapes(str: string): string {
 }
 
 /**
+ * Serialize a tool's input to a short string for client display in the
+ * permission approval card. Bash gets its raw command; other tools get
+ * a truncated JSON representation.
+ */
+function serializeToolInput(toolName: string, input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  if (toolName === 'Bash' && 'command' in input && typeof (input as any).command === 'string') {
+    return (input as any).command as string;
+  }
+  try {
+    const s = JSON.stringify(input);
+    return s.length > 2000 ? s.slice(0, 2000) + '…' : s;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Handles all CLI messages from Claude processes — system init,
  * assistant text/tool_use, user tool_result, and result.
  */
@@ -460,9 +478,11 @@ export class AgentMessageHandler {
             tool: block.name,
             toolCallId: dbToolCallId ?? 'unknown',
           });
+          const serializedInput = serializeToolInput(block.name, block.input);
           this.state.pendingPermissionRequest.set(threadId, {
             toolName: block.name,
             toolUseId: block.id,
+            toolInput: serializedInput,
           });
           const currentStatus = (await this.threadManager.getThread(threadId))?.status ?? 'running';
           const { status } = transitionStatus(
@@ -474,7 +494,7 @@ export class AgentMessageHandler {
           await this.emitWS(threadId, 'agent:status', {
             status,
             waitingReason: 'permission',
-            permissionRequest: { toolName: block.name },
+            permissionRequest: { toolName: block.name, toolInput: serializedInput },
           });
         } else {
           if (this.state.pendingUserInput.has(threadId)) {
@@ -597,9 +617,16 @@ export class AgentMessageHandler {
 
           if (permissionDeniedMatch && tc?.name) {
             log.warn('Permission denied detected', { namespace: 'agent', threadId, tool: tc.name });
+            let parsedInput: unknown = undefined;
+            try {
+              parsedInput = tc.input ? JSON.parse(tc.input) : undefined;
+            } catch {
+              parsedInput = undefined;
+            }
             this.state.pendingPermissionRequest.set(threadId, {
               toolName: tc.name,
               toolUseId: block.tool_use_id,
+              toolInput: serializeToolInput(tc.name, parsedInput),
             });
           } else if (this.state.pendingPermissionRequest.has(threadId)) {
             // A tool succeeded without permission denial — the agent moved on,
@@ -665,12 +692,18 @@ export class AgentMessageHandler {
       resultSubtype: msg.subtype,
     });
 
-    // Only treat pendingPermissionRequest as a waiting reason if the agent
-    // did NOT complete successfully. A successful exit means the agent
-    // continued past the permission denial and finished its work — the
-    // permission request is stale and should not block completion.
-    if (!waitingReason && permReq && msg.subtype !== 'success') {
+    // If a permission request is pending, always surface it to the client —
+    // even when the agent gracefully exits with subtype 'success' after a
+    // sensitive-path denial. Otherwise the client never learns it should
+    // render the approval card.
+    if (!waitingReason && permReq) {
       waitingReason = 'permission';
+      log.info('handleResult forcing permission waiting status', {
+        namespace: 'agent-message',
+        threadId,
+        tool: permReq.toolName,
+        resultSubtype: msg.subtype,
+      });
     }
 
     const isWaitingForUser = !!waitingReason;
@@ -764,7 +797,9 @@ export class AgentMessageHandler {
       stage: threadWithStage?.stage,
       ...(finalStatus === 'failed' ? { errorReason: msg.subtype, error: errorText } : {}),
       ...(waitingReason ? { waitingReason } : {}),
-      ...(permReq ? { permissionRequest: { toolName: permReq.toolName } } : {}),
+      ...(permReq
+        ? { permissionRequest: { toolName: permReq.toolName, toolInput: permReq.toolInput } }
+        : {}),
     });
 
     if (permReq) {

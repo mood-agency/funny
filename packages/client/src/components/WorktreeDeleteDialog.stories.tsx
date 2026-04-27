@@ -79,7 +79,7 @@ function WorktreeDeleteTrigger({
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/WorktreeDeleteDialog',
+  title: 'Dialogs/WorktreeDeleteDialog',
   component: WorktreeDeleteDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

@@ -126,6 +126,7 @@ const ProjectThreadItem: FC<ProjectThreadItemProps> = memo(function ProjectThrea
         projectColor={projectColor}
         isSelected={isSelected}
         onSelect={handleSelect}
+        href={buildPath(`/projects/${projectId}/threads/${thread.id}`)}
         onRename={handleRename}
         onArchive={isBusy ? undefined : handleArchive}
         onPin={handlePin}

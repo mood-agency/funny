@@ -22,7 +22,9 @@
       "mcp__coplay-mcp__assign_material",
       "WebSearch",
       "Skill(commit-commands:commit)",
-      "Skill(commit-commands:commit:*)"
+      "Skill(commit-commands:commit:*)",
+      "Bash(mkdir -p /home/argenisleon/.claude/skills/wireframe-creator/assets /home/argenisleon/.claude/skills/wireframe-creator/references /home/argenisleon/.claude/skills/wireframe-creator/evals)",
+      "Bash(rtk ls *)"
     ]
   },
   "enableAllProjectMcpServers": true,

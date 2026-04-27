@@ -380,6 +380,50 @@ export class AgentLifecycleManager {
       }
     }
 
+    // Build a permission rule lookup bound to this thread's user + project.
+    // The hook in core uses it to short-circuit prompts on persisted
+    // "always allow / always deny" decisions. Returns null on transport
+    // failure so the hook falls through to the interactive prompt.
+    const ruleLookupUserId = thread?.userId;
+    const ruleLookupProjectPath = thread?.worktreePath ?? cwd;
+    const permissionRuleLookup = ruleLookupUserId
+      ? async (query: { toolName: string; toolInput?: string }) => {
+          try {
+            const { findPermissionRule } = await import('./permission-rules-client.js');
+            const rule = await findPermissionRule({
+              userId: ruleLookupUserId,
+              projectPath: ruleLookupProjectPath,
+              toolName: query.toolName,
+              toolInput: query.toolInput,
+            });
+            if (!rule) return null;
+            return { decision: rule.decision };
+          } catch (err) {
+            log.warn('permissionRuleLookup failed', {
+              namespace: 'agent',
+              threadId,
+              toolName: query.toolName,
+              error: (err as Error)?.message,
+            });
+            return null;
+          }
+        }
+      : undefined;
+
+    // Bypass executor for sensitive-path operations (e.g. ~/.claude/) when
+    // the user has saved an "always allow" rule. Performs the file/bash
+    // operation directly and returns the synthetic tool_result text the
+    // hook surfaces — the SDK's hardcoded sensitive-path block ignores the
+    // hook's allow decision, so we have to do the work ourselves.
+    const bypassExecutor = async (query: {
+      toolName: string;
+      toolInput: unknown;
+      cwd?: string;
+    }) => {
+      const { runSensitivePathBypass } = await import('./sensitive-path-bypass.js');
+      return runSensitivePathBypass({ ...query, cwd: query.cwd ?? cwd });
+    };
+
     // Delegate lifecycle to orchestrator
     try {
       await this.orchestrator.startAgent({
@@ -400,6 +444,8 @@ export class AgentLifecycleManager {
         builtinSkillsDisabled: tplBuiltinSkillsDisabled,
         customSkillPaths: tplCustomSkillPaths,
         agentName: tplAgentName,
+        permissionRuleLookup,
+        bypassExecutor,
       });
 
       threadEventBus.emit('agent:started', {

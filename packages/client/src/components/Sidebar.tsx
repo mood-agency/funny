@@ -75,6 +75,7 @@ export function AppSidebar() {
   const projects = useProjectStore((s) => s.projects);
   const projectsInitialized = useProjectStore((s) => s.initialized);
   const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const revealNonce = useProjectStore((s) => s.revealNonce);
   const expandedProjects = useProjectStore((s) => s.expandedProjects);
   const toggleProject = useProjectStore((s) => s.toggleProject);
   const _loadProjects = useProjectStore((s) => s.loadProjects);
@@ -126,14 +127,35 @@ export function AppSidebar() {
   const [threadsScrolled, setThreadsScrolled] = useState(false);
   const [projectsScrolled, setProjectsScrolled] = useState(false);
 
-  // Auto-scroll projects list to selected project (e.g. after Ctrl+K)
+  // Auto-expand selected project so its threads become visible (e.g. after Ctrl+K).
+  // Depends on revealNonce so re-selecting the same project also expands it.
   useEffect(() => {
-    if (!selectedProjectId || !projectsScrollRef.current) return;
-    const el = projectsScrollRef.current.querySelector(`[data-project-id="${selectedProjectId}"]`);
-    if (el) {
-      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-  }, [selectedProjectId]);
+    if (!selectedProjectId) return;
+    if (expandedProjects.has(selectedProjectId)) return;
+    toggleProject(selectedProjectId);
+  }, [selectedProjectId, revealNonce, expandedProjects, toggleProject]);
+
+  // Auto-scroll projects list to selected project (e.g. after Ctrl+K).
+  // Depends on revealNonce so re-selecting the same project re-triggers the
+  // scroll. Deferred via rAF + delayed retry so scrolling happens AFTER:
+  //   1. the auto-expand effect above mutates layout, and
+  //   2. the command palette's close animation finishes (which can otherwise
+  //      steal focus / interrupt the smooth scroll).
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    const scrollToProject = () => {
+      const root = projectsScrollRef.current;
+      if (!root) return;
+      const el = root.querySelector(`[data-project-id="${selectedProjectId}"]`);
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    };
+    const raf = requestAnimationFrame(scrollToProject);
+    const timeout = window.setTimeout(scrollToProject, 200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timeout);
+    };
+  }, [selectedProjectId, revealNonce, expandedProjects]);
 
   // Drag & drop: auto-scroll the projects and threads lists while dragging near
   // their top/bottom edges, so the user can drop above/below the visible area.

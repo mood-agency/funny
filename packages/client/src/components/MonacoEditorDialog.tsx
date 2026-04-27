@@ -306,6 +306,7 @@ export function MonacoEditorDialog({
                 automaticLayout: true,
                 scrollBeyondLastLine: false,
                 wordWrap: 'on',
+                fixedOverflowWidgets: true,
               }}
             />
           )}

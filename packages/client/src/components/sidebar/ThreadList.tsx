@@ -356,6 +356,7 @@ const ThreadListItem = memo(function ThreadListItem({
         projectColor={thread.projectColor}
         timeValue={isRunning ? undefined : timeAgo(thread.completedAt ?? thread.createdAt, t)}
         gitStatus={gitStatus}
+        href={buildPath(`/projects/${thread.projectId}/threads/${thread.id}`)}
         onSelect={handleSelect}
         onRename={handleRename}
         onArchive={isRunning ? undefined : handleArchive}

@@ -1,19 +1,33 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { useEffect } from 'react';
 
+import { Button } from '@/components/ui/button';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
 
 import { CircuitBreakerDialog } from './CircuitBreakerDialog';
 
 /* ------------------------------------------------------------------ */
-/*  Helpers                                                           */
+/*  Trigger wrapper                                                   */
 /* ------------------------------------------------------------------ */
 
-/** Wrapper that forces the circuit-breaker store into a given state before rendering. */
-function withState(state: 'open' | 'half-open') {
-  return () => {
-    useCircuitBreakerStore.setState({ state, failureCount: 3 });
-    return <CircuitBreakerDialog />;
-  };
+function CircuitBreakerTrigger({ state }: { state: 'open' | 'half-open' }) {
+  // Reset to closed on mount so the overlay isn't visible until the user clicks.
+  useEffect(() => {
+    useCircuitBreakerStore.setState({ state: 'closed', failureCount: 0 });
+  }, []);
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        data-testid="circuit-breaker-trigger"
+        onClick={() => useCircuitBreakerStore.setState({ state, failureCount: 3 })}
+      >
+        Trigger circuit breaker ({state})
+      </Button>
+      <CircuitBreakerDialog />
+    </>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -21,11 +35,11 @@ function withState(state: 'open' | 'half-open') {
 /* ------------------------------------------------------------------ */
 
 const meta = {
-  title: 'Components/CircuitBreakerDialog',
-  component: CircuitBreakerDialog,
-  parameters: { layout: 'fullscreen' },
+  title: 'Dialogs/CircuitBreakerDialog',
+  component: CircuitBreakerTrigger,
+  parameters: { layout: 'centered' },
   tags: ['autodocs'],
-} satisfies Meta;
+} satisfies Meta<typeof CircuitBreakerTrigger>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -36,10 +50,10 @@ type Story = StoryObj<typeof meta>;
 
 /** Circuit open — shows error screen with retry button. */
 export const Open: Story = {
-  render: withState('open'),
+  args: { state: 'open' },
 };
 
 /** Half-open — reconnection attempt in progress (no retry button). */
 export const HalfOpen: Story = {
-  render: withState('half-open'),
+  args: { state: 'half-open' },
 };

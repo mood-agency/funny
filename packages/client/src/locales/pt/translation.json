@@ -110,12 +110,11 @@
       "gpt54mini": "GPT-5.4 Mini",
       "gpt53codex": "GPT-5.3 Codex",
       "gpt52": "GPT-5.2",
-      "gemini31proHigh": "Gemini 3.1 Pro (Alto)",
-      "gemini31proLow": "Gemini 3.1 Pro (Baixo)",
+      "gemini31pro": "Gemini 3.1 Pro",
       "gemini3flash": "Gemini 3 Flash",
-      "gemini3pro": "Gemini 3 Pro",
-      "gemini25flash": "Gemini 2.5 Flash",
+      "gemini31flashLite": "Gemini 3.1 Flash Lite",
       "gemini25pro": "Gemini 2.5 Pro",
+      "gemini25flash": "Gemini 2.5 Flash",
       "gemini20flash": "Gemini 2.0 Flash",
       "minimaxM27": "MiniMax M2.7",
       "minimaxM27Highspeed": "MiniMax M2.7 Highspeed",
@@ -157,7 +156,8 @@
     "permissionRequired": "Permissão de ferramenta necessária",
     "permissionMessage": "Claude quer usar {{tool}}. Deseja permitir?",
     "approvePermission": "Permitir",
-    "alwaysAllow": "Permitir sempre",
+    "approveJustOnce": "Apenas desta vez",
+    "alwaysAllow": "Permitir sempre neste projeto",
     "denyPermission": "Negar",
     "startTask": "Iniciar Tarefa",
     "orTypeNewPrompt": "Ou digite um novo prompt abaixo...",
@@ -564,7 +564,8 @@
     "sortAsc": "Mais antigo",
     "filterProject": "Projeto",
     "allProjects": "Todos os projetos",
-    "loadMore": "Carregar mais threads"
+    "loadMore": "Carregar mais threads",
+    "backToList": "Voltar à lista"
   },
   "archived": {
     "searchPlaceholder": "Buscar threads arquivadas por título, projeto, branch ou status...",
@@ -743,7 +744,9 @@
     "unassign": "Desatribuir",
     "run": "Executar",
     "copyLink": "Copiar link",
-    "dismiss": "Dispensar"
+    "dismiss": "Dispensar",
+    "showMore": "Mostrar mais",
+    "showLess": "Mostrar menos"
   },
   "editor": {
     "failedToLoad": "Falha ao carregar o arquivo",
@@ -808,7 +811,8 @@
   },
   "duration": {
     "seconds": "{{count}}s",
-    "minutesSeconds": "{{minutes}}m {{seconds}}s"
+    "minutesSeconds": "{{minutes}}m {{seconds}}s",
+    "hoursMinutes": "{{hours}}h {{minutes}}m"
   },
   "initInfo": {
     "model": "Modelo:",

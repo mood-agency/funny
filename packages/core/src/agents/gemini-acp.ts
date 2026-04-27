@@ -3,9 +3,9 @@
  * IAgentProcess EventEmitter interface, communicating via the
  * Agent Client Protocol (ACP) over stdio.
  *
- * Spawns `gemini --experimental-acp` as a subprocess and translates
+ * Spawns `gemini --acp` as a subprocess and translates
  * ACP session updates into CLIMessage format so that AgentMessageHandler
- * works unchanged (same as SDKClaudeProcess and CodexProcess).
+ * works unchanged (same as SDKClaudeProcess and CodexACPProcess).
  *
  * Uses dynamic import of @agentclientprotocol/sdk so the server doesn't
  * crash if the SDK is not installed.
@@ -15,9 +15,12 @@ import { spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import { Readable, Writable } from 'stream';
 
+import { createDebugLogger } from '../debug.js';
 import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 import type { CLIMessage } from './types.js';
+
+const dlog = createDebugLogger('acp-gemini');
 
 // Lazy-loaded SDK types (avoid crash if not installed)
 type ACPSDK = typeof import('@agentclientprotocol/sdk');
@@ -48,6 +51,36 @@ const GEMINI_BUILTIN_TOOLS = [
 
 export class GeminiACPProcess extends BaseAgentProcess {
   private childProcess: ChildProcess | null = null;
+
+  /**
+   * Buffer for `agent_thought_chunk` text. Gemini streams its internal
+   * reasoning as separate thought events that we collapse into a single
+   * `Think` tool call (rendered as a collapsible card on the client),
+   * matching how Claude extended thinking is displayed.
+   */
+  private pendingThought: { id: string; text: string } | null = null;
+
+  private flushPendingThought(): void {
+    if (!this.pendingThought) return;
+    const { id, text } = this.pendingThought;
+    this.pendingThought = null;
+    if (!text.trim()) return;
+
+    this.emit('message', {
+      type: 'assistant',
+      message: {
+        id: randomUUID(),
+        content: [{ type: 'tool_use', id, name: 'Think', input: { content: text } }],
+      },
+    } as CLIMessage);
+
+    this.emit('message', {
+      type: 'user',
+      message: {
+        content: [{ type: 'tool_result', tool_use_id: id, content: text }],
+      },
+    } as CLIMessage);
+  }
 
   // ── Overrides ──────────────────────────────────────────────────
 
@@ -81,7 +114,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
     );
 
     // Build CLI args
-    const args = ['--experimental-acp'];
+    const args = ['--acp'];
     if (this.options.model) {
       args.push('--model', this.options.model);
     }
@@ -213,7 +246,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
     this.emitInit(
       sessionId,
       GEMINI_BUILTIN_TOOLS,
-      this.options.model ?? 'gemini-3-flash-preview',
+      this.options.model ?? 'gemini-3.1-pro-preview',
       this.options.cwd,
     );
 
@@ -226,10 +259,28 @@ export class GeminiACPProcess extends BaseAgentProcess {
       });
 
       // Step 2: Create a new session
+      // MCP servers can be injected via agent templates or project config
+      const mcpServerList = this.options.mcpServers ? Object.values(this.options.mcpServers) : [];
       const sessionResponse = await connection.newSession({
         cwd: this.options.cwd,
-        mcpServers: [],
+        mcpServers: mcpServerList,
       });
+
+      // Diagnostic — log models the agent advertises (ACP unstable session model API).
+      // This tells us which Gemini model IDs the user's account actually has access to,
+      // independent of our hardcoded registry in @funny/shared/models.
+      const sessionModels = (sessionResponse as any).models;
+      if (sessionModels) {
+        dlog.info('session/new advertised models', {
+          availableModels: JSON.stringify(sessionModels.availableModels),
+          currentModelId: sessionModels.currentModelId,
+          requestedModel: this.options.model,
+        });
+      } else {
+        dlog.info('session/new response did not include models field', {
+          requestedModel: this.options.model,
+        });
+      }
 
       // Step 3: Send the prompt
       const promptResponse = await connection.prompt({
@@ -258,6 +309,9 @@ export class GeminiACPProcess extends BaseAgentProcess {
               ? 'error_max_turns'
               : 'success';
 
+      // Flush any trailing thought before closing out the run
+      this.flushPendingThought();
+
       // Emit result
       this.emitResult({
         sessionId,
@@ -268,6 +322,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
         result: lastAssistantText || undefined,
       });
     } catch (err: unknown) {
+      this.flushPendingThought();
       if (!this.isAborted) {
         const errorMessage = this.extractErrorMessage(err);
         this.emitResult({
@@ -303,16 +358,26 @@ export class GeminiACPProcess extends BaseAgentProcess {
   ): { text: string; msgId: string } {
     const ret = (text: string, msgId?: string) => ({ text, msgId: msgId ?? assistantMsgId });
     switch (update.sessionUpdate) {
-      case 'agent_message_chunk':
       case 'agent_thought_chunk': {
-        // Text content from the agent (message or thought/reasoning)
+        // Buffer the thought — flushed as a Think tool_call when the next
+        // non-thought event arrives (matches Claude extended thinking UX).
         const content = update.content;
         if (content.type === 'text' && content.text) {
-          // Accumulate the chunk so we emit the full text, not just the delta.
-          // The handler uses the same assistantMsgId to update in-place,
-          // so it needs the complete content each time.
-          accumulatedText += content.text;
+          if (!this.pendingThought) {
+            this.pendingThought = { id: randomUUID(), text: '' };
+          }
+          this.pendingThought.text += content.text;
+        }
+        return ret(accumulatedText);
+      }
 
+      case 'agent_message_chunk': {
+        // Real assistant text — flush any pending thought first so the
+        // Think card renders before the response.
+        this.flushPendingThought();
+        const content = update.content;
+        if (content.type === 'text' && content.text) {
+          accumulatedText += content.text;
           const msg: CLIMessage = {
             type: 'assistant',
             message: {
@@ -326,6 +391,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       case 'tool_call': {
+        this.flushPendingThought();
         const toolCallId = update.toolCallId;
         if (toolCallsSeen.has(toolCallId)) return ret(accumulatedText);
 
@@ -389,6 +455,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       case 'tool_call_update': {
+        this.flushPendingThought();
         const toolCallId = update.toolCallId;
         console.debug(
           `[gemini-acp] tool_call_update: id=${toolCallId}, status=${update.status}, hasRawOutput=${update.rawOutput != null}, hasContent=${!!(update as any).content?.length}, title=${update.title ?? ''}`,
@@ -419,6 +486,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       case 'plan': {
+        this.flushPendingThought();
         // Plan update — format as assistant text
         const entries = update.entries ?? [];
         if (entries.length > 0) {

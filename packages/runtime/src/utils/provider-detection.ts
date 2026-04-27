@@ -60,21 +60,11 @@ async function checkClaudeAvailability(): Promise<ProviderAvailability> {
   };
 }
 
-/** Check if the Codex SDK can be loaded (dynamic import). */
-async function checkCodexSDK(): Promise<boolean> {
-  try {
-    await import('@openai/codex-sdk');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Check if the codex CLI is available in PATH. */
-function checkCodexCLI(): { available: boolean; path?: string } {
+/** Check if the codex-acp binary is available in PATH. */
+function checkCodexAcpBinary(): { available: boolean; path?: string } {
   try {
     const { execSync } = require('child_process');
-    const cmd = process.platform === 'win32' ? 'where codex' : 'which codex';
+    const cmd = process.platform === 'win32' ? 'where codex-acp' : 'which codex-acp';
     const result = execSync(cmd, { timeout: 5000, encoding: 'utf-8' });
     const path = result.trim().split('\n')[0]?.trim();
     if (path) return { available: true, path };
@@ -82,17 +72,21 @@ function checkCodexCLI(): { available: boolean; path?: string } {
   return { available: false };
 }
 
-/** Check full Codex availability (SDK + optional CLI). */
+/**
+ * Codex availability is provided by the Zed-maintained codex-acp adapter,
+ * not an in-process SDK. We accept either an installed binary or fall back
+ * to `npx @zed-industries/codex-acp` (always available when the runner has
+ * network access). Mark Codex as available so the UI exposes the provider;
+ * the spawn itself surfaces a clear error if npx can't fetch it.
+ */
 async function checkCodexAvailability(): Promise<ProviderAvailability> {
-  const sdkAvailable = await checkCodexSDK();
-  const cli = checkCodexCLI();
-
+  const binary = checkCodexAcpBinary();
   return {
-    available: sdkAvailable,
-    sdkAvailable,
-    cliAvailable: cli.available,
-    cliPath: cli.path,
-    error: !sdkAvailable ? 'Codex SDK not found. Run: npm install @openai/codex-sdk' : undefined,
+    available: true,
+    sdkAvailable: binary.available,
+    cliAvailable: binary.available,
+    cliPath: binary.path,
+    error: undefined,
   };
 }
 

@@ -11,7 +11,6 @@ vi.mock('../../utils/claude-binary.js', () => ({
 // Mock the SDK imports — return empty objects so dynamic import() succeeds
 // but the SDK check in provider-detection will still treat them as available
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({}));
-vi.mock('@openai/codex-sdk', () => ({}));
 
 import { getAvailableProviders, resetProviderCache } from '../../utils/provider-detection.js';
 

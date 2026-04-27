@@ -9,7 +9,7 @@
  *   2. Call `registerProvider('name', MyProcess)` before creating agents
  */
 
-import { CodexProcess } from './codex.js';
+import { CodexACPProcess } from './codex-acp.js';
 import { DeepAgentProcess } from './deepagent-process.js';
 import { GeminiACPProcess } from './gemini-acp.js';
 import type { IAgentProcessFactory, IAgentProcess, AgentProcessOptions } from './interfaces.js';
@@ -20,7 +20,7 @@ type ProcessConstructor = new (opts: AgentProcessOptions) => IAgentProcess;
 
 const providerRegistry = new Map<string, ProcessConstructor>([
   ['claude', SDKClaudeProcess],
-  ['codex', CodexProcess],
+  ['codex', CodexACPProcess],
   ['gemini', GeminiACPProcess],
   ['deepagent', DeepAgentProcess],
   ['llm-api', LLMApiProcess],

@@ -68,6 +68,10 @@ describe('resolveModelId', () => {
       expect(resolveModelId('gemini', 'gemini-2.5-flash')).toBe('gemini-2.5-flash');
     });
 
+    test('resolves gemini-3.1-pro-preview', () => {
+      expect(resolveModelId('gemini', 'gemini-3.1-pro-preview')).toBe('gemini-3.1-pro-preview');
+    });
+
     test('resolves gemini-3-flash-preview', () => {
       expect(resolveModelId('gemini', 'gemini-3-flash-preview')).toBe('gemini-3-flash-preview');
     });
@@ -169,8 +173,8 @@ describe('getDefaultModel', () => {
     expect(getDefaultModel('codex')).toBe('gpt-5.4');
   });
 
-  test('returns gemini-3-flash-preview for gemini', () => {
-    expect(getDefaultModel('gemini')).toBe('gemini-3-flash-preview');
+  test('returns gemini-3.1-pro-preview for gemini', () => {
+    expect(getDefaultModel('gemini')).toBe('gemini-3.1-pro-preview');
   });
 
   test('returns opus for llm-api', () => {
@@ -209,11 +213,10 @@ describe('getProviderModels', () => {
     expect(models).toContain('gemini-2.0-flash');
     expect(models).toContain('gemini-2.5-flash');
     expect(models).toContain('gemini-2.5-pro');
+    expect(models).toContain('gemini-3.1-flash-lite-preview');
+    expect(models).toContain('gemini-3.1-pro-preview');
     expect(models).toContain('gemini-3-flash-preview');
-    expect(models).toContain('gemini-3-pro-preview');
-    expect(models).toContain('gemini-3.1-pro-high');
-    expect(models).toContain('gemini-3.1-pro-low');
-    expect(models).toHaveLength(7);
+    expect(models).toHaveLength(6);
   });
 
   test('returns empty array for llm-api', () => {
@@ -378,7 +381,7 @@ describe('isModelForProvider', () => {
   describe('gemini provider', () => {
     test('returns true for gemini models', () => {
       expect(isModelForProvider('gemini', 'gemini-2.5-flash')).toBe(true);
-      expect(isModelForProvider('gemini', 'gemini-3-flash-preview')).toBe(true);
+      expect(isModelForProvider('gemini', 'gemini-3.1-pro-preview')).toBe(true);
     });
 
     test('returns false for non-gemini models', () => {

@@ -26,6 +26,7 @@ import {
   type SymbolRef,
 } from '../../utils/file-mentions.js';
 import { startAgent } from '../agent-runner.js';
+import { listPermissionRules } from '../permission-rules-client.js';
 import { launchContainer } from '../podman-service.js';
 import { getServices } from '../service-registry.js';
 import { threadEventBus } from '../thread-event-bus.js';
@@ -37,6 +38,38 @@ import {
   emitThreadUpdated,
   slugifyTitle,
 } from './helpers.js';
+
+/**
+ * Pre-merge "always allow" permission rules into the agent's allowedTools so
+ * the SDK preToolUseHook short-circuits without prompting. Mirrors the helper
+ * in messaging.ts; kept local here to avoid an extra cross-module import.
+ */
+async function augmentAllowedToolsWithRules(
+  userId: string,
+  projectPath: string,
+  allowedTools: string[] | undefined,
+): Promise<string[] | undefined> {
+  try {
+    const rules = await listPermissionRules({ userId, projectPath });
+    if (!rules.length) return allowedTools;
+    const allowToolNames = new Set<string>();
+    for (const rule of rules) {
+      if (rule.decision === 'allow') allowToolNames.add(rule.toolName);
+    }
+    if (!allowToolNames.size) return allowedTools;
+    const merged = new Set<string>(allowedTools ?? []);
+    for (const t of allowToolNames) merged.add(t);
+    return [...merged];
+  } catch (err) {
+    log.warn('augmentAllowedToolsWithRules failed', {
+      namespace: 'thread-service',
+      userId,
+      projectPath,
+      error: (err as Error)?.message,
+    });
+    return allowedTools;
+  }
+}
 
 // ── Create Idle Thread ──────────────────────────────────────────
 
@@ -319,6 +352,11 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
           projectPath,
         );
         try {
+          const allowedToolsForRun = await augmentAllowedToolsWithRules(
+            params.userId,
+            wtPath,
+            params.allowedTools,
+          );
           await startAgent(
             threadId,
             augmentedPrompt,
@@ -327,7 +365,7 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
             resolvedPermissionMode,
             params.images,
             params.disallowedTools,
-            params.allowedTools,
+            allowedToolsForRun,
             resolvedProvider,
             undefined,
             true, // skipMessageInsert — already inserted at thread creation
@@ -509,6 +547,11 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
   }
 
   // Start agent (throws on failure — caller handles HTTP error response)
+  const allowedToolsForRun = await augmentAllowedToolsWithRules(
+    params.userId,
+    cwd,
+    params.allowedTools,
+  );
   await startAgent(
     threadId,
     augmentedPrompt,
@@ -517,7 +560,7 @@ export async function createAndStartThread(params: CreateAndStartThreadParams) {
     resolvedPermissionMode,
     params.images,
     params.disallowedTools,
-    params.allowedTools,
+    allowedToolsForRun,
     resolvedProvider,
     undefined,
     undefined,

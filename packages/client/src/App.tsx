@@ -8,6 +8,7 @@ import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sideb
 import { Toaster } from '@/components/ui/sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WorkflowErrorModal } from '@/components/WorkflowErrorModal';
+import { useActiveThreadBranchSync } from '@/hooks/use-active-thread-branch-sync';
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useRouteSync } from '@/hooks/use-route-sync';
@@ -203,6 +204,10 @@ export function App() {
   // Sync URL ↔ store
   useRouteSync();
 
+  // Keep working dir branch aligned with the active local thread (covers
+  // deep-linked / new-tab loads that bypass the sidebar's preflight).
+  const branchSyncDialog = useActiveThreadBranchSync();
+
   // Load projects and agent templates on mount (auth already initialized by AuthGate)
   useEffect(() => {
     loadProjects();
@@ -337,6 +342,7 @@ export function App() {
       </div>
 
       <Toaster position="bottom-right" duration={TOAST_DURATION} />
+      {branchSyncDialog}
       <WorkflowErrorModal />
       <Suspense>
         <CircuitBreakerDialog />

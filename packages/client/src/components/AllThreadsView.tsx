@@ -782,6 +782,12 @@ export function AllThreadsView() {
                 }
 
                 startTransition(() => {
+                  useUIStore.getState().setKanbanContext({
+                    projectId: projectFilter || undefined,
+                    search,
+                    threadId: thread.id,
+                    viewMode: 'list',
+                  });
                   navigate(buildPath(`/projects/${thread.projectId}/threads/${thread.id}`));
                 });
 

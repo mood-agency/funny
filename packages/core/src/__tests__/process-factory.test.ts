@@ -54,11 +54,9 @@ describe('process-factory', () => {
   });
 
   test('creates a codex process when provider is "codex"', () => {
-    // CodexProcess may throw if @openai/codex-sdk is not installed,
-    // but the factory should resolve to the correct constructor
     try {
       const process = defaultProcessFactory.create({ ...baseOpts, provider: 'codex' });
-      expect(process.constructor.name).toBe('CodexProcess');
+      expect(process.constructor.name).toBe('CodexACPProcess');
     } catch {
       // Optional dependency — test passes if constructor resolves correctly
     }

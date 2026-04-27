@@ -1103,6 +1103,40 @@ export async function remoteMarkAndListStaleThreads(): Promise<any[]> {
   return result?.threads ?? [];
 }
 
+// ── Permission rules ────────────────────────────────────
+
+/** Persist an "always allow" / "always deny" rule on the central server. */
+export async function remoteCreatePermissionRule(input: {
+  userId: string;
+  projectPath: string;
+  toolName: string;
+  pattern: string | null;
+  decision: 'allow' | 'deny';
+}): Promise<any> {
+  const response = await sendDataMessage('data:create_permission_rule', { payload: input });
+  return response?.rule ?? null;
+}
+
+/** Look up a matching rule for a tool invocation on the central server. */
+export async function remoteFindPermissionRule(query: {
+  userId: string;
+  projectPath: string;
+  toolName: string;
+  toolInput?: string;
+}): Promise<any> {
+  const response = await sendDataMessage('data:find_permission_rule', { payload: query });
+  return response?.rule ?? null;
+}
+
+/** List all rules for a user, optionally scoped to a project path. */
+export async function remoteListPermissionRules(query: {
+  userId: string;
+  projectPath?: string;
+}): Promise<any[]> {
+  const response = await sendDataMessage('data:list_permission_rules', { payload: query });
+  return response?.rules ?? [];
+}
+
 // ── Lifecycle ────────────────────────────────────────────
 
 /**

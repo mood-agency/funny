@@ -129,7 +129,7 @@ function ThreadPickerTrigger({
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/ThreadPickerDialog',
+  title: 'Dialogs/ThreadPickerDialog',
   component: ThreadPickerDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

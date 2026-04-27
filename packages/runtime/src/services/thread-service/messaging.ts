@@ -28,10 +28,37 @@ import {
 } from '../../utils/file-mentions.js';
 import { startAgent, stopAgent, isAgentRunning } from '../agent-runner.js';
 import { cleanupExternalThread } from '../ingest-mapper.js';
+import { listPermissionRules } from '../permission-rules-client.js';
 import { getServices } from '../service-registry.js';
 import * as tm from '../thread-manager.js';
 import { wsBroker } from '../ws-broker.js';
 import { ThreadServiceError, emitThreadUpdated } from './helpers.js';
+
+/**
+ * Augment a list of allowedTools with tool names that have an "always allow"
+ * rule for the given user + project. Lets the agent skip permission prompts
+ * for tools the user previously approved.
+ *
+ * Returns a new array; the original is not mutated.
+ */
+async function augmentAllowedToolsWithRules(
+  userId: string,
+  projectPath: string,
+  allowedTools: string[] | undefined,
+): Promise<string[] | undefined> {
+  const rules = await listPermissionRules({ userId, projectPath });
+  if (!rules.length) return allowedTools;
+  const allowToolNames = new Set<string>();
+  for (const rule of rules) {
+    if (rule.decision === 'allow') {
+      allowToolNames.add(rule.toolName);
+    }
+  }
+  if (!allowToolNames.size) return allowedTools;
+  const merged = new Set<string>(allowedTools ?? []);
+  for (const t of allowToolNames) merged.add(t);
+  return [...merged];
+}
 
 // ── Send Message / Follow-Up ────────────────────────────────────
 
@@ -269,6 +296,11 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     threadStatusBefore: thread.status,
     hasDraftMessage: String(hasDraftMessage),
   });
+  const allowedToolsForRun = await augmentAllowedToolsWithRules(
+    params.userId,
+    thread.worktreePath ?? cwd,
+    params.allowedTools,
+  );
   await startAgent(
     params.threadId,
     augmentedContent,
@@ -277,7 +309,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     effectivePermission,
     params.images,
     params.disallowedTools,
-    params.allowedTools,
+    allowedToolsForRun,
     effectiveProvider,
     undefined,
     hasDraftMessage, // skipMessageInsert — draft already exists
@@ -308,6 +340,21 @@ export interface ApproveToolParams {
   approved: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
+  /** When 'always', persist a permission rule for this project. */
+  scope?: 'once' | 'always';
+  /** Optional explicit pattern; otherwise derived from toolInput for Bash. */
+  pattern?: string;
+  /** Original tool input (used to derive a Bash command prefix when needed). */
+  toolInput?: string;
+}
+
+/** Heuristic: derive a Bash command prefix to use as a permission pattern. */
+function deriveBashPrefix(toolInput: string | undefined): string | null {
+  if (!toolInput) return null;
+  const trimmed = toolInput.trim();
+  if (!trimmed) return null;
+  const firstToken = trimmed.split(/\s+/)[0];
+  return firstToken || null;
 }
 
 export async function approveToolCall(params: ApproveToolParams): Promise<void> {
@@ -348,7 +395,46 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
     if (!tools.includes(params.toolName)) {
       tools.push(params.toolName);
     }
+
+    // Persist "always allow in this project" rule when requested.
+    if (params.scope === 'always') {
+      const pattern =
+        params.pattern ?? (params.toolName === 'Bash' ? deriveBashPrefix(params.toolInput) : null);
+      const projectPath = thread.worktreePath ?? cwd;
+      try {
+        const { createPermissionRule } = await import('../permission-rules-client.js');
+        await createPermissionRule({
+          userId: params.userId,
+          projectPath,
+          toolName: params.toolName,
+          pattern,
+          decision: 'allow',
+        });
+        log.info('approveToolCall: persisted always-allow rule', {
+          namespace: 'thread-service',
+          threadId: params.threadId,
+          userId: params.userId,
+          projectPath,
+          toolName: params.toolName,
+          pattern: pattern ?? '',
+        });
+      } catch (err) {
+        // Don't block the approve flow on persistence failure; the
+        // user can still re-approve next time.
+        log.warn('approveToolCall: failed to persist always-allow rule', {
+          namespace: 'thread-service',
+          threadId: params.threadId,
+          error: (err as Error)?.message,
+        });
+      }
+    }
     const disallowed = params.disallowedTools?.filter((t) => t !== params.toolName);
+    const projectPathForRules = thread.worktreePath ?? cwd;
+    const augmentedTools = await augmentAllowedToolsWithRules(
+      params.userId,
+      projectPathForRules,
+      tools,
+    );
     const message = `The user has approved the use of ${params.toolName}. Please proceed with using it.`;
     await startAgent(
       params.threadId,
@@ -358,7 +444,7 @@ export async function approveToolCall(params: ApproveToolParams): Promise<void> 
       (thread.permissionMode as PermissionMode) || DEFAULT_PERMISSION_MODE,
       undefined,
       disallowed,
-      tools,
+      augmentedTools,
       threadProvider,
     );
   } else {

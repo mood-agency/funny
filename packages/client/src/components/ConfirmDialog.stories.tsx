@@ -1,19 +1,42 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { useState } from 'react';
 import { expect, fn, within } from 'storybook/test';
 
-import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ConfirmDialog, type ConfirmDialogProps } from '@/components/ConfirmDialog';
+import { Button } from '@/components/ui/button';
 
-/* ------------------------------------------------------------------ */
-/*  Storybook meta                                                    */
-/* ------------------------------------------------------------------ */
+type TriggerProps = Omit<ConfirmDialogProps, 'open' | 'onOpenChange'>;
 
-const meta: Meta<typeof ConfirmDialog> = {
-  title: 'Components/ConfirmDialog',
-  component: ConfirmDialog,
+function ConfirmDialogTrigger(args: TriggerProps) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="outline" data-testid="confirm-dialog-trigger" onClick={() => setOpen(true)}>
+        Open dialog
+      </Button>
+      <ConfirmDialog
+        {...args}
+        open={open}
+        onOpenChange={setOpen}
+        onCancel={() => {
+          setOpen(false);
+          args.onCancel();
+        }}
+        onConfirm={() => {
+          setOpen(false);
+          args.onConfirm();
+        }}
+      />
+    </>
+  );
+}
+
+const meta: Meta<typeof ConfirmDialogTrigger> = {
+  title: 'Dialogs/ConfirmDialog',
+  component: ConfirmDialogTrigger,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],
   args: {
-    open: true,
     title: 'Confirm action',
     description: 'Are you sure you want to proceed?',
     cancelLabel: 'Cancel',
@@ -177,8 +200,8 @@ export const ClickCancel: Story = {
   },
   play: async ({ args, canvasElement, userEvent }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    const cancelBtn = canvas.getByTestId('confirm-dialog-cancel');
-    await userEvent.click(cancelBtn);
+    await userEvent.click(canvas.getByTestId('confirm-dialog-trigger'));
+    await userEvent.click(canvas.getByTestId('confirm-dialog-cancel'));
     await expect(args.onCancel).toHaveBeenCalledTimes(1);
     await expect(args.onConfirm).not.toHaveBeenCalled();
   },
@@ -192,8 +215,8 @@ export const ClickConfirm: Story = {
   },
   play: async ({ args, canvasElement, userEvent }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    const confirmBtn = canvas.getByTestId('confirm-dialog-confirm');
-    await userEvent.click(confirmBtn);
+    await userEvent.click(canvas.getByTestId('confirm-dialog-trigger'));
+    await userEvent.click(canvas.getByTestId('confirm-dialog-confirm'));
     await expect(args.onConfirm).toHaveBeenCalledTimes(1);
     await expect(args.onCancel).not.toHaveBeenCalled();
   },

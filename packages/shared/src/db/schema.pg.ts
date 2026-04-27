@@ -361,6 +361,21 @@ export const instanceSettings = pgTable('instance_settings', {
   updatedAt: text('updated_at').notNull(),
 });
 
+/**
+ * Per-user, per-project tool permission rules. Used to persist
+ * "always allow in this project" choices the user makes from the
+ * permission approval card. See sqlite schema for column docs.
+ */
+export const permissionRules = pgTable('permission_rules', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  projectPath: text('project_path').notNull(),
+  toolName: text('tool_name').notNull(),
+  pattern: text('pattern'),
+  decision: text('decision').notNull(),
+  createdAt: text('created_at').notNull(),
+});
+
 // ── Server-only tables (multi/team mode) ───────────────────────
 
 export const runners = pgTable('runners', {

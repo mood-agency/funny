@@ -51,7 +51,7 @@ function PublishRepoTrigger({ label, setupMocks }: { label: string; setupMocks: 
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/PublishRepoDialog',
+  title: 'Dialogs/PublishRepoDialog',
   component: PublishRepoDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

@@ -25,6 +25,7 @@ export {
   teamProjects,
   threadEvents,
   instanceSettings,
+  permissionRules,
   // Server-only tables
   runners,
   runnerProjectAssignments,

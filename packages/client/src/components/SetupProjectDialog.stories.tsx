@@ -39,7 +39,7 @@ function SetupProjectTrigger({
 /* ------------------------------------------------------------------ */
 
 const meta: Meta = {
-  title: 'Components/SetupProjectDialog',
+  title: 'Dialogs/SetupProjectDialog',
   component: SetupProjectDialog,
   parameters: { layout: 'centered' },
   tags: ['autodocs'],

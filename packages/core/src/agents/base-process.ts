@@ -2,7 +2,7 @@
  * BaseAgentProcess — abstract base class for all provider adapters.
  *
  * Extracts the common lifecycle boilerplate shared by SDKClaudeProcess,
- * CodexProcess, and GeminiACPProcess:
+ * CodexACPProcess, and GeminiACPProcess:
  *
  *   - AbortController + _exited flag
  *   - start() → runProcess() error wrapper

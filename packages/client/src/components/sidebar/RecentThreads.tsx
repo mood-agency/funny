@@ -108,6 +108,7 @@ export function RecentThreads({
             projectColor={thread.projectColor}
             timeValue={timeAgo(thread.completedAt ?? thread.createdAt, t)}
             gitStatus={statusByBranch[computeBranchKey(thread)]}
+            href={buildPath(`/projects/${thread.projectId}/threads/${thread.id}`)}
             onSelect={() => {
               const store = useThreadStore.getState();
               if (

@@ -912,24 +912,25 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
 
-  /* Find widget input fields */
-  .monaco-editor .find-widget .input {
-    background-color: hsl(var(--input)) !important;
-    color: hsl(var(--foreground)) !important;
-    border-color: hsl(var(--border)) !important;
-  }
-
+  /* Find widget input fields — only the outer inputbox carries the border */
   .monaco-editor .find-widget .monaco-inputbox {
     background-color: hsl(var(--input)) !important;
-    border-color: hsl(var(--border)) !important;
+    border: 1px solid hsl(var(--border)) !important;
+    border-radius: 0.25rem;
   }
 
   .monaco-editor .find-widget .monaco-inputbox .input {
+    background-color: transparent !important;
     color: hsl(var(--foreground)) !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
   }
 
   .monaco-editor .find-widget .monaco-inputbox.synthetic-focus {
-    outline-color: hsl(var(--ring)) !important;
+    outline: none !important;
+    border-color: hsl(var(--ring)) !important;
+    box-shadow: 0 0 0 1px hsl(var(--ring)) !important;
   }
 
   /* Match count label */

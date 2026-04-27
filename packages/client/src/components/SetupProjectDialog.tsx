@@ -69,14 +69,12 @@ export function SetupProjectDialog({
           <DialogFooter>
             <Button
               variant="outline"
-              size="sm"
               onClick={() => onOpenChange(false)}
               data-testid="setup-project-cancel"
             >
               Cancel
             </Button>
             <Button
-              size="sm"
               onClick={() => setFolderPickerOpen(true)}
               disabled={saving}
               data-testid="setup-project-browse"

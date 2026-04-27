@@ -127,10 +127,16 @@ async function assertDataOwnership(
   }
 
   // ── Explicit userId on the request ─────────────────────────────
+  const PAYLOAD_USERID_TYPES = new Set<string>([
+    'data:create_thread',
+    'data:create_permission_rule',
+    'data:find_permission_rule',
+    'data:list_permission_rules',
+  ]);
   const candidateUserId =
     typeof data?.userId === 'string' && data.userId
       ? data.userId
-      : data?.type === 'data:create_thread' && typeof payload?.userId === 'string'
+      : PAYLOAD_USERID_TYPES.has(data?.type) && typeof payload?.userId === 'string'
         ? payload.userId
         : undefined;
   if (candidateUserId && candidateUserId !== runnerUserId) {
@@ -535,6 +541,30 @@ export async function handleDataMessageWithAck(
         const threadRepo = getThreadRepo();
         const staleThreads = await threadRepo.markAndListStaleThreads(runnerId);
         return { type: 'data:mark_and_list_stale_threads_response', threads: staleThreads };
+      }
+      case 'data:create_permission_rule': {
+        const { createRule } = await import('./permission-rules-service.js');
+        const result = await createRule(data.payload);
+        if (result.isErr()) {
+          return { type: 'data:ack', success: false, error: result.error.message };
+        }
+        return { type: 'data:create_permission_rule_response', rule: result.value };
+      }
+      case 'data:find_permission_rule': {
+        const { findMatch } = await import('./permission-rules-service.js');
+        const result = await findMatch(data.payload);
+        if (result.isErr()) {
+          return { type: 'data:ack', success: false, error: result.error.message };
+        }
+        return { type: 'data:find_permission_rule_response', rule: result.value };
+      }
+      case 'data:list_permission_rules': {
+        const { listRules } = await import('./permission-rules-service.js');
+        const result = await listRules(data.payload);
+        if (result.isErr()) {
+          return { type: 'data:ack', success: false, error: result.error.message };
+        }
+        return { type: 'data:list_permission_rules_response', rules: result.value };
       }
       default:
         log.warn('Unknown data message type from runner', {

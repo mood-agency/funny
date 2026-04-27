@@ -88,10 +88,6 @@ vi.mock('@/stores/settings-store', async (importOriginal) => {
   };
 });
 
-vi.mock('@/components/thread/StickyUserMessage', () => ({
-  StickyUserMessage: () => null,
-}));
-
 vi.mock('@/components/thread/TodoPanel', () => ({
   TodoPanel: () => null,
 }));

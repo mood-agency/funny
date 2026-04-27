@@ -148,10 +148,19 @@ export const threadsApi = {
     approved: boolean,
     allowedTools?: string[],
     disallowedTools?: string[],
+    options?: { scope?: 'once' | 'always'; pattern?: string; toolInput?: string },
   ) =>
     request<{ ok: boolean }>(`/threads/${threadId}/approve-tool`, {
       method: 'POST',
-      body: JSON.stringify({ toolName, approved, allowedTools, disallowedTools }),
+      body: JSON.stringify({
+        toolName,
+        approved,
+        allowedTools,
+        disallowedTools,
+        scope: options?.scope,
+        pattern: options?.pattern,
+        toolInput: options?.toolInput,
+      }),
     }),
   deleteThread: (threadId: string) =>
     request<{ ok: boolean }>(`/threads/${threadId}`, { method: 'DELETE' }),

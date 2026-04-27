@@ -42,7 +42,10 @@ export class AgentStateTracker {
   readonly pendingUserInput = new Map<string, WaitingReason>();
 
   /** Pending permission requests per thread */
-  readonly pendingPermissionRequest = new Map<string, { toolName: string; toolUseId: string }>();
+  readonly pendingPermissionRequest = new Map<
+    string,
+    { toolName: string; toolUseId: string; toolInput?: string }
+  >();
 
   /** Cumulative input token count per thread (tracks context window usage) */
   readonly cumulativeInputTokens = new Map<string, number>();
