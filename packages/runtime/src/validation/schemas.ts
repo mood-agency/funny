@@ -24,15 +24,17 @@ function registryEnum<P extends keyof typeof MODEL_REGISTRY>(provider: P) {
 
 export const threadModeSchema = z.enum(['local', 'worktree']);
 export const threadRuntimeSchema = z.enum(['local', 'remote']);
-export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini', 'deepagent']);
+export const agentProviderSchema = z.enum(['claude', 'codex', 'gemini', 'pi', 'deepagent']);
 export const claudeModelSchema = registryEnum('claude');
 export const codexModelSchema = registryEnum('codex');
 export const geminiModelSchema = registryEnum('gemini');
+export const piModelSchema = registryEnum('pi');
 export const deepagentModelSchema = registryEnum('deepagent');
 export const agentModelSchema = z.union([
   claudeModelSchema,
   codexModelSchema,
   geminiModelSchema,
+  piModelSchema,
   deepagentModelSchema,
 ]);
 export const permissionModeSchema = z.enum(['plan', 'auto', 'autoEdit', 'confirmEdit', 'ask']);
@@ -163,6 +165,11 @@ export const sendMessageSchema = z.object({
 
 export const updateQueuedMessageSchema = z.object({
   content: z.string().min(1, 'content is required'),
+});
+
+export const forkThreadSchema = z.object({
+  messageId: z.string().min(1, 'messageId is required'),
+  title: z.string().max(500).optional(),
 });
 
 export const updateThreadSchema = z.object({

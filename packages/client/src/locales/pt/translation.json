@@ -254,6 +254,7 @@
     "copyFilePath": "Copiar caminho do arquivo",
     "copyRelativePath": "Copiar caminho relativo do arquivo",
     "pathCopied": "Caminho copiado",
+    "openDirectoryError": "Falha ao abrir o diretório",
     "submodule": "submódulo",
     "submoduleTooltip": "Repositório git aninhado (gitlink)",
     "submoduleDirtyCount": "submódulo · {{count}}",
@@ -746,7 +747,10 @@
     "copyLink": "Copiar link",
     "dismiss": "Dispensar",
     "showMore": "Mostrar mais",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "fork": "Bifurcar a partir daqui",
+    "forkSuccess": "Conversa bifurcada",
+    "forkFailed": "Falha ao bifurcar a conversa"
   },
   "editor": {
     "failedToLoad": "Falha ao carregar o arquivo",

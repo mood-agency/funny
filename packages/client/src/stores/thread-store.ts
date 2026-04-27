@@ -616,7 +616,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           pendingPermission,
           setupProgress: storedSetupProgress,
           contextUsage: storedContextUsage,
-          queuedCount: storedQueuedCount,
+          queuedCount: storedQueuedCount ?? thread.queuedCount,
           compactionEvents: compactionEvents.length > 0 ? compactionEvents : undefined,
         },
       });

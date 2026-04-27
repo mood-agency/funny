@@ -44,3 +44,5 @@ export {
   convertToWorktree,
   type UpdateThreadParams,
 } from './thread-service/update.js';
+
+export { forkThread, type ForkThreadParams } from './thread-service/fork.js';

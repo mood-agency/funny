@@ -122,6 +122,8 @@ function messageListAreEqual(
     onSend: any;
     onOpenLightbox: any;
     onToolRespond?: any;
+    onFork?: any;
+    forkingMessageId?: string | null;
     scrollRef: any;
   },
   next: typeof prev,
@@ -136,6 +138,8 @@ function messageListAreEqual(
     prev.onSend === next.onSend &&
     prev.onOpenLightbox === next.onOpenLightbox &&
     prev.onToolRespond === next.onToolRespond &&
+    prev.onFork === next.onFork &&
+    prev.forkingMessageId === next.forkingMessageId &&
     prev.scrollRef === next.scrollRef
   );
 }
@@ -158,6 +162,8 @@ export const MemoizedMessageList = memo(
       onSend: (prompt: string, opts: { model: string; mode: string }) => void;
       onOpenLightbox: (images: { src: string; alt: string }[], index: number) => void;
       onToolRespond?: (toolCallId: string, answer: string, toolName: string) => void;
+      onFork?: (messageId: string) => void;
+      forkingMessageId?: string | null;
       scrollRef: React.RefObject<HTMLElement | null>;
     }
   >(function MemoizedMessageList(
@@ -173,6 +179,8 @@ export const MemoizedMessageList = memo(
       onSend,
       onOpenLightbox,
       onToolRespond,
+      onFork,
+      forkingMessageId,
       scrollRef,
     },
     ref,
@@ -754,11 +762,13 @@ export const MemoizedMessageList = memo(
                 }
               }}
               onImageClick={onOpenLightbox}
+              onFork={onFork ? () => onFork(msg.id) : undefined}
+              forkDisabled={forkingMessageId != null}
             />
           </div>
         );
       },
-      [onOpenLightbox, scrollRef],
+      [onOpenLightbox, scrollRef, onFork, forkingMessageId],
     );
 
     return (

@@ -14,6 +14,7 @@ import { DeepAgentProcess } from './deepagent-process.js';
 import { GeminiACPProcess } from './gemini-acp.js';
 import type { IAgentProcessFactory, IAgentProcess, AgentProcessOptions } from './interfaces.js';
 import { LLMApiProcess } from './llm/llm-api-process.js';
+import { PiACPProcess } from './pi-acp.js';
 import { SDKClaudeProcess } from './sdk-claude.js';
 
 type ProcessConstructor = new (opts: AgentProcessOptions) => IAgentProcess;
@@ -22,6 +23,7 @@ const providerRegistry = new Map<string, ProcessConstructor>([
   ['claude', SDKClaudeProcess],
   ['codex', CodexACPProcess],
   ['gemini', GeminiACPProcess],
+  ['pi', PiACPProcess],
   ['deepagent', DeepAgentProcess],
   ['llm-api', LLMApiProcess],
 ]);

@@ -19,7 +19,13 @@ import { randomUUID } from 'crypto';
 import { Readable, Writable } from 'stream';
 
 import { createDebugLogger } from '../debug.js';
-import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
+import { toACPMcpServers } from './acp-mcp.js';
+import {
+  inferACPToolName,
+  buildACPToolInput,
+  extractACPToolOutput,
+  parseACPPreambleTitle,
+} from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 import type { CLIMessage } from './types.js';
 
@@ -232,7 +238,7 @@ export class CodexACPProcess extends BaseAgentProcess {
 
       // 2. Resume or create
       // MCP servers can be injected via agent templates or project config
-      const mcpServerList = this.options.mcpServers ? Object.values(this.options.mcpServers) : [];
+      const mcpServerList = toACPMcpServers(this.options.mcpServers);
       if (this.options.sessionId && supportsLoadSession) {
         activeSessionId = this.options.sessionId;
         replayingHistory = true;
@@ -521,12 +527,28 @@ export class CodexACPProcess extends BaseAgentProcess {
       }
 
       case 'tool_call': {
-        this.flushPendingThought();
         const toolCallId = update.toolCallId;
         if (toolCallsSeen.has(toolCallId)) return ret(accumulatedText);
 
         const acpKind = (update as any).kind as string | undefined;
         const title = update.title || '';
+
+        // Codex sometimes emits "preamble" tool_calls whose title is just
+        // `[current working directory …] (reason)` with no real input — they
+        // narrate intent before the next real tool. Buffer them as Think text
+        // so they render as a single collapsible Think card instead of a
+        // stack of broken tool cards.
+        const preamble = parseACPPreambleTitle(title);
+        if (preamble) {
+          if (!this.pendingThought) {
+            this.pendingThought = { id: randomUUID(), text: '' };
+          }
+          this.pendingThought.text += (this.pendingThought.text ? '\n' : '') + preamble;
+          toolCallsSeen.set(toolCallId, 'preamble');
+          return ret(accumulatedText);
+        }
+
+        this.flushPendingThought();
         const locations = (update as any).locations as
           | Array<{ path: string; line?: number | null }>
           | undefined;
@@ -578,8 +600,11 @@ export class CodexACPProcess extends BaseAgentProcess {
       }
 
       case 'tool_call_update': {
-        this.flushPendingThought();
         const toolCallId = update.toolCallId;
+        if (toolCallsSeen.get(toolCallId) === 'preamble') {
+          return ret(accumulatedText);
+        }
+        this.flushPendingThought();
         if (update.status === 'completed' || update.status === 'failed') {
           toolCallsSeen.set(toolCallId, 'done');
           const output = extractACPToolOutput(

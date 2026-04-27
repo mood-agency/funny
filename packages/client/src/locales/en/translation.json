@@ -262,6 +262,7 @@
     "copyFilePath": "Copy file path",
     "copyRelativePath": "Copy relative file path",
     "pathCopied": "Path copied",
+    "openDirectoryError": "Failed to open directory",
     "submodule": "submodule",
     "submoduleTooltip": "Nested git repository (gitlink)",
     "submoduleDirtyCount": "submodule · {{count}}",
@@ -755,7 +756,10 @@
     "copyLink": "Copy link",
     "dismiss": "Dismiss",
     "showMore": "Show more",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "fork": "Fork from here",
+    "forkSuccess": "Forked conversation",
+    "forkFailed": "Failed to fork conversation"
   },
   "editor": {
     "failedToLoad": "Failed to load file",

@@ -258,6 +258,37 @@ export function ThreadView() {
     useThreadStore.getState().handleWSToolOutput(thread.id, { toolCallId, output: answer });
   }, []);
 
+  // Track which user message is currently being forked to disable parallel forks
+  const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
+
+  const handleFork = useCallback(
+    async (messageId: string) => {
+      const thread = activeThreadRef.current;
+      if (!thread || forkingMessageId) return;
+      setForkingMessageId(messageId);
+      try {
+        const result = await api.forkThread(thread.id, messageId);
+        if (result.isErr()) {
+          tvLog.error('Failed to fork thread', {
+            threadId: thread.id,
+            messageId,
+            error: result.error.message,
+          });
+          toast.error(t('thread.forkFailed', 'Failed to fork conversation'));
+          return;
+        }
+        const newThread = result.value;
+        useThreadStore.setState({ selectedThreadId: newThread.id });
+        await useThreadStore.getState().loadThreadsForProject(thread.projectId);
+        navigate(buildPath(`/projects/${thread.projectId}/threads/${newThread.id}`));
+        toast.success(t('thread.forkSuccess', 'Forked conversation'));
+      } finally {
+        setForkingMessageId(null);
+      }
+    },
+    [forkingMessageId, navigate, t],
+  );
+
   // Stable ref to avoid recreating handleSend on every render.
   // This prevents PromptInput and MemoizedMessageList from re-rendering
   // due to the onSubmit/onSend prop reference changing.
@@ -774,6 +805,8 @@ export function ThreadView() {
             onSend={handleSend}
             onPermissionApproval={handlePermissionApproval}
             onToolRespond={handleToolRespond}
+            onFork={handleFork}
+            forkingMessageId={forkingMessageId}
             pagination={{
               hasMore,
               loadingMore,

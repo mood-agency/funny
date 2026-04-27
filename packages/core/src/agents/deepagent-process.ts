@@ -23,6 +23,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+import { toACPMcpServers } from './acp-mcp.js';
 import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 import type { CLIMessage } from './types.js';
@@ -312,7 +313,7 @@ export class DeepAgentProcess extends BaseAgentProcess {
 
       // Step 2: Create a new session
       // MCP servers can be injected via agent templates or project config
-      const mcpServerList = this.options.mcpServers ? Object.values(this.options.mcpServers) : [];
+      const mcpServerList = toACPMcpServers(this.options.mcpServers);
       const sessionResponse = await connection.newSession({
         cwd: this.options.cwd,
         mcpServers: mcpServerList,

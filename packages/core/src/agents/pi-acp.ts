@@ -1,14 +1,18 @@
 /**
- * GeminiACPProcess — adapter that wraps the Gemini CLI behind the
- * IAgentProcess EventEmitter interface, communicating via the
- * Agent Client Protocol (ACP) over stdio.
+ * PiACPProcess — adapter that wraps the `pi-acp` adapter
+ * (https://github.com/svkozak/pi-acp) behind the IAgentProcess
+ * EventEmitter interface, communicating via the Agent Client Protocol
+ * (ACP) over stdio.
  *
- * Spawns `gemini --acp` as a subprocess and translates
- * ACP session updates into CLIMessage format so that AgentMessageHandler
- * works unchanged (same as SDKClaudeProcess and CodexACPProcess).
+ * Spawns `pi-acp` as a subprocess. `pi-acp` itself spawns `pi --mode rpc`
+ * internally, so the user must have `pi` (@mariozechner/pi-coding-agent)
+ * installed and configured with provider credentials separately. Funny
+ * does not pass a `--model` flag — model/provider selection is owned by
+ * pi's own settings (`~/.pi/agent/settings.json`).
  *
- * Uses dynamic import of @agentclientprotocol/sdk so the server doesn't
- * crash if the SDK is not installed.
+ * Translates ACP session updates into CLIMessage format so that
+ * AgentMessageHandler works unchanged (same as GeminiACPProcess and
+ * CodexACPProcess).
  */
 
 import { spawn, type ChildProcess } from 'child_process';
@@ -17,16 +21,11 @@ import { Readable, Writable } from 'stream';
 
 import { createDebugLogger } from '../debug.js';
 import { toACPMcpServers } from './acp-mcp.js';
-import {
-  inferACPToolName,
-  buildACPToolInput,
-  extractACPToolOutput,
-  parseACPPreambleTitle,
-} from './acp-tool-input.js';
+import { inferACPToolName, buildACPToolInput, extractACPToolOutput } from './acp-tool-input.js';
 import { BaseAgentProcess, type ResultSubtype } from './base-process.js';
 import type { CLIMessage } from './types.js';
 
-const dlog = createDebugLogger('acp-gemini');
+const dlog = createDebugLogger('acp-pi');
 
 // Lazy-loaded SDK types (avoid crash if not installed)
 type ACPSDK = typeof import('@agentclientprotocol/sdk');
@@ -37,33 +36,30 @@ type ACPSessionUpdate = import('@agentclientprotocol/sdk').SessionUpdate;
 type ACPRequestPermissionRequest = import('@agentclientprotocol/sdk').RequestPermissionRequest;
 type ACPRequestPermissionResponse = import('@agentclientprotocol/sdk').RequestPermissionResponse;
 
-/** Known Gemini CLI built-in tools (ACP doesn't expose a listTools API). */
-const GEMINI_BUILTIN_TOOLS = [
-  'read_file',
-  'write_file',
-  'replace',
-  'list_directory',
-  'glob',
-  'grep_search',
-  'run_shell_command',
-  'web_fetch',
-  'google_web_search',
-  'codebase_investigator',
-  'save_memory',
-  'ask_user',
-  'activate_skill',
-  'cli_help',
-];
+/** Pi built-in tools surfaced via system:init. Matches `pi --tools` defaults. */
+const PI_BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 
-export class GeminiACPProcess extends BaseAgentProcess {
+/**
+ * Pi prepends a banner to its first agent_message_chunk, e.g.
+ *   pi v0.70.2
+ *   ---
+ *
+ *   ## Skills
+ *   - /path/to/SKILL.md
+ *   ...
+ *
+ * Strip the leading version line, the `---` separator, and any subsequent
+ * `## Section` blocks (with their bullet lists) before the actual response.
+ */
+function stripPiBanner(text: string): string {
+  const banner = /^pi v[\d.]+\s*\n-{3,}\s*\n+(?:##[^\n]*\n(?:[-*][^\n]*\n)*\n*)*/;
+  return text.replace(banner, '').replace(/^\s+/, '');
+}
+
+export class PiACPProcess extends BaseAgentProcess {
   private childProcess: ChildProcess | null = null;
 
-  /**
-   * Buffer for `agent_thought_chunk` text. Gemini streams its internal
-   * reasoning as separate thought events that we collapse into a single
-   * `Think` tool call (rendered as a collapsible card on the client),
-   * matching how Claude extended thinking is displayed.
-   */
+  /** Buffer for `agent_thought_chunk` text — collapsed into a single Think tool call. */
   private pendingThought: { id: string; text: string } | null = null;
 
   private flushPendingThought(): void {
@@ -100,35 +96,24 @@ export class GeminiACPProcess extends BaseAgentProcess {
   // ── Provider-specific run loop ─────────────────────────────────
 
   protected async runProcess(): Promise<void> {
-    // Dynamic import — fails gracefully if SDK not installed
     let SDK: ACPSDK;
     try {
       SDK = await import('@agentclientprotocol/sdk');
     } catch {
       throw new Error(
         'ACP SDK not installed. Run: bun add @agentclientprotocol/sdk\n' +
-          'Also ensure gemini-cli is installed: npm install -g @google/gemini-cli or see https://github.com/google/gemini-cli',
+          'Also ensure pi-acp is available: npm install -g pi-acp ' +
+          '(or rely on `npx -y pi-acp`). Pi itself must also be installed: ' +
+          'npm install -g @mariozechner/pi-coding-agent',
       );
     }
 
     const { ClientSideConnection, ndJsonStream } = SDK;
 
-    // Resolve Gemini binary
-    const geminiBin = this.resolveGeminiBinary();
-    this.logger?.debug(
-      `[gemini-acp] resolved binary: ${geminiBin}, platform: ${process.platform}, shell: ${process.platform === 'win32'}`,
-    );
+    const { command, args } = this.resolvePiAcpCommand();
+    dlog.info('spawning pi-acp', { command, args, cwd: this.options.cwd });
 
-    // Build CLI args
-    const args = ['--acp'];
-    if (this.options.model) {
-      args.push('--model', this.options.model);
-    }
-
-    // Spawn gemini subprocess with stdio pipes
-    // On Windows, shell: true is required to resolve .cmd/.bat wrappers
-    // for npm-installed binaries like `gemini`
-    const child = spawn(geminiBin, args, {
+    const child = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: this.options.cwd,
       env: { ...process.env, ...this.options.env },
@@ -138,16 +123,17 @@ export class GeminiACPProcess extends BaseAgentProcess {
 
     this.childProcess = child;
 
-    // Handle process errors
     child.on('error', (err: any) => {
       if (!this._exited && !this.isAborted) {
         if (err.code === 'ENOENT') {
           this.emit(
             'error',
             new Error(
-              "'gemini' binary not found in PATH or failed to spawn.\n" +
-                'Please install it via: npm install -g @google/gemini-cli\n' +
-                'Or see https://github.com/google/gemini-cli for details.',
+              "'pi-acp' binary not found in PATH or failed to spawn.\n" +
+                'Install via: npm install -g pi-acp\n' +
+                'Also install pi: npm install -g @mariozechner/pi-coding-agent\n' +
+                'Or set PI_ACP_BINARY_PATH to a custom location.\n' +
+                'See https://github.com/svkozak/pi-acp for details.',
             ),
           );
         } else {
@@ -156,118 +142,107 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
     });
 
-    // Surface stderr errors as tool call cards so they appear in the thread
-    // with full history. ACP subprocesses write JSON-RPC errors and API errors
-    // to stderr — these are critical for the user (rate limits, auth failures, etc.).
     child.stderr?.on('data', (data: Buffer) => {
       const raw = data.toString().trim();
       if (!raw) return;
-
       const errorText = this.parseStderrError(raw);
-      if (errorText) {
-        this.emitErrorToolCall(errorText);
-      }
+      if (errorText) this.emitErrorToolCall(errorText);
     });
 
     try {
-      // Wait for process to spawn successfully before proceeding
       await new Promise<void>((resolve, reject) => {
         child.on('spawn', resolve);
         child.on('error', reject);
       });
     } catch {
-      // Error emitted by child.on('error') above, so we just return
       this._exited = true;
       return;
     }
 
-    // Convert Node streams to Web streams for ACP SDK
     const outputStream = Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>;
     const inputStream = Readable.toWeb(child.stdout!) as unknown as ReadableStream<Uint8Array>;
-
-    // Create ACP NDJSON stream
     const stream = ndJsonStream(outputStream, inputStream);
 
+    let activeSessionId: string = this.options.sessionId ?? randomUUID();
     const startTime = Date.now();
     let numTurns = 0;
-    let totalCost = 0;
+    const totalCost = 0;
     let lastAssistantText = '';
 
-    // Current assistant message ID — rotated after each tool call so that
-    // text blocks before and after tool calls become separate DB messages.
-    let assistantMsgId = randomUUID();
-
-    // Accumulate text chunks so we emit the full content, not just deltas
+    let assistantMsgId: string = randomUUID();
     let accumulatedText = '';
-
-    // Track tool calls for deduplication and pending state.
-    // Value: tool name while pending, 'done' after result emitted.
     const toolCallsSeen = new Map<string, string>();
 
     // While loadSession is replaying historical session updates, drop them —
     // funny's DB already holds the persisted history and we don't want duplicates.
     let replayingHistory = false;
 
-    // Create ACP client implementation
     const acpClient: ACPClient = {
-      // Handle streaming session updates from the agent
       sessionUpdate: async (params: ACPSessionNotification): Promise<void> => {
         if (this.isAborted) return;
         if (replayingHistory) return;
-
-        const update = params.update;
-        const result = this.translateUpdate(update, assistantMsgId, toolCallsSeen, accumulatedText);
+        const result = this.translateUpdate(
+          params.update,
+          assistantMsgId,
+          toolCallsSeen,
+          accumulatedText,
+        );
         accumulatedText = result.text;
         assistantMsgId = result.msgId;
+        if (result.lastAssistantText) lastAssistantText = result.lastAssistantText;
       },
 
-      // Auto-allow all permission requests (matches autoEdit behavior)
       requestPermission: async (
         params: ACPRequestPermissionRequest,
       ): Promise<ACPRequestPermissionResponse> => {
-        // Find the first "allow" option
         const allowOption = params.options.find(
           (opt) => opt.kind === 'allow_once' || opt.kind === 'allow_always',
         );
-
         if (allowOption) {
           return {
-            outcome: {
-              outcome: 'selected',
-              optionId: allowOption.optionId,
-            },
+            outcome: { outcome: 'selected', optionId: allowOption.optionId },
           };
         }
-
-        // Fallback — allow the first option
         return {
-          outcome: {
-            outcome: 'selected',
-            optionId: params.options[0]?.optionId ?? '',
-          },
+          outcome: { outcome: 'selected', optionId: params.options[0]?.optionId ?? '' },
         };
       },
     };
 
-    // Create client-side ACP connection
     const connection = new ClientSideConnection((_agent: ACPAgent) => acpClient, stream);
 
-    let activeSessionId: string = this.options.sessionId ?? randomUUID();
-    let sessionResponse: Awaited<ReturnType<typeof connection.newSession>> | null = null;
-
     try {
-      // Step 1: Initialize the ACP connection
       const initResult = await connection.initialize({
         protocolVersion: 1,
         clientInfo: { name: 'funny', version: '1.0.0' },
-        clientCapabilities: {},
+        clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
       });
 
       const supportsLoadSession = initResult.agentCapabilities?.loadSession === true;
+      const mcpCaps = (initResult.agentCapabilities as Record<string, any> | undefined)
+        ?.mcpCapabilities;
+      const supportsHttp = mcpCaps?.http === true;
+      const supportsSse = mcpCaps?.sse === true;
 
-      // Step 2: Resume existing session if possible, else create a new one.
-      // MCP servers can be injected via agent templates or project config.
-      const mcpServerList = toACPMcpServers(this.options.mcpServers);
+      // Resume existing session if possible, else create a new one.
+      // Filter MCP servers by what the agent advertises it supports — pi-acp
+      // declares `mcpCapabilities: { http: false, sse: false }` and currently
+      // never consumes the list at all, so passing HTTP/SSE entries causes
+      // pi-acp to fail. Stdio is mandatory per ACP spec and always allowed.
+      const allMcp = toACPMcpServers(this.options.mcpServers);
+      const mcpServerList = allMcp.filter((s) => {
+        const t = s.type as string | undefined;
+        if (t === 'http') return supportsHttp;
+        if (t === 'sse') return supportsSse;
+        return true;
+      });
+      if (allMcp.length !== mcpServerList.length) {
+        dlog.warn('dropped MCP servers unsupported by agent', {
+          dropped: allMcp.length - mcpServerList.length,
+          mcpCapabilities: mcpCaps,
+        });
+      }
+      let sessionResponse: Awaited<ReturnType<typeof connection.newSession>> | null = null;
       if (this.options.sessionId && supportsLoadSession) {
         activeSessionId = this.options.sessionId;
         replayingHistory = true;
@@ -289,50 +264,47 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       // Emit init with the real session id once known so the persisted
-      // record matches what gemini-acp wrote to its session store —
-      // otherwise resume/loadSession would be looking up a UUID that
-      // gemini-acp never assigned.
+      // record matches what pi-acp wrote to its session store.
       this.emitInit(
         activeSessionId,
-        GEMINI_BUILTIN_TOOLS,
-        this.options.model ?? 'gemini-3.1-pro-preview',
+        PI_BUILTIN_TOOLS,
+        this.options.model ?? 'pi-default',
         this.options.cwd,
       );
 
-      // Diagnostic — log models the agent advertises (ACP unstable session model API).
-      // This tells us which Gemini model IDs the user's account actually has access to,
-      // independent of our hardcoded registry in @funny/shared/models.
       const sessionModels = (sessionResponse as any)?.models;
       if (sessionModels) {
         dlog.info('session/new advertised models', {
           availableModels: JSON.stringify(sessionModels.availableModels),
           currentModelId: sessionModels.currentModelId,
-          requestedModel: this.options.model,
-        });
-      } else if (sessionResponse) {
-        dlog.info('session/new response did not include models field', {
-          requestedModel: this.options.model,
         });
       }
 
-      // Step 3: Send the prompt
+      // Select the requested model via ACP if one was specified and it's not
+      // the sentinel `default` (which means "use pi's configured default").
+      const requestedModel = this.options.model;
+      if (requestedModel && requestedModel !== 'default') {
+        try {
+          await connection.unstable_setSessionModel({
+            sessionId: activeSessionId,
+            modelId: requestedModel,
+          });
+          dlog.info('session/set_model applied', { modelId: requestedModel });
+        } catch (e) {
+          dlog.warn('session/set_model failed — falling back to pi default', {
+            modelId: requestedModel,
+            error: (e as Error)?.message,
+          });
+        }
+      }
+
       const promptResponse = await connection.prompt({
         sessionId: activeSessionId,
         prompt: [{ type: 'text', text: this.options.prompt }],
       });
 
-      // Extract usage if available
-      if (promptResponse.usage) {
-        const u = promptResponse.usage;
-        // Rough Gemini pricing estimate
-        const inputTokens = u.inputTokens ?? 0;
-        const outputTokens = u.outputTokens ?? 0;
-        totalCost = (inputTokens * 0.00025 + outputTokens * 0.001) / 1000;
-      }
-
       numTurns = 1;
 
-      // Map stop reason
       const subtype: ResultSubtype =
         promptResponse.stopReason === 'end_turn'
           ? 'success'
@@ -342,10 +314,8 @@ export class GeminiACPProcess extends BaseAgentProcess {
               ? 'error_max_turns'
               : 'success';
 
-      // Flush any trailing thought before closing out the run
       this.flushPendingThought();
 
-      // Emit result
       this.emitResult({
         sessionId: activeSessionId,
         subtype,
@@ -369,7 +339,6 @@ export class GeminiACPProcess extends BaseAgentProcess {
         });
       }
     } finally {
-      // Clean up child process
       if (this.childProcess && !this.childProcess.killed) {
         this.childProcess.kill('SIGTERM');
       }
@@ -379,21 +348,24 @@ export class GeminiACPProcess extends BaseAgentProcess {
 
   // ── Update translation ──────────────────────────────────────
 
-  /**
-   * Translate an ACP SessionUpdate into CLIMessage(s).
-   * Returns the updated accumulated text and assistant message ID.
-   */
   private translateUpdate(
     update: ACPSessionUpdate,
     assistantMsgId: string,
     toolCallsSeen: Map<string, string>,
     accumulatedText: string,
-  ): { text: string; msgId: string } {
-    const ret = (text: string, msgId?: string) => ({ text, msgId: msgId ?? assistantMsgId });
+  ): { text: string; msgId: string; lastAssistantText?: string } {
+    const ret = (
+      text: string,
+      msgId?: string,
+      lastAssistantText?: string,
+    ): { text: string; msgId: string; lastAssistantText?: string } => ({
+      text,
+      msgId: msgId ?? assistantMsgId,
+      lastAssistantText,
+    });
+
     switch (update.sessionUpdate) {
       case 'agent_thought_chunk': {
-        // Buffer the thought — flushed as a Think tool_call when the next
-        // non-thought event arrives (matches Claude extended thinking UX).
         const content = update.content;
         if (content.type === 'text' && content.text) {
           if (!this.pendingThought) {
@@ -405,54 +377,35 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       case 'agent_message_chunk': {
-        // Real assistant text — flush any pending thought first so the
-        // Think card renders before the response.
         this.flushPendingThought();
         const content = update.content;
         if (content.type === 'text' && content.text) {
           accumulatedText += content.text;
-          const msg: CLIMessage = {
-            type: 'assistant',
-            message: {
-              id: assistantMsgId,
-              content: [{ type: 'text', text: accumulatedText }],
-            },
-          };
-          this.emit('message', msg);
+          const visible = stripPiBanner(accumulatedText);
+          if (visible) {
+            this.emit('message', {
+              type: 'assistant',
+              message: {
+                id: assistantMsgId,
+                content: [{ type: 'text', text: visible }],
+              },
+            } as CLIMessage);
+          }
         }
-        return ret(accumulatedText);
+        return ret(accumulatedText, assistantMsgId, stripPiBanner(accumulatedText));
       }
 
       case 'tool_call': {
+        this.flushPendingThought();
         const toolCallId = update.toolCallId;
         if (toolCallsSeen.has(toolCallId)) return ret(accumulatedText);
 
         const acpKind = (update as any).kind as string | undefined;
         const title = update.title || '';
-
-        // Gemini emits "preamble" tool_calls whose title is just
-        // `[current working directory …] (reason)` with no real input —
-        // narrating intent before the next real tool. Buffer them as Think
-        // text so they collapse into a single Think card.
-        const preamble = parseACPPreambleTitle(title);
-        if (preamble) {
-          if (!this.pendingThought) {
-            this.pendingThought = { id: randomUUID(), text: '' };
-          }
-          this.pendingThought.text += (this.pendingThought.text ? '\n' : '') + preamble;
-          toolCallsSeen.set(toolCallId, 'preamble');
-          return ret(accumulatedText);
-        }
-
-        this.flushPendingThought();
         const locations = (update as any).locations as
           | Array<{ path: string; line?: number | null }>
           | undefined;
-        console.debug(
-          `[gemini-acp] tool_call: id=${toolCallId}, kind=${acpKind}, title=${title}, hasRawInput=${update.rawInput != null}`,
-        );
         const toolName = inferACPToolName(acpKind, title);
-
         toolCallsSeen.set(toolCallId, toolName);
 
         const input = buildACPToolInput(toolName, {
@@ -462,25 +415,14 @@ export class GeminiACPProcess extends BaseAgentProcess {
           locations,
         });
 
-        const msg: CLIMessage = {
+        this.emit('message', {
           type: 'assistant',
           message: {
             id: randomUUID(),
-            content: [
-              {
-                type: 'tool_use',
-                id: toolCallId,
-                name: toolName,
-                input,
-              },
-            ],
+            content: [{ type: 'tool_use', id: toolCallId, name: toolName, input }],
           },
-        };
-        this.emit('message', msg);
+        } as CLIMessage);
 
-        // If the tool_call already carries a completed status and output
-        // (Gemini runs tools internally, so this can happen), emit the
-        // result immediately without waiting for a separate tool_call_update.
         const tcStatus = (update as any).status as string | undefined;
         if (tcStatus === 'completed' || tcStatus === 'failed') {
           toolCallsSeen.set(toolCallId, 'done');
@@ -488,13 +430,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
           this.emit('message', {
             type: 'user',
             message: {
-              content: [
-                {
-                  type: 'tool_result',
-                  tool_use_id: toolCallId,
-                  content: tcOutput,
-                },
-              ],
+              content: [{ type: 'tool_result', tool_use_id: toolCallId, content: tcOutput }],
             },
           } as CLIMessage);
         }
@@ -503,15 +439,8 @@ export class GeminiACPProcess extends BaseAgentProcess {
       }
 
       case 'tool_call_update': {
-        const toolCallId = update.toolCallId;
-        if (toolCallsSeen.get(toolCallId) === 'preamble') {
-          return ret(accumulatedText);
-        }
         this.flushPendingThought();
-        console.debug(
-          `[gemini-acp] tool_call_update: id=${toolCallId}, status=${update.status}, hasRawOutput=${update.rawOutput != null}, hasContent=${!!(update as any).content?.length}, title=${update.title ?? ''}`,
-        );
-
+        const toolCallId = update.toolCallId;
         if (update.status === 'completed' || update.status === 'failed') {
           toolCallsSeen.set(toolCallId, 'done');
           const output = extractACPToolOutput(
@@ -519,26 +448,18 @@ export class GeminiACPProcess extends BaseAgentProcess {
             (update as any).content,
             update.title || '',
           );
-          const msg: CLIMessage = {
+          this.emit('message', {
             type: 'user',
             message: {
-              content: [
-                {
-                  type: 'tool_result',
-                  tool_use_id: toolCallId,
-                  content: output,
-                },
-              ],
+              content: [{ type: 'tool_result', tool_use_id: toolCallId, content: output }],
             },
-          };
-          this.emit('message', msg);
+          } as CLIMessage);
         }
         return ret(accumulatedText);
       }
 
       case 'plan': {
         this.flushPendingThought();
-        // Plan update — format as assistant text
         const entries = update.entries ?? [];
         if (entries.length > 0) {
           const planText = entries
@@ -549,39 +470,17 @@ export class GeminiACPProcess extends BaseAgentProcess {
             })
             .join('\n');
 
-          // Close any pending Task (think/switch_mode) tool calls with the plan text
-          for (const [tcId, tcState] of toolCallsSeen) {
-            if (tcState === 'Task') {
-              toolCallsSeen.set(tcId, 'done');
-              this.emit('message', {
-                type: 'user',
-                message: {
-                  content: [
-                    {
-                      type: 'tool_result',
-                      tool_use_id: tcId,
-                      content: planText,
-                    },
-                  ],
-                },
-              } as CLIMessage);
-            }
-          }
-
-          // Plan text is a standalone block — don't mix with accumulated text
-          const msg: CLIMessage = {
+          this.emit('message', {
             type: 'assistant',
             message: {
               id: assistantMsgId,
               content: [{ type: 'text', text: `**Plan:**\n${planText}` }],
             },
-          };
-          this.emit('message', msg);
+          } as CLIMessage);
         }
         return ret(accumulatedText);
       }
 
-      // Ignore other update types (available_commands_update, current_mode_update, etc.)
       default:
         return ret(accumulatedText);
     }
@@ -589,16 +488,14 @@ export class GeminiACPProcess extends BaseAgentProcess {
 
   // ── Binary resolution ───────────────────────────────────────
 
-  private resolveGeminiBinary(): string {
-    // 1. GEMINI_BINARY_PATH env var
-    const envPath = process.env.GEMINI_BINARY_PATH;
-    if (envPath) return envPath;
+  private resolvePiAcpCommand(): { command: string; args: string[] } {
+    const explicit = process.env.PI_ACP_BINARY_PATH || process.env.ACP_PI_BIN;
+    if (explicit) return { command: explicit, args: [] };
 
-    // 2. ACP_GEMINI_BIN env var (Python SDK convention)
-    const acpEnvPath = process.env.ACP_GEMINI_BIN;
-    if (acpEnvPath) return acpEnvPath;
+    if (process.env.PI_ACP_USE_NPX === '1') {
+      return { command: 'npx', args: ['-y', 'pi-acp'] };
+    }
 
-    // 3. Default to 'gemini' in PATH (shell: true in spawn handles .cmd on Windows)
-    return 'gemini';
+    return { command: 'pi-acp', args: [] };
   }
 }

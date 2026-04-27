@@ -23,6 +23,7 @@ import {
   Folder,
   FolderMinus,
   FolderOpen,
+  FolderOpenDot,
   FolderX,
   Copy,
   ClipboardCopy,
@@ -81,6 +82,7 @@ import { TriCheckbox } from '@/components/ui/tri-checkbox';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { useElementLeft } from '@/hooks/use-element-width';
 import { api, type PullStrategy } from '@/lib/api';
+import { createClientLogger } from '@/lib/client-logger';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import {
   openFileInExternalEditor,
@@ -121,6 +123,8 @@ const fileStatusIcons: Record<string, typeof FileCode> = {
 const FILE_ROW_HEIGHT = 24;
 const FOLDER_ROW_HEIGHT = 24;
 const INDENT_PX = 12;
+
+const log = createClientLogger('review-pane');
 
 export function ReviewPane() {
   const { t } = useTranslation();
@@ -1378,6 +1382,24 @@ export function ReviewPane() {
     toast.success(t('review.pathCopied'));
   };
 
+  const handleOpenDirectory = async (relativePath: string, isFile: boolean) => {
+    if (!basePath) return;
+    const dirRelative = isFile
+      ? relativePath.includes('/')
+        ? relativePath.slice(0, relativePath.lastIndexOf('/'))
+        : ''
+      : relativePath;
+    const absoluteDir = dirRelative ? `${basePath}/${dirRelative}` : basePath;
+    const result = await api.openDirectory(absoluteDir);
+    if (result.isErr()) {
+      log.error('Failed to open directory', {
+        path: absoluteDir,
+        error: String(result.error),
+      });
+      toast.error(t('review.openDirectoryError', 'Failed to open directory'));
+    }
+  };
+
   // ── New git operation handlers ──
 
   const runPull = async (strategy: PullStrategy) => {
@@ -2345,6 +2367,18 @@ export function ReviewPane() {
                                   className="min-w-[220px]"
                                   onCloseAutoFocus={(e) => e.preventDefault()}
                                 >
+                                  {basePath && (
+                                    <DropdownMenuItem
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleOpenDirectory(row.path, false);
+                                      }}
+                                      data-testid={`review-folder-open-directory-${row.path}`}
+                                    >
+                                      <FolderOpenDot />
+                                      {t('sidebar.openDirectory')}
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2613,6 +2647,18 @@ export function ReviewPane() {
                                   <FileCode />
                                   {t('review.openInInternalEditor')}
                                 </DropdownMenuItem>
+                                {basePath && (
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleOpenDirectory(f.path, true);
+                                    }}
+                                    data-testid={`review-file-open-directory-${f.path}`}
+                                  >
+                                    <FolderOpenDot />
+                                    {t('sidebar.openDirectory')}
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuSeparator />
                                 {f.staged ? (
                                   <DropdownMenuItem

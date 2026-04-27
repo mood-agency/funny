@@ -10,6 +10,7 @@ import {
   FileCode,
   Folder,
   FolderOpen,
+  FolderOpenDot,
   FolderX,
   GitBranch,
   MoreHorizontal,
@@ -31,6 +32,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { HighlightText } from '@/components/ui/highlight-text';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { api } from '@/lib/api';
+import { createClientLogger } from '@/lib/client-logger';
 import {
   openFileInExternalEditor,
   openFileInInternalEditor,
@@ -38,6 +41,8 @@ import {
 } from '@/lib/editor-utils';
 import { FileExtensionIcon } from '@/lib/file-icons';
 import { cn } from '@/lib/utils';
+
+const log = createClientLogger('file-tree');
 
 import { DiffStats } from './DiffStats';
 
@@ -373,6 +378,27 @@ export function FileTree({
     [t],
   );
 
+  const handleOpenDirectory = useCallback(
+    async (relativePath: string, isFile: boolean) => {
+      if (!basePath) return;
+      const dirRelative = isFile
+        ? relativePath.includes('/')
+          ? relativePath.slice(0, relativePath.lastIndexOf('/'))
+          : ''
+        : relativePath;
+      const absoluteDir = dirRelative ? `${basePath}/${dirRelative}` : basePath;
+      const result = await api.openDirectory(absoluteDir);
+      if (result.isErr()) {
+        log.error('Failed to open directory', {
+          path: absoluteDir,
+          error: String(result.error),
+        });
+        toast.error(t('review.openDirectoryError', 'Failed to open directory'));
+      }
+    },
+    [basePath, t],
+  );
+
   const renderRow = (row: TreeRow, index: number, style?: CSSProperties) => {
     if (row.kind === 'submodule-status') {
       const label =
@@ -407,7 +433,7 @@ export function FileTree({
         <div
           key={`folder-${row.path}`}
           className={cn(
-            'flex h-6 cursor-pointer select-none items-center gap-1.5 overflow-hidden pr-1',
+            'group flex h-6 cursor-pointer select-none items-center gap-1.5 overflow-hidden pr-1',
             fontSize,
             'text-muted-foreground transition-colors',
             hoverClass,
@@ -448,11 +474,66 @@ export function FileTree({
               size={diffStatsSize}
             />
           )}
-          {/* Spacers to align with file rows (status letter + 3-dot menu) */}
+          {/* Spacer to align with file rows (status letter) */}
           {!hideStatus && (
             <span className={cn('invisible flex-shrink-0 font-medium', fontSize)}>M</span>
           )}
-          <span className="h-6 w-6 flex-shrink-0" />
+          {basePath ? (
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (!open) dropdownCloseRef.current = Date.now();
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <button
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  aria-label={t('review.moreActions', 'More actions')}
+                  className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+                  data-testid={`${testIdPrefix}-folder-menu-${row.path}`}
+                >
+                  <MoreHorizontal className="icon-sm" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="min-w-[220px]"
+                onCloseAutoFocus={(e) => e.preventDefault()}
+              >
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleOpenDirectory(row.path, false);
+                  }}
+                  data-testid={`${testIdPrefix}-folder-open-directory-${row.path}`}
+                >
+                  <FolderOpenDot />
+                  {t('sidebar.openDirectory')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyPath(row.path, false);
+                  }}
+                >
+                  <Copy />
+                  {t('review.copyFilePath')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyPath(row.path, true);
+                  }}
+                >
+                  <ClipboardCopy />
+                  {t('review.copyRelativePath')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className="h-6 w-6 flex-shrink-0" />
+          )}
         </div>
       );
     }
@@ -665,6 +746,18 @@ export function FileTree({
               <FileCode />
               {t('review.openInInternalEditor')}
             </DropdownMenuItem>
+            {basePath && (
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleOpenDirectory(f.path, true);
+                }}
+                data-testid={`${testIdPrefix}-file-open-directory-${f.path}`}
+              >
+                <FolderOpenDot />
+                {t('sidebar.openDirectory')}
+              </DropdownMenuItem>
+            )}
             {onRevertFile && (
               <>
                 <DropdownMenuSeparator />

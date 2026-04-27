@@ -226,6 +226,33 @@ export function extractACPToolOutput(
   return fallbackTitle || 'Done';
 }
 
+/**
+ * Detect Gemini/Codex "preamble" titles that narrate intent before a real
+ * tool call (e.g. `[current working directory /repo] (Check git status…)`).
+ *
+ * Returns the inner reason text when the title matches the preamble shape,
+ * otherwise `null`. Adapters route matches through the Think card path so
+ * they don't render as broken, half-empty tool cards.
+ */
+export function parseACPPreambleTitle(title: string | undefined): string | null {
+  if (!title) return null;
+  const trimmed = title.trim();
+  if (!/^\[current working directory\b/i.test(trimmed)) return null;
+
+  // Drop one or more leading `[…]` cwd brackets.
+  let rest = trimmed;
+  while (/^\[current working directory\b/i.test(rest)) {
+    const close = rest.indexOf(']');
+    if (close === -1) break;
+    rest = rest.slice(close + 1).trimStart();
+  }
+
+  // Pull out the parenthetical reason, if any.
+  const paren = rest.match(/^\(([\s\S]*?)\)\s*$/);
+  if (paren) return paren[1].trim();
+  return rest.length > 0 ? rest : null;
+}
+
 // ── Private helpers ──────────────────────────────────────────
 
 /** Extract a file/directory path from an ACP tool title. */

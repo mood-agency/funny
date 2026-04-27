@@ -23,6 +23,7 @@ import * as tm from '../services/thread-manager.js';
 import {
   createIdleThread,
   createAndStartThread,
+  forkThread,
   sendMessage,
   stopThread,
   approveToolCall,
@@ -37,6 +38,7 @@ import { requireThread } from '../utils/route-helpers.js';
 import {
   createThreadSchema,
   createIdleThreadSchema,
+  forkThreadSchema,
   sendMessageSchema,
   updateQueuedMessageSchema,
   approveToolSchema,
@@ -164,6 +166,40 @@ threadRoutes.post('/:id/stop', async (c) => {
     await stopThread(id);
     return c.json({ ok: true });
   } catch (error) {
+    return handleServiceError(c, error);
+  }
+});
+
+// POST /api/threads/:id/fork — fork the thread at a specific user message
+threadRoutes.post('/:id/fork', async (c) => {
+  const id = c.req.param('id');
+  const userId = c.get('userId') as string;
+  const orgId = c.get('organizationId') ?? undefined;
+  const threadResult = await requireThread(id, userId, orgId);
+  if (threadResult.isErr()) return resultToResponse(c, threadResult);
+
+  const raw = await c.req.json().catch(() => ({}));
+  const parsed = validate(forkThreadSchema, raw);
+  if (parsed.isErr()) return resultToResponse(c, parsed);
+
+  const span = requestSpan(c, 'thread.fork', { threadId: id });
+  try {
+    const newThread = await forkThread({
+      sourceThreadId: id,
+      messageId: parsed.value.messageId,
+      title: parsed.value.title,
+      userId,
+    });
+    metric('threads.forked', 1, { type: 'sum' });
+    span.end('ok');
+    return c.json(newThread, 201);
+  } catch (error) {
+    log.error('Failed to fork thread', {
+      namespace: 'agent',
+      threadId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    span.end('error', error instanceof Error ? error.message : String(error));
     return handleServiceError(c, error);
   }
 });

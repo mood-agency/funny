@@ -1,9 +1,10 @@
 import type { AgentModel, PermissionMode } from '@funny/shared';
-import { FileText, FolderOpen, ChevronRight, ChevronDown, Slash } from 'lucide-react';
+import { FileText, FolderOpen, ChevronRight, ChevronDown, Slash, GitBranch } from 'lucide-react';
 import { useState, useRef, useLayoutEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ReferencedItem } from '@/lib/parse-referenced-files';
 import { parseReferencedFiles } from '@/lib/parse-referenced-files';
 import { resolveModelLabel, timeAgo } from '@/lib/thread-utils';
@@ -26,6 +27,10 @@ export interface UserMessageCardProps {
   onClick?: () => void;
   /** Open lightbox for an image */
   onImageClick?: (images: { src: string; alt: string }[], index: number) => void;
+  /** Fork the thread starting from this message */
+  onFork?: () => void;
+  /** Disable the fork button (e.g. while a fork is in flight) */
+  forkDisabled?: boolean;
   /** data-testid */
   'data-testid'?: string;
 }
@@ -207,6 +212,8 @@ export function UserMessageCard({
   timestamp,
   onClick,
   onImageClick,
+  onFork,
+  forkDisabled,
   ...props
 }: UserMessageCardProps) {
   const { t } = useTranslation();
@@ -228,6 +235,33 @@ export function UserMessageCard({
       )}
       onClick={onClick}
     >
+      {/* Fork action — visible on hover */}
+      {onFork && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-testid={`user-message-fork-${props['data-testid'] ?? ''}`}
+              disabled={forkDisabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFork();
+              }}
+              className={cn(
+                'absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded',
+                'bg-background/10 text-background/70 transition-opacity hover:bg-background/20 hover:text-background',
+                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                forkDisabled && 'cursor-not-allowed opacity-50',
+              )}
+              aria-label={t('thread.fork', 'Fork from here')}
+            >
+              <GitBranch className="icon-xs" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{t('thread.fork', 'Fork from here')}</TooltipContent>
+        </Tooltip>
+      )}
+
       {/* Image attachments */}
       {allImages && allImages.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">

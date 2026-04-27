@@ -58,6 +58,10 @@ export interface MessageStreamProps {
   onPermissionApproval?: (toolName: string, approved: boolean, alwaysAllow?: boolean) => void;
   /** Tool respond handler (AskUserQuestion / ExitPlanMode) — if omitted, respond buttons won't show */
   onToolRespond?: (toolCallId: string, answer: string, toolName: string) => void;
+  /** Fork the thread starting from a specific user message — if omitted, the fork button is hidden */
+  onFork?: (messageId: string) => void;
+  /** ID of the user message currently being forked (disables other fork buttons) */
+  forkingMessageId?: string | null;
   /** Model and permission mode for passing to onSend from status cards */
   model?: string;
   permissionMode?: string;
@@ -120,6 +124,8 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
       onSend,
       onPermissionApproval,
       onToolRespond,
+      onFork,
+      forkingMessageId,
       model = '',
       permissionMode = '',
       pagination,
@@ -522,6 +528,8 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
             onSend={onSend}
             onOpenLightbox={effectiveOpenLightbox}
             onToolRespond={onToolRespond}
+            onFork={onFork}
+            forkingMessageId={forkingMessageId}
             scrollRef={scrollViewportRef}
           />
 

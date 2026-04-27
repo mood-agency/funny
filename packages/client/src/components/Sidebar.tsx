@@ -124,6 +124,8 @@ export function AppSidebar() {
   const [issuesProjectId, setIssuesProjectId] = useState<string | null>(null);
   const projectsScrollRef = useRef<HTMLDivElement>(null);
   const threadsScrollRef = useRef<HTMLDivElement>(null);
+  const threadsTopSentinelRef = useRef<HTMLDivElement>(null);
+  const projectsTopSentinelRef = useRef<HTMLDivElement>(null);
   const [threadsScrolled, setThreadsScrolled] = useState(false);
   const [projectsScrolled, setProjectsScrolled] = useState(false);
 
@@ -212,36 +214,37 @@ export function AppSidebar() {
     });
   }, [projects, reorderProjects]);
 
-  // Track scroll position for top fade gradients (throttled via rAF to avoid excessive re-renders)
+  // Track top fade gradients via IntersectionObserver on a sentinel at the top
+  // of each scroll container. This reacts to both scroll and content/size
+  // changes (e.g., when items are added/removed and the browser clamps
+  // scrollTop to 0 without firing a scroll event).
   useEffect(() => {
-    const threadsEl = threadsScrollRef.current;
-    const projectsEl = projectsScrollRef.current;
-    let threadsRaf = 0;
-    let projectsRaf = 0;
-    const onThreadsScroll = () => {
-      if (threadsRaf) return;
-      threadsRaf = requestAnimationFrame(() => {
-        threadsRaf = 0;
-        setThreadsScrolled((threadsEl?.scrollTop ?? 0) > 2);
-      });
-    };
-    const onProjectsScroll = () => {
-      if (projectsRaf) return;
-      projectsRaf = requestAnimationFrame(() => {
-        projectsRaf = 0;
-        setProjectsScrolled((projectsEl?.scrollTop ?? 0) > 2);
-      });
-    };
-    threadsEl?.addEventListener('scroll', onThreadsScroll, { passive: true });
-    projectsEl?.addEventListener('scroll', onProjectsScroll, { passive: true });
-    // Check initial scroll position on mount
-    setThreadsScrolled((threadsEl?.scrollTop ?? 0) > 2);
-    setProjectsScrolled((projectsEl?.scrollTop ?? 0) > 2);
+    const threadsRoot = threadsScrollRef.current;
+    const threadsSentinel = threadsTopSentinelRef.current;
+    const projectsRoot = projectsScrollRef.current;
+    const projectsSentinel = projectsTopSentinelRef.current;
+
+    const threadsIO =
+      threadsRoot && threadsSentinel
+        ? new IntersectionObserver(([entry]) => setThreadsScrolled(!entry.isIntersecting), {
+            root: threadsRoot,
+            threshold: 0,
+          })
+        : null;
+    threadsIO?.observe(threadsSentinel!);
+
+    const projectsIO =
+      projectsRoot && projectsSentinel
+        ? new IntersectionObserver(([entry]) => setProjectsScrolled(!entry.isIntersecting), {
+            root: projectsRoot,
+            threshold: 0,
+          })
+        : null;
+    projectsIO?.observe(projectsSentinel!);
+
     return () => {
-      threadsEl?.removeEventListener('scroll', onThreadsScroll);
-      projectsEl?.removeEventListener('scroll', onProjectsScroll);
-      if (threadsRaf) cancelAnimationFrame(threadsRaf);
-      if (projectsRaf) cancelAnimationFrame(projectsRaf);
+      threadsIO?.disconnect();
+      projectsIO?.disconnect();
     };
   }, []);
 
@@ -596,6 +599,11 @@ export function AppSidebar() {
         </div>
         <div ref={threadsScrollRef} className="relative min-h-0 overflow-y-auto px-2 pb-2">
           <div
+            ref={threadsTopSentinelRef}
+            aria-hidden
+            className="pointer-events-none absolute left-0 top-0 h-px w-px"
+          />
+          <div
             className={cn(
               'sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10',
               threadsScrolled ? 'opacity-100' : 'opacity-0',
@@ -632,6 +640,11 @@ export function AppSidebar() {
 
       {/* Projects list (fills remaining space, own scroll) */}
       <SidebarContent ref={projectsScrollRef} className="relative px-2 pb-2 contain-paint">
+        <div
+          ref={projectsTopSentinelRef}
+          aria-hidden
+          className="pointer-events-none absolute left-0 top-0 h-px w-px"
+        />
         <div
           className={cn(
             'sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 shrink-0',

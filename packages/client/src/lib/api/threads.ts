@@ -142,6 +142,11 @@ export const threadsApi = {
       method: 'POST',
       body: JSON.stringify({ baseBranch }),
     }),
+  forkThread: (threadId: string, messageId: string, title?: string) =>
+    request<Thread>(`/threads/${threadId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ messageId, title }),
+    }),
   approveTool: (
     threadId: string,
     toolName: string,

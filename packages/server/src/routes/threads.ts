@@ -187,7 +187,16 @@ threadRoutes.get('/:id', async (c) => {
     : undefined;
   const result = await messageRepo.getThreadWithMessages(id, messageLimit);
   if (!result) return c.json({ error: 'Thread not found' }, 404);
-  return c.json(result);
+
+  const [queuedCount, queuedNext] = await Promise.all([
+    messageQueueRepo.queueCount(id),
+    messageQueueRepo.peek(id),
+  ]);
+  return c.json({
+    ...result,
+    queuedCount,
+    queuedNextMessage: queuedNext?.content,
+  });
 });
 
 // GET /api/threads/:id/messages?cursor=<ISO>&limit=50
@@ -408,6 +417,66 @@ threadRoutes.post('/:id/approve-tool', proxyToRunner);
 
 // POST /api/threads/:id/convert-to-worktree — convert local thread to worktree
 threadRoutes.post('/:id/convert-to-worktree', proxyToRunner);
+
+// POST /api/threads/:id/fork — fork conversation at a user message
+threadRoutes.post('/:id/fork', async (c) => {
+  const sourceThreadId = c.req.param('id');
+  const userId = c.get('userId') as string;
+
+  const source = await threadRepo.getThread(sourceThreadId);
+  if (!source || source.userId !== userId) {
+    return c.json({ error: 'Thread not found' }, 404);
+  }
+
+  const resolved = await resolveRunnerForProject(source.projectId, userId);
+  if (!resolved) {
+    return c.json({ error: 'No online runner found for this project' }, 502);
+  }
+
+  try {
+    const headers = buildForwardHeaders(
+      userId,
+      c.get('organizationId') as string | undefined,
+      c.get('userRole') as string | undefined,
+      c.get('organizationName') as string | undefined,
+    );
+    const body = await c.req.text();
+    const result = await fetchFromRunner(resolved, `/api/threads/${sourceThreadId}/fork`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+
+    if (!result.ok) {
+      return c.json({ error: `Runner error: ${result.body}` }, result.status as any);
+    }
+
+    const newThread = JSON.parse(result.body);
+    const newThreadId = newThread?.id;
+    if (newThreadId && resolved.runnerId !== '__default__') {
+      await threadRegistry.registerThread({
+        id: newThreadId,
+        projectId: source.projectId,
+        runnerId: resolved.runnerId,
+        userId,
+        title: newThread.title,
+        model: newThread.model,
+        mode: newThread.mode,
+        branch: newThread.branch ?? undefined,
+      });
+      runnerResolver.cacheThreadRunner(newThreadId, resolved.runnerId, resolved.httpUrl);
+    }
+
+    return c.json(newThread, 201);
+  } catch (err) {
+    log.error('Failed to fork thread on runner', {
+      namespace: 'threads',
+      sourceThreadId,
+      error: (err as Error).message,
+    });
+    return c.json({ error: 'Thread fork failed' }, 502);
+  }
+});
 
 // PATCH /api/threads/:id/tool-calls/:toolCallId — update tool call output
 threadRoutes.patch('/:id/tool-calls/:toolCallId', proxyToRunner);
