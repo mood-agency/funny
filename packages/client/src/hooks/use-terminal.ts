@@ -103,8 +103,7 @@ export function useTerminal({ id, cwd, containerRef }: UseTerminalOptions) {
 
       // Listen for PTY exit
       const unlistenExit = await listen(`pty:exit:${id}`, () => {
-        terminal.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n');
-        useTerminalStore.getState().markExited(id);
+        useTerminalStore.getState().removeTab(id);
       });
 
       // Send user input to PTY

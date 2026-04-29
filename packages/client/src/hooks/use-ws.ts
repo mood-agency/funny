@@ -406,7 +406,7 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
     }
     case 'pty:exit': {
       const termStore4 = useTerminalStore.getState();
-      termStore4.markExited(data.ptyId);
+      termStore4.removeTab(data.ptyId);
       break;
     }
     case 'pty:error': {

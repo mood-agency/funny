@@ -46,6 +46,8 @@ interface TerminalState {
 
   addTab: (tab: TerminalTab) => void;
   removeTab: (id: string) => void;
+  reorderTabs: (projectId: string, fromIndex: number, toIndex: number) => void;
+  renameTab: (id: string, label: string) => void;
   setActiveTab: (id: string) => void;
   markExited: (id: string) => void;
   markAlive: (id: string) => void;
@@ -121,6 +123,38 @@ export const useTerminalStore = create<TerminalState>()(
             commandOutput,
           };
         }),
+
+      reorderTabs: (projectId, fromIndex, toIndex) =>
+        set((state) => {
+          if (fromIndex === toIndex) return state;
+          // Build the indices of this project's tabs within the global tabs array
+          const projectTabIndices = state.tabs
+            .map((t, i) => (t.projectId === projectId ? i : -1))
+            .filter((i) => i !== -1);
+          if (
+            fromIndex < 0 ||
+            toIndex < 0 ||
+            fromIndex >= projectTabIndices.length ||
+            toIndex >= projectTabIndices.length
+          ) {
+            return state;
+          }
+          const projectTabs = projectTabIndices.map((i) => state.tabs[i]);
+          const [moved] = projectTabs.splice(fromIndex, 1);
+          projectTabs.splice(toIndex, 0, moved);
+          // Splice the reordered project tabs back into the global array,
+          // preserving the positions of tabs from other projects.
+          const next = [...state.tabs];
+          projectTabIndices.forEach((globalIdx, k) => {
+            next[globalIdx] = projectTabs[k];
+          });
+          return { tabs: next };
+        }),
+
+      renameTab: (id, label) =>
+        set((state) => ({
+          tabs: state.tabs.map((t) => (t.id === id ? { ...t, label } : t)),
+        })),
 
       setActiveTab: (id) =>
         set((state) => ({
@@ -311,7 +345,13 @@ export const useTerminalStore = create<TerminalState>()(
       name: 'funny-terminal-store',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        tabs: state.tabs.map((t) => ({ ...t, alive: false, initialCommand: undefined })), // Tabs are not "alive" until re-connected
+        tabs: state.tabs.map((t) => ({
+          ...t,
+          alive: false,
+          restored: false,
+          error: undefined,
+          initialCommand: undefined,
+        })),
         activeTabId: state.activeTabId,
         panelVisibleByProject: state.panelVisibleByProject,
       }),

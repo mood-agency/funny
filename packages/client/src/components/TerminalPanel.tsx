@@ -1,3 +1,15 @@
+import {
+  attachClosestEdge,
+  extractClosestEdge,
+  type Edge,
+} from '@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge';
+import { reorderWithEdge } from '@atlaskit/pragmatic-drag-and-drop-hitbox/util/reorder-with-edge';
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
+import {
+  draggable,
+  dropTargetForElements,
+  monitorForElements,
+} from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
 import { Plus, X, Square, Loader2, AlertCircle, RotateCcw, Zap } from 'lucide-react';
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -5,11 +17,19 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { Button } from '@/components/ui/button';
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTooltipMenu } from '@/hooks/use-tooltip-menu';
@@ -19,7 +39,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
 import { type TerminalShell, useSettingsStore, EDITOR_FONT_SIZE_PX } from '@/stores/settings-store';
-import { useTerminalStore } from '@/stores/terminal-store';
+import { useTerminalStore, type TerminalTab } from '@/stores/terminal-store';
 import { useThreadStore } from '@/stores/thread-store';
 
 const isTauri = !!(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__;
@@ -172,8 +192,7 @@ function TauriTerminalTabContent({
       });
 
       const unlistenExit = await listen(`pty:exit:${id}`, () => {
-        terminal.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n');
-        useTerminalStore.getState().markExited(id);
+        useTerminalStore.getState().removeTab(id);
       });
 
       const onDataDisposable = terminal.onData((data) => {
@@ -737,6 +756,188 @@ function CommandTabContent({
 
 const PANEL_HEIGHT = 300;
 
+const TAB_DRAG_TYPE = 'terminal-tab';
+
+interface DraggableTerminalTabProps {
+  tab: TerminalTab;
+  index: number;
+  active: boolean;
+  sessionsChecked: boolean;
+  onActivate: () => void;
+  onClose: () => void;
+  onKill: () => void;
+  onRename: (label: string) => void;
+}
+
+function DraggableTerminalTab({
+  tab,
+  index,
+  active,
+  sessionsChecked,
+  onActivate,
+  onClose,
+  onKill,
+  onRename,
+}: DraggableTerminalTabProps) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLButtonElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [closestEdge, setClosestEdge] = useState<Edge | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftLabel, setDraftLabel] = useState(tab.label);
+
+  const startRename = useCallback(() => {
+    setDraftLabel(tab.label);
+    setIsEditing(true);
+  }, [tab.label]);
+
+  const commitRename = useCallback(() => {
+    const trimmed = draftLabel.trim();
+    if (trimmed && trimmed !== tab.label) onRename(trimmed);
+    setIsEditing(false);
+  }, [draftLabel, tab.label, onRename]);
+
+  const cancelRename = useCallback(() => {
+    setDraftLabel(tab.label);
+    setIsEditing(false);
+  }, [tab.label]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    return combine(
+      draggable({
+        element: el,
+        getInitialData: () => ({
+          type: TAB_DRAG_TYPE,
+          tabId: tab.id,
+          projectId: tab.projectId,
+          index,
+        }),
+        onDragStart: () => setIsDragging(true),
+        onDrop: () => setIsDragging(false),
+      }),
+      dropTargetForElements({
+        element: el,
+        canDrop: ({ source }) =>
+          source.data.type === TAB_DRAG_TYPE && source.data.projectId === tab.projectId,
+        getData: ({ input, element }) =>
+          attachClosestEdge(
+            { type: TAB_DRAG_TYPE, tabId: tab.id, projectId: tab.projectId, index },
+            { input, element, allowedEdges: ['left', 'right'] },
+          ),
+        getIsSticky: () => true,
+        onDrag: ({ self, source }) => {
+          if (source.data.tabId === tab.id) {
+            setClosestEdge(null);
+            return;
+          }
+          setClosestEdge(extractClosestEdge(self.data));
+        },
+        onDragLeave: () => setClosestEdge(null),
+        onDrop: () => setClosestEdge(null),
+      }),
+    );
+  }, [tab.id, tab.projectId, index]);
+
+  const isPty = tab.type === 'pty';
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          ref={ref}
+          onClick={onActivate}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            startRename();
+          }}
+          className={cn(
+            'relative flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
+            active
+              ? 'bg-accent text-accent-foreground'
+              : 'text-muted-foreground hover:bg-accent/50',
+            isDragging && 'opacity-40',
+          )}
+          data-testid={`terminal-tab-${tab.id}`}
+        >
+          {tab.hasBell && !active && (
+            <span
+              className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-500"
+              data-testid={`terminal-tab-bell-${tab.id}`}
+            />
+          )}
+          {isEditing ? (
+            <Input
+              autoFocus
+              value={draftLabel}
+              onChange={(e) => setDraftLabel(e.target.value)}
+              onBlur={cancelRename}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitRename();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelRename();
+                }
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="h-5 w-32 px-1 py-0 text-xs"
+              data-testid={`terminal-tab-rename-${tab.id}`}
+            />
+          ) : (
+            <span>{tab.label}</span>
+          )}
+          {!tab.alive && (sessionsChecked || !tab.type || tab.type !== 'pty') && (
+            <span className="text-xs text-status-pending">{t('terminal.exited')}</span>
+          )}
+          <X
+            className="icon-xs ml-1 opacity-60 hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+          />
+          {closestEdge && (
+            <span
+              className={cn(
+                'pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary',
+                closestEdge === 'left' ? '-left-px' : '-right-px',
+              )}
+            />
+          )}
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          onSelect={() => startRename()}
+          data-testid={`terminal-tab-context-rename-${tab.id}`}
+        >
+          {t('terminal.rename')}
+        </ContextMenuItem>
+        {isPty && tab.alive && (
+          <ContextMenuItem
+            onSelect={() => onKill()}
+            className="text-destructive focus:text-destructive"
+            data-testid={`terminal-tab-context-kill-${tab.id}`}
+          >
+            {t('terminal.kill')}
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => onClose()}
+          data-testid={`terminal-tab-context-close-${tab.id}`}
+        >
+          {t('terminal.close')}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 export function TerminalPanel() {
   const { t } = useTranslation();
   const {
@@ -746,6 +947,8 @@ export function TerminalPanel() {
     sessionsChecked,
     addTab,
     removeTab,
+    reorderTabs,
+    renameTab,
     setActiveTab,
     togglePanel,
   } = useTerminalStore(
@@ -756,6 +959,8 @@ export function TerminalPanel() {
       sessionsChecked: s.sessionsChecked,
       addTab: s.addTab,
       removeTab: s.removeTab,
+      reorderTabs: s.reorderTabs,
+      renameTab: s.renameTab,
       setActiveTab: s.setActiveTab,
       togglePanel: s.togglePanel,
     })),
@@ -848,6 +1053,40 @@ export function TerminalPanel() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    return monitorForElements({
+      canMonitor: ({ source }) =>
+        source.data.type === TAB_DRAG_TYPE && source.data.projectId === selectedProjectId,
+      onDrop: ({ source, location }) => {
+        const target = location.current.dropTargets[0];
+        if (!target) return;
+        if (target.data.type !== TAB_DRAG_TYPE) return;
+        if (target.data.projectId !== selectedProjectId) return;
+        if (source.data.tabId === target.data.tabId) return;
+
+        const startIndex = source.data.index as number;
+        const indexOfTarget = target.data.index as number;
+        const closestEdgeOfTarget = extractClosestEdge(target.data);
+
+        const currentOrder = useTerminalStore
+          .getState()
+          .tabs.filter((t) => t.projectId === selectedProjectId)
+          .map((t) => t.id);
+        const reordered = reorderWithEdge({
+          list: currentOrder,
+          startIndex,
+          indexOfTarget,
+          closestEdgeOfTarget,
+          axis: 'horizontal',
+        });
+        const finishIndex = reordered.indexOf(source.data.tabId as string);
+        if (finishIndex === startIndex) return;
+        reorderTabs(selectedProjectId, startIndex, finishIndex);
+      },
+    });
+  }, [selectedProjectId, reorderTabs]);
+
   const handleCloseTab = useCallback(
     (tabId: string) => {
       const tab = tabs.find((t) => t.id === tabId);
@@ -861,6 +1100,18 @@ export function TerminalPanel() {
       removeTab(tabId);
     },
     [tabs, removeTab],
+  );
+
+  const handleKillTab = useCallback(
+    (tabId: string) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      if (tab?.type !== 'pty') return;
+      const ws = getActiveWS();
+      if (ws && ws.connected) {
+        ws.emit('pty:signal', { id: tabId, signal: 'SIGKILL' });
+      }
+    },
+    [tabs],
   );
 
   return (
@@ -887,39 +1138,21 @@ export function TerminalPanel() {
         {/* Tab bar */}
         <div className="flex h-8 flex-shrink-0 items-center gap-0.5 bg-background px-2">
           <div className="flex flex-1 items-center gap-0.5 overflow-x-auto">
-            {visibleTabs.map((tab) => (
-              <button
+            {visibleTabs.map((tab, index) => (
+              <DraggableTerminalTab
                 key={tab.id}
-                onClick={() => {
+                tab={tab}
+                index={index}
+                active={effectiveActiveTabId === tab.id}
+                sessionsChecked={sessionsChecked}
+                onActivate={() => {
                   setActiveTab(tab.id);
                   if (!panelVisible && selectedProjectId) togglePanel(selectedProjectId);
                 }}
-                className={cn(
-                  'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
-                  effectiveActiveTabId === tab.id
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50',
-                )}
-                data-testid={`terminal-tab-${tab.id}`}
-              >
-                {tab.hasBell && effectiveActiveTabId !== tab.id && (
-                  <span
-                    className="h-1.5 w-1.5 animate-pulse rounded-full bg-yellow-500"
-                    data-testid={`terminal-tab-bell-${tab.id}`}
-                  />
-                )}
-                <span>{tab.label}</span>
-                {!tab.alive && (sessionsChecked || !tab.type || tab.type !== 'pty') && (
-                  <span className="text-xs text-status-pending">{t('terminal.exited')}</span>
-                )}
-                <X
-                  className="icon-xs ml-1 opacity-60 hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleCloseTab(tab.id);
-                  }}
-                />
-              </button>
+                onClose={() => handleCloseTab(tab.id)}
+                onKill={() => handleKillTab(tab.id)}
+                onRename={(label) => renameTab(tab.id, label)}
+              />
             ))}
           </div>
 
