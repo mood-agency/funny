@@ -10,7 +10,7 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import { useState, useMemo, useEffect, useRef, startTransition, useCallback } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -781,22 +781,22 @@ export function AllThreadsView() {
                   projectStore.toggleProject(thread.projectId);
                 }
 
-                startTransition(() => {
-                  useUIStore.getState().setKanbanContext({
-                    projectId: projectFilter || undefined,
-                    search,
-                    threadId: thread.id,
-                    viewMode: 'list',
-                  });
-                  navigate(buildPath(`/projects/${thread.projectId}/threads/${thread.id}`));
+                // Full-priority commit so the center pane updates in parallel
+                // with the sidebar's smooth scroll instead of after it.
+                useUIStore.getState().setKanbanContext({
+                  projectId: projectFilter || undefined,
+                  search,
+                  threadId: thread.id,
+                  viewMode: 'list',
                 });
+                navigate(buildPath(`/projects/${thread.projectId}/threads/${thread.id}`));
 
                 const scrollToThread = () => {
                   const el = document.querySelector(
                     `[data-project-id="${thread.projectId}"] [data-testid="thread-item-${thread.id}"]`,
                   );
                   if (el) {
-                    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
                     return true;
                   }
                   return false;

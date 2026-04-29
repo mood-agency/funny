@@ -393,6 +393,10 @@ const SidebarRail = React.forwardRef<HTMLButtonElement, React.ComponentProps<'bu
                 'absolute inset-y-0 z-20 hidden translate-x-full sm:block',
                 // Wider hit area for click-to-toggle ergonomics (overrides default)
                 'before:-left-[5px] before:w-[13px]',
+                // Align the visible separator line with the inset's left edge
+                // so it meets the header's bottom border cleanly instead of
+                // leaving a 3px horizontal stub poking past the vertical line.
+                'after:left-0 after:translate-x-0',
                 'group-data-[side=left]:right-0 group-data-[side=right]:left-0',
                 'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:hover:bg-sidebar',
                 '[[data-side=left][data-collapsible=offcanvas]_&]:-right-2',

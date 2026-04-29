@@ -110,11 +110,23 @@ export function RecentThreads({
             gitStatus={statusByBranch[computeBranchKey(thread)]}
             href={buildPath(`/projects/${thread.projectId}/threads/${thread.id}`)}
             onSelect={() => {
+              // Set project + thread state synchronously in the same React
+              // batch so the sidebar's auto-scroll effect fires *once* with
+              // both new values and scrolls directly to the thread row.
+              // Without setting selectedThreadId now, the effect would fire
+              // first for the project change (scrolling to the header), then
+              // again later when useRouteSync resolves the thread fetch —
+              // producing the visible "first jump to project, then jump to
+              // thread" behavior.
+              const projectStore = useProjectStore.getState();
+              if (!projectStore.expandedProjects.has(thread.projectId)) {
+                projectStore.toggleProject(thread.projectId);
+              }
+              if (projectStore.selectedProjectId !== thread.projectId) {
+                projectStore.selectProject(thread.projectId);
+              }
               const store = useThreadStore.getState();
-              if (
-                store.selectedThreadId === thread.id &&
-                (!store.activeThread || store.activeThread.id !== thread.id)
-              ) {
+              if (store.selectedThreadId !== thread.id) {
                 store.selectThread(thread.id);
               }
               navigate(buildPath(`/projects/${thread.projectId}/threads/${thread.id}`));

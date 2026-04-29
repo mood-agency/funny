@@ -84,6 +84,7 @@ export function AppSidebar() {
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   // thread-store
   const threadsByProject = useThreadStore((s) => s.threadsByProject);
+  const selectedThreadId = useThreadStore((s) => s.selectedThreadId);
   const archiveThread = useThreadStore((s) => s.archiveThread);
   const renameThread = useThreadStore((s) => s.renameThread);
   const pinThread = useThreadStore((s) => s.pinThread);
@@ -137,27 +138,64 @@ export function AppSidebar() {
     toggleProject(selectedProjectId);
   }, [selectedProjectId, revealNonce, expandedProjects, toggleProject]);
 
-  // Auto-scroll projects list to selected project (e.g. after Ctrl+K).
+  // Auto-scroll projects list to selected project (e.g. after Ctrl+K, or when
+  // returning from the settings panel which unmounts the projects tree).
   // Depends on revealNonce so re-selecting the same project re-triggers the
-  // scroll. Deferred via rAF + delayed retry so scrolling happens AFTER:
+  // scroll, and on settingsOpen so the project re-enters view after the
+  // settings panel closes and the projects list re-mounts. Deferred via rAF +
+  // delayed retry so scrolling happens AFTER:
   //   1. the auto-expand effect above mutates layout, and
   //   2. the command palette's close animation finishes (which can otherwise
   //      steal focus / interrupt the smooth scroll).
   useEffect(() => {
+    if (settingsOpen) return;
     if (!selectedProjectId) return;
-    const scrollToProject = () => {
+    let scrolled = false;
+    const scrollToTarget = (isRetry = false): boolean => {
+      if (scrolled) return true;
       const root = projectsScrollRef.current;
-      if (!root) return;
-      const el = root.querySelector(`[data-project-id="${selectedProjectId}"]`);
-      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (!root) return false;
+
+      const threadEl = selectedThreadId
+        ? root.querySelector(
+            `[data-project-id="${selectedProjectId}"] [data-testid="thread-item-${selectedThreadId}"]`,
+          )
+        : null;
+
+      // If we are looking for a thread but it hasn't rendered yet (e.g. project is
+      // currently expanding), don't fallback to the project header on the first frame.
+      // This prevents a "double jump" where it centers the project header and then
+      // visually jumps again when the retry finds the thread row.
+      if (selectedThreadId && !threadEl && !isRetry) {
+        return false;
+      }
+
+      const el =
+        threadEl ??
+        root.querySelector(`[data-testid="project-item-${selectedProjectId}"]`) ??
+        root.querySelector(`[data-project-id="${selectedProjectId}"]`);
+
+      if (!el) return false;
+
+      // Use 'nearest' so we don't aggressively snap items to the center if they
+      // are already visible (e.g. when the user clicked them directly).
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      scrolled = true;
+      return true;
     };
-    const raf = requestAnimationFrame(scrollToProject);
-    const timeout = window.setTimeout(scrollToProject, 200);
+
+    // Try on the next frame. Fall back to a delayed retry only if the row
+    // wasn't mounted yet (e.g. Collapsible just started expanding).
+    const raf = requestAnimationFrame(() => {
+      scrollToTarget(false);
+    });
+    // Wait longer than the transition duration so the element is fully mounted
+    const timeout = window.setTimeout(() => scrollToTarget(true), 300);
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(timeout);
     };
-  }, [selectedProjectId, revealNonce, expandedProjects]);
+  }, [selectedProjectId, selectedThreadId, revealNonce, settingsOpen]);
 
   // Drag & drop: auto-scroll the projects and threads lists while dragging near
   // their top/bottom edges, so the user can drop above/below the visible area.
@@ -598,14 +636,10 @@ export function AppSidebar() {
           </h2>
         </div>
         <div ref={threadsScrollRef} className="relative min-h-0 overflow-y-auto px-2 pb-2">
-          <div
-            ref={threadsTopSentinelRef}
-            aria-hidden
-            className="pointer-events-none absolute left-0 top-0 h-px w-px"
-          />
+          <div ref={threadsTopSentinelRef} aria-hidden className="h-px shrink-0" />
           <div
             className={cn(
-              'sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10',
+              'sticky top-0 left-0 right-0 h-4 -mt-px -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10',
               threadsScrolled ? 'opacity-100' : 'opacity-0',
             )}
           />
@@ -640,14 +674,10 @@ export function AppSidebar() {
 
       {/* Projects list (fills remaining space, own scroll) */}
       <SidebarContent ref={projectsScrollRef} className="relative px-2 pb-2 contain-paint">
-        <div
-          ref={projectsTopSentinelRef}
-          aria-hidden
-          className="pointer-events-none absolute left-0 top-0 h-px w-px"
-        />
+        <div ref={projectsTopSentinelRef} aria-hidden className="h-px shrink-0" />
         <div
           className={cn(
-            'sticky top-0 left-0 right-0 h-4 -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 shrink-0',
+            'sticky top-0 left-0 right-0 h-4 -mt-px -mb-4 bg-gradient-to-b from-sidebar to-transparent pointer-events-none z-10 shrink-0',
             projectsScrolled ? 'opacity-100' : 'opacity-0',
           )}
         />

@@ -33,13 +33,17 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const handleProjectSelect = (projectId: string) => {
     navigatedRef.current = true;
-    // Update target state + navigate BEFORE closing the dialog so Radix's
-    // close animation isn't interrupted by the subsequent route/store
-    // updates (which could otherwise cause the palette to flash open again).
-    startNewThread(projectId);
-    useGitStatusStore.getState().fetchForProject(projectId);
-    navigate(buildPath(`/projects/${projectId}`));
+
+    // Close the command palette immediately so the UI feels responsive
     onOpenChange(false);
+
+    // Defer the heavy navigation and state updates to avoid blocking the Radix UI
+    // close animation, which otherwise causes the palette to flash or stutter.
+    setTimeout(() => {
+      startNewThread(projectId);
+      useGitStatusStore.getState().fetchForProject(projectId);
+      navigate(buildPath(`/projects/${projectId}`));
+    }, 150);
   };
 
   // Prevent Radix from restoring focus to the previously-focused element
@@ -72,9 +76,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const handleSettingsSelect = (itemId: string) => {
     navigatedRef.current = true;
-    setSettingsOpen(true);
-    navigate(buildPath(`/settings/${itemId}`));
     onOpenChange(false);
+
+    setTimeout(() => {
+      setSettingsOpen(true);
+      navigate(buildPath(`/settings/${itemId}`));
+    }, 150);
   };
 
   return (

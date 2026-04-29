@@ -7,7 +7,6 @@ import {
   useCallback,
   useRef,
   memo,
-  startTransition,
   type MutableRefObject,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -188,35 +187,18 @@ export function ThreadList({ onRenameThread, onArchiveThread, onDeleteThread }: 
         projectStore.toggleProject(projectId);
       }
 
-      startTransition(() => {
-        const store = useThreadStore.getState();
-        if (
-          store.selectedThreadId === threadId &&
-          (!store.activeThread || store.activeThread.id !== threadId)
-        ) {
-          store.selectThread(threadId);
-        }
-        navigate(buildPath(`/projects/${projectId}/threads/${threadId}`));
-      });
-
-      // Scroll the projects list to the selected thread. Scope the query to
-      // the project container so we match the row inside the projects list,
-      // not the same thread's row in the activity list above.
-      const scrollToThread = () => {
-        const el = document.querySelector(
-          `[data-project-id="${projectId}"] [data-testid="thread-item-${threadId}"]`,
-        );
-        if (el) {
-          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          return true;
-        }
-        return false;
-      };
-      requestAnimationFrame(() => {
-        if (scrollToThread()) return;
-        // Collapsible slide-down hasn't mounted the row yet — retry after it settles.
-        setTimeout(scrollToThread, 300);
-      });
+      // Run state changes at full priority so the center pane updates in
+      // parallel with the sidebar's smooth scroll. Wrapping these in
+      // startTransition deferred the commit, making the swap appear to
+      // happen *after* the scroll animation finished.
+      const store = useThreadStore.getState();
+      if (
+        store.selectedThreadId === threadId &&
+        (!store.activeThread || store.activeThread.id !== threadId)
+      ) {
+        store.selectThread(threadId);
+      }
+      navigate(buildPath(`/projects/${projectId}/threads/${threadId}`));
     },
     [navigate, ensureBranch],
   );

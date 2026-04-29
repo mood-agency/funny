@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { createClientLogger } from '@/lib/client-logger';
 import { buildPath } from '@/lib/url';
 import { useProjectStore } from '@/stores/project-store';
 import { useTerminalStore } from '@/stores/terminal-store';
-import { useThreadHistoryStore } from '@/stores/thread-history-store';
 import { useThreadStore } from '@/stores/thread-store';
+import { useUIStore } from '@/stores/ui-store';
+
+const log = createClientLogger('hooks:global-shortcuts');
 
 export function useGlobalShortcuts(
   onToggleCommandPalette: () => void,
@@ -33,6 +36,18 @@ export function useGlobalShortcuts(
         return;
       }
 
+      // Alt+N to start a new thread for the active project
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+        const activeThreadProjectId = useThreadStore.getState().activeThread?.projectId ?? null;
+        const projectId = activeThreadProjectId ?? useProjectStore.getState().selectedProjectId;
+        if (!projectId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        log.info('shortcut.new_thread', { projectId });
+        useUIStore.getState().startNewThread(projectId);
+        return;
+      }
+
       // Ctrl+Shift+F for thread search — scope to current thread's project by default
       if (e.ctrlKey && e.shiftKey && e.key === 'F') {
         e.preventDefault();
@@ -40,24 +55,6 @@ export function useGlobalShortcuts(
         const activeThreadProjectId = useThreadStore.getState().activeThread?.projectId ?? null;
         const projectId = activeThreadProjectId ?? useProjectStore.getState().selectedProjectId;
         navigate(buildPath(projectId ? `/list?project=${projectId}` : '/list'));
-        return;
-      }
-
-      // Alt+Left / Alt+Right — walk through thread-selection history (VSCode-style)
-      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === 'ArrowLeft') {
-        const entry = useThreadHistoryStore.getState().goBack();
-        if (!entry) return;
-        e.preventDefault();
-        e.stopPropagation();
-        navigate(buildPath(`/projects/${entry.projectId}/threads/${entry.threadId}`));
-        return;
-      }
-      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === 'ArrowRight') {
-        const entry = useThreadHistoryStore.getState().goForward();
-        if (!entry) return;
-        e.preventDefault();
-        e.stopPropagation();
-        navigate(buildPath(`/projects/${entry.projectId}/threads/${entry.threadId}`));
         return;
       }
 
