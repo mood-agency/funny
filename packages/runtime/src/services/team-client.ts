@@ -223,6 +223,23 @@ async function sendHeartbeat(): Promise<void> {
           runnerId: state.runnerId,
         });
       }
+      return;
+    }
+
+    // The server reports whether it sees our Socket.IO tunnel as connected.
+    // Detects zombie sockets where the client thinks it's connected but the
+    // server's runnerSockets map has no record (e.g. ping-timeout drop the
+    // client missed). Without this, agent events stay stranded in the local
+    // ws-broker and never reach the browser.
+    if (res.ok) {
+      const body = (await res.json().catch(() => null)) as { wsConnected?: boolean } | null;
+      if (body && body.wsConnected === false) {
+        log.warn('Server reports WS tunnel disconnected — forcing reconnect', {
+          namespace: 'runner',
+          socketConnected: state.socket?.connected ?? false,
+        });
+        connectSocket();
+      }
     }
   } catch (err) {
     log.warn('Heartbeat failed', { namespace: 'runner', error: err as any });
@@ -231,11 +248,16 @@ async function sendHeartbeat(): Promise<void> {
 
 // ── WS-only Heartbeat ────────────────────────────────────
 
+let _wsHeartbeatFailures = 0;
+const WS_HEARTBEAT_FAILURE_THRESHOLD = 3;
+
 async function sendHeartbeatWS(): Promise<void> {
   try {
     const response = await sendDataMessage('runner:heartbeat', {
       activeThreadIds: [],
     });
+
+    _wsHeartbeatFailures = 0;
 
     // Handle re-registration if runner not found
     if (response?.code === 'RUNNER_NOT_FOUND') {
@@ -252,7 +274,18 @@ async function sendHeartbeatWS(): Promise<void> {
       }
     }
   } catch (err) {
-    log.warn('WS heartbeat failed', { namespace: 'runner', error: (err as Error).message });
+    _wsHeartbeatFailures++;
+    log.warn('WS heartbeat failed', {
+      namespace: 'runner',
+      error: (err as Error).message,
+      consecutiveFailures: _wsHeartbeatFailures,
+    });
+    // Repeated failures indicate a zombie socket — recreate it.
+    if (_wsHeartbeatFailures >= WS_HEARTBEAT_FAILURE_THRESHOLD) {
+      _wsHeartbeatFailures = 0;
+      log.warn('WS heartbeat failed repeatedly — forcing reconnect', { namespace: 'runner' });
+      connectSocket();
+    }
   }
 }
 

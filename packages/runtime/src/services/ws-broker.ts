@@ -178,7 +178,7 @@ class WSBroker {
     metric('ws.events', 1, { type: 'sum', attributes: { event: event.type, sent: String(sent) } });
 
     if (sent === 0 && event.type === 'agent:result') {
-      log.warn('agent:result sent to 0 clients', {
+      log.debug('agent:result sent to 0 clients', {
         namespace: 'ws',
         threadId: event.threadId,
         userId,
@@ -239,7 +239,7 @@ class WSBroker {
     metric('ws.events', 1, { type: 'sum', attributes: { event: event.type, sent: String(sent) } });
 
     if (sent === 0 && event.type === 'agent:result') {
-      log.warn('agent:result sent to 0 clients (broadcast)', {
+      log.debug('agent:result sent to 0 clients (broadcast)', {
         namespace: 'ws',
         threadId: event.threadId,
         total: this.clients.size,

@@ -16,6 +16,7 @@
  */
 
 import type { Context, Next } from 'hono';
+import { getConnInfo } from 'hono/bun';
 
 import { log } from '../lib/logger.js';
 
@@ -61,8 +62,14 @@ export function rateLimit(opts: {
         if (first) return first;
       }
     }
-    const socketAddr = (c.env as any)?.remoteAddress;
-    return typeof socketAddr === 'string' && socketAddr.length > 0 ? socketAddr : null;
+    try {
+      const info = getConnInfo(c);
+      const addr = info.remote.address;
+      if (typeof addr === 'string' && addr.length > 0) return addr;
+    } catch {
+      // getConnInfo throws when the runtime adapter isn't Bun (e.g. in tests).
+    }
+    return null;
   }
 
   return async (c: Context, next: Next) => {
@@ -95,7 +102,7 @@ export function rateLimit(opts: {
         return c.json({ error: 'Too many requests' }, 429);
       }
     } else {
-      log.warn('Rate limit skipped — no identifiable IP for anonymous request', {
+      log.debug('Rate limit skipped — no identifiable IP for anonymous request', {
         namespace: 'rate-limit',
         path: c.req.path,
         trustProxy: TRUST_PROXY,

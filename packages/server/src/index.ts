@@ -140,8 +140,6 @@ app.use('/api/auth/*', rateLimit({ windowMs: 60_000, max: 600 }));
 app.use('/api/invite-links/register', rateLimit({ windowMs: 60_000, max: 20 }));
 // Runner endpoints are high-frequency (heartbeat + task polling) — give them a generous limit
 app.use('/api/runners/*', rateLimit({ windowMs: 60_000, max: 1200 }));
-// Per-user rate limit on authenticated API endpoints
-app.use('/api/*', rateLimit({ windowMs: 60_000, max: 1200, perUser: true }));
 
 // ── Public routes (before auth middleware) ────────────────
 const { inviteLinkPublicRoutes, inviteLinkRoutes } = await import('./routes/invite-links.js');
@@ -152,6 +150,10 @@ app.all('/api/auth/*', (c) => authInstance.handler(c.req.raw));
 
 // Auth middleware for all API routes
 app.use('/api/*', authMiddleware);
+
+// Per-user rate limit on authenticated API endpoints (runs after auth so the
+// limiter can key off userId; otherwise every request looks anonymous).
+app.use('/api/*', rateLimit({ windowMs: 60_000, max: 1200, perUser: true }));
 
 // ── Server-managed data routes ───────────────────────────
 const { authRoutes } = await import('./routes/auth.js');
