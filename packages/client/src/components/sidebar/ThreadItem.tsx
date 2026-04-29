@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -42,6 +43,7 @@ import { statusConfig, timeAgo } from '@/lib/thread-utils';
 import { toastError } from '@/lib/toast-error';
 import { cn } from '@/lib/utils';
 import { useAgentTemplateStore } from '@/stores/agent-template-store';
+import { useProjectStore } from '@/stores/project-store';
 
 export interface ThreadItemProps {
   thread: Thread;
@@ -116,6 +118,10 @@ export const ThreadItem = memo(function ThreadItem({
   const [isCreateBranchOpen, setIsCreateBranchOpen] = useState(false);
   const [branchName, setBranchName] = useState('');
   const [createBranchLoading, setCreateBranchLoading] = useState(false);
+  const projectBranch = useProjectStore((s) =>
+    thread.projectId ? s.branchByProject[thread.projectId] : undefined,
+  );
+  const sourceBranch = thread.branch || projectBranch || thread.baseBranch;
 
   const openRenameDialog = useCallback(() => {
     setRenameValue(thread.title);
@@ -548,6 +554,13 @@ export const ThreadItem = memo(function ThreadItem({
         >
           <DialogHeader>
             <DialogTitle>{t('dialog.createBranchTitle')}</DialogTitle>
+            <DialogDescription className="flex flex-wrap items-center gap-1">
+              <span>{t('dialog.createBranchBasedOn', 'Your new branch will be based on')}</span>
+              <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+                <GitBranch className="icon-xs" />
+                {sourceBranch || t('dialog.createBranchBasedOnUnknown', 'current branch')}
+              </span>
+            </DialogDescription>
           </DialogHeader>
           <Input
             data-testid={`thread-create-branch-input-${thread.id}`}

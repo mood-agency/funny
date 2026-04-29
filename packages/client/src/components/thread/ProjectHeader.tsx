@@ -27,7 +27,6 @@ import {
   FlaskConical,
   ListChecks,
   Activity,
-  Sparkles,
 } from 'lucide-react';
 import { memo, useState, useEffect, useCallback, useRef, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -36,6 +35,7 @@ import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { CreateBranchDialog } from '@/components/CreateBranchDialog';
 import { DiffStats } from '@/components/DiffStats';
 import {
   Breadcrumb,
@@ -45,13 +45,6 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -174,21 +167,11 @@ const MoreActionsMenu = memo(function MoreActionsMenu({
 
   // Create Branch dialog state
   const [createBranchOpen, setCreateBranchOpen] = useState(false);
-  const [branchName, setBranchName] = useState('');
   const [createBranchLoading, setCreateBranchLoading] = useState(false);
-
-  const handleSuggestBranchName = useCallback(() => {
-    const title = threadTitle;
-    if (!title) return;
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .trim()
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .slice(0, 60);
-    if (slug) setBranchName(slug);
-  }, [threadTitle]);
+  const projectBranch = useProjectStore((s) =>
+    threadProjectId ? s.branchByProject[threadProjectId] : undefined,
+  );
+  const sourceBranch = threadBranch || projectBranch;
 
   const handleConvertToWorktree = useCallback(async () => {
     if (!threadId) return;
@@ -200,22 +183,20 @@ const MoreActionsMenu = memo(function MoreActionsMenu({
     }
   }, [threadId, t]);
 
-  const handleCreateBranch = useCallback(async () => {
-    const name = branchName
-      .trim()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9\-_/.]/g, '');
-    if (!name || !threadProjectId) return;
-    setCreateBranchLoading(true);
-    const result = await api.checkout(threadProjectId, name, 'carry', true, threadId);
-    setCreateBranchLoading(false);
-    if (result.isErr()) {
-      toast.error(String(result.error));
-    } else {
-      setCreateBranchOpen(false);
-      setBranchName('');
-    }
-  }, [branchName, threadProjectId, threadId]);
+  const handleCreateBranch = useCallback(
+    async (name: string) => {
+      if (!name || !threadProjectId) return;
+      setCreateBranchLoading(true);
+      const result = await api.checkout(threadProjectId, name, 'carry', true, threadId);
+      setCreateBranchLoading(false);
+      if (result.isErr()) {
+        toast.error(String(result.error));
+      } else {
+        setCreateBranchOpen(false);
+      }
+    },
+    [threadProjectId, threadId],
+  );
 
   const handleDeleteConfirm = useCallback(async () => {
     const state = useThreadStore.getState();
@@ -422,62 +403,14 @@ const MoreActionsMenu = memo(function MoreActionsMenu({
         onCancel={() => setDeleteOpen(false)}
         onConfirm={handleDeleteConfirm}
       />
-      <Dialog open={createBranchOpen} onOpenChange={setCreateBranchOpen}>
-        <DialogContent className="sm:max-w-md" data-testid="create-branch-dialog">
-          <DialogHeader>
-            <DialogTitle>{t('dialog.createBranchTitle')}</DialogTitle>
-          </DialogHeader>
-          <div className="flex items-center gap-2">
-            <Input
-              data-testid="create-branch-input"
-              placeholder={t('dialog.createBranchPlaceholder')}
-              value={branchName}
-              onChange={(e) => setBranchName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && branchName.trim()) handleCreateBranch();
-              }}
-              autoFocus
-            />
-            {threadTitle && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    data-testid="create-branch-suggest"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={handleSuggestBranchName}
-                  >
-                    <Sparkles className="icon-base" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t('dialog.suggestBranchName', 'Suggest from title')}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setCreateBranchOpen(false)}
-              data-testid="create-branch-cancel"
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleCreateBranch}
-              disabled={!branchName.trim() || createBranchLoading}
-              data-testid="create-branch-confirm"
-            >
-              {createBranchLoading ? (
-                <Loader2 className="icon-base animate-spin" />
-              ) : (
-                t('common.create', 'Create')
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateBranchDialog
+        open={createBranchOpen}
+        onOpenChange={setCreateBranchOpen}
+        sourceBranch={sourceBranch}
+        threadTitle={threadTitle}
+        loading={createBranchLoading}
+        onCreate={handleCreateBranch}
+      />
     </>
   );
 });
