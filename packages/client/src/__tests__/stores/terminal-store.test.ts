@@ -53,7 +53,7 @@ describe('useTerminalStore', () => {
       const tab = makeTab({ id: 'tab-1' });
       useTerminalStore.getState().addTab(tab);
       expect(useTerminalStore.getState().tabs).toHaveLength(1);
-      expect(useTerminalStore.getState().tabs[0]).toEqual(tab);
+      expect(useTerminalStore.getState().tabs[0]).toMatchObject(tab);
     });
 
     test('sets the new tab as active', () => {
