@@ -230,4 +230,144 @@ describe('Pipeline Engine', () => {
       }),
     ).toThrow('does not match any node name');
   });
+
+  describe('node retry', () => {
+    test('retries up to maxAttempts when node throws', async () => {
+      let attempts = 0;
+      const pipeline = definePipeline<{ ok: boolean }>({
+        name: 'test-retry',
+        nodes: [
+          node(
+            'flaky',
+            async (ctx) => {
+              attempts++;
+              if (attempts < 3) throw new Error('transient');
+              return { ...ctx, ok: true };
+            },
+            { retry: { maxAttempts: 3 } },
+          ),
+        ],
+      });
+
+      const result = await runPipeline(pipeline, { ok: false });
+      expect(result.outcome).toBe('completed');
+      expect(attempts).toBe(3);
+      expect(result.ctx.ok).toBe(true);
+    });
+
+    test('fails after exhausting maxAttempts', async () => {
+      let attempts = 0;
+      const pipeline = definePipeline<{ tag: string }>({
+        name: 'test-retry-exhaust',
+        nodes: [
+          node<{ tag: string }>(
+            'always-fails',
+            async () => {
+              attempts++;
+              throw new Error('boom');
+            },
+            { retry: { maxAttempts: 2 } },
+          ),
+        ],
+      });
+
+      const result = await runPipeline(pipeline, { tag: 'x' });
+      expect(result.outcome).toBe('failed');
+      expect(result.error).toContain('boom');
+      expect(attempts).toBe(2);
+    });
+
+    test('beforeRetry can mutate context between attempts', async () => {
+      const pipeline = definePipeline<{ token: string }>({
+        name: 'test-before-retry',
+        nodes: [
+          node(
+            'auth-call',
+            async (ctx) => {
+              if (ctx.token !== 'fresh') throw new Error('expired');
+              return ctx;
+            },
+            {
+              retry: {
+                maxAttempts: 2,
+                beforeRetry: async (_err, ctx) => ({ ...ctx, token: 'fresh' }),
+              },
+            },
+          ),
+        ],
+      });
+
+      const result = await runPipeline(pipeline, { token: 'stale' });
+      expect(result.outcome).toBe('completed');
+      expect(result.ctx.token).toBe('fresh');
+    });
+
+    test('shouldRetry=false aborts retries early', async () => {
+      let attempts = 0;
+      const pipeline = definePipeline<{ tag: string }>({
+        name: 'test-should-retry',
+        nodes: [
+          node<{ tag: string }>(
+            'permanent-fail',
+            async () => {
+              attempts++;
+              throw new Error('not-retryable');
+            },
+            {
+              retry: {
+                maxAttempts: 5,
+                shouldRetry: (err) => !err.message.includes('not-retryable'),
+              },
+            },
+          ),
+        ],
+      });
+
+      const result = await runPipeline(pipeline, { tag: 'x' });
+      expect(result.outcome).toBe('failed');
+      expect(attempts).toBe(1);
+    });
+
+    test('cancellation during retry sleep short-circuits the loop', async () => {
+      const controller = new AbortController();
+      const pipeline = definePipeline<{ tag: string }>({
+        name: 'test-retry-cancel',
+        nodes: [
+          node<{ tag: string }>(
+            'flaky',
+            async () => {
+              controller.abort();
+              throw new Error('boom');
+            },
+            { retry: { maxAttempts: 5, delayMs: 10 } },
+          ),
+        ],
+      });
+
+      const result = await runPipeline(pipeline, { tag: 'x' }, { signal: controller.signal });
+      expect(result.outcome).toBe('failed');
+    });
+
+    test('maxAttempts can be a function of context', async () => {
+      let attempts = 0;
+      const pipeline = definePipeline<{ limit: number }>({
+        name: 'test-fn-max',
+        nodes: [
+          node(
+            'fail-twice',
+            async (ctx) => {
+              attempts++;
+              if (attempts < 3) throw new Error('x');
+              return ctx;
+            },
+            { retry: { maxAttempts: (ctx) => ctx.limit } },
+          ),
+        ],
+      });
+
+      const result = await runPipeline(pipeline, { limit: 3 });
+      expect(result.outcome).toBe('completed');
+      expect(attempts).toBe(3);
+    });
+  });
 });

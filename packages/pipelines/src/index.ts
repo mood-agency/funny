@@ -27,6 +27,7 @@ export { definePipeline, node, subPipeline, compose, runPipeline } from './engin
 export type {
   NodeFn,
   GuardFn,
+  NodeRetryConfig,
   PipelineNode,
   PipelineLoop,
   PipelineDefinition,
@@ -48,3 +49,41 @@ export type {
   OnErrorStrategy,
 } from './types.js';
 export { nullReporter } from './types.js';
+
+// ── YAML schema, parser, templating, predicates ─────────────
+//
+// These are domain-agnostic — they handle the YAML shape and the
+// expression engines. Compiling a parsed YAML into a runnable
+// `PipelineDefinition` lives in the consumer (runtime), where the
+// `ActionProvider` interface is bound to real implementations.
+
+export {
+  pipelineSchema,
+  type ParsedPipeline,
+  type ParsedNode,
+  type ParsedInputDef,
+  type ParsedRetry,
+  type ParsedLoop,
+} from './yaml/schema.js';
+
+export {
+  parsePipelineYaml,
+  formatParseError,
+  type ParseResult,
+  type ParseError,
+} from './yaml/parse.js';
+
+export {
+  interpolate,
+  interpolateObject,
+  TemplateInterpolationError,
+  type TemplateScope,
+  type InterpolateOptions,
+} from './yaml/interpolate.js';
+
+export {
+  compilePredicate,
+  evaluatePredicate,
+  PredicateError,
+  type CompiledPredicate,
+} from './yaml/predicates.js';

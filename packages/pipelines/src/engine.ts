@@ -14,8 +14,46 @@
 /** A node function: receives context and signal, returns updated context. */
 export type NodeFn<T> = (ctx: T, signal: AbortSignal) => T | Promise<T>;
 
-/** A guard function: returns true to run the node, false to skip. */
-export type GuardFn<T> = (ctx: T) => boolean;
+/**
+ * A guard function: returns true to run the node, false to skip.
+ *
+ * May return a Promise — useful when the predicate is backed by an async
+ * expression engine (e.g. JSONata). The engine awaits the result.
+ */
+export type GuardFn<T> = (ctx: T) => boolean | Promise<boolean>;
+
+/**
+ * Per-node retry configuration. When a node throws, the engine will retry
+ * it up to `maxAttempts` times, optionally invoking `beforeRetry` to
+ * mutate context (e.g. spawn a fixer agent) and/or sleep `delayMs` between
+ * attempts. Cancellation via AbortSignal short-circuits the retry loop.
+ */
+export interface NodeRetryConfig<T> {
+  /**
+   * Total max attempts (including the initial try). May be a number or a
+   * function of context to allow ctx-driven configuration without losing
+   * type safety.
+   * Default behavior (no `retry`): a single attempt, identical to pre-retry
+   * engine semantics.
+   */
+  maxAttempts: number | ((ctx: T) => number);
+  /** Optional delay (ms) between attempts. Default: 0. */
+  delayMs?: number | ((ctx: T) => number);
+  /**
+   * Optional predicate: only retry if it returns true. Useful to bail out
+   * on permanent errors (e.g. auth failures) while retrying transient ones.
+   * May return a Promise. Default: always retry until `maxAttempts` is reached.
+   */
+  shouldRetry?: (err: Error, ctx: T, attempt: number) => boolean | Promise<boolean>;
+  /**
+   * Hook invoked between attempts (after a failed attempt, before the next).
+   * Receives the error, the context as it was when the node started, and
+   * the attempt number that just failed. Return value becomes the context
+   * for the next attempt — use this to spawn a fixer agent, log, or reset
+   * state. Throwing here aborts the retry loop and fails the pipeline.
+   */
+  beforeRetry?: (err: Error, ctx: T, attempt: number) => T | Promise<T>;
+}
 
 /** A single pipeline node. */
 export interface PipelineNode<T> {
@@ -23,6 +61,8 @@ export interface PipelineNode<T> {
   execute: NodeFn<T>;
   /** If provided and returns false, the node is skipped. */
   when?: GuardFn<T>;
+  /** Optional retry configuration. If absent, the node runs exactly once. */
+  retry?: NodeRetryConfig<T>;
 }
 
 /** Loop configuration — allows jumping back to a previous node. */
@@ -85,9 +125,9 @@ export interface PipelineRunResult<T> {
 export function node<T>(
   name: string,
   execute: NodeFn<T>,
-  opts?: { when?: GuardFn<T> },
+  opts?: { when?: GuardFn<T>; retry?: NodeRetryConfig<T> },
 ): PipelineNode<T> {
-  return { name, execute, when: opts?.when };
+  return { name, execute, when: opts?.when, retry: opts?.retry };
 }
 
 /**
@@ -205,20 +245,70 @@ export async function runPipeline<T>(
       return { outcome: 'cancelled', ctx, iterations: iteration };
     }
 
-    // Check guard
-    if (currentNode.when && !currentNode.when(ctx)) {
-      emit({ kind: 'skipped', nodeName: currentNode.name, ctx, iteration });
-      nodeIndex++;
-      continue;
+    // Check guard (may be async — await the result).
+    if (currentNode.when) {
+      const allow = await currentNode.when(ctx);
+      if (!allow) {
+        emit({ kind: 'skipped', nodeName: currentNode.name, ctx, iteration });
+        nodeIndex++;
+        continue;
+      }
     }
 
-    // Execute node
+    // Execute node — with retry support. When `retry` is undefined, the loop
+    // runs exactly once, preserving pre-retry semantics.
     emit({ kind: 'entering', nodeName: currentNode.name, ctx, iteration });
 
-    try {
-      ctx = await currentNode.execute(ctx, signal ?? new AbortController().signal);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+    const retryCfg = currentNode.retry;
+    const maxAttempts = retryCfg
+      ? Math.max(
+          1,
+          typeof retryCfg.maxAttempts === 'function'
+            ? retryCfg.maxAttempts(ctx)
+            : retryCfg.maxAttempts,
+        )
+      : 1;
+
+    let attempt = 0;
+    let lastError: Error | undefined;
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        ctx = await currentNode.execute(ctx, signal ?? new AbortController().signal);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        // Cancellation always short-circuits, even if more attempts remain.
+        if (signal?.aborted) break;
+
+        if (!retryCfg || attempt >= maxAttempts) break;
+        if (retryCfg.shouldRetry) {
+          const allowRetry = await retryCfg.shouldRetry(lastError, ctx, attempt);
+          if (!allowRetry) break;
+        }
+
+        if (retryCfg.beforeRetry) {
+          try {
+            ctx = await retryCfg.beforeRetry(lastError, ctx, attempt);
+          } catch (hookErr) {
+            // beforeRetry threw — abort retry loop with the hook's error.
+            lastError = hookErr instanceof Error ? hookErr : new Error(String(hookErr));
+            break;
+          }
+        }
+
+        const delay =
+          typeof retryCfg.delayMs === 'function' ? retryCfg.delayMs(ctx) : (retryCfg.delayMs ?? 0);
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    if (lastError) {
+      const errorMsg = lastError.message;
       emit({ kind: 'error', nodeName: currentNode.name, ctx, iteration, error: errorMsg });
       emit({
         kind: 'terminal',
@@ -237,7 +327,8 @@ export async function runPipeline<T>(
 
     // Check for loop boundary — after the last node
     if (nodeIndex >= pipeline.nodes.length && pipeline.loop && loopFromIndex >= 0) {
-      if (!pipeline.loop.until(ctx)) {
+      const exit = await pipeline.loop.until(ctx);
+      if (!exit) {
         iteration++;
         if (iteration > maxIter) {
           const errorMsg = `Max iterations reached (${maxIter})`;

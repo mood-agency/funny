@@ -1,0 +1,90 @@
+# Built-in code-review pipeline.
+#
+# Loop: review → fix → review until verdict is "pass" or max iterations
+# reached. The reviewer is read-only (denied_tools enforced at the SDK
+# level). The corrector applies fixes and commits with --no-verify
+# (hooks already passed in the prior `commit` pipeline).
+#
+# Replaces packages/runtime/src/pipelines/code-review.pipeline.ts.
+
+name: code-review
+description: Review code → fix loop until pass
+
+# `commit_sha` is informational only — each iteration of the review loop
+# reads `HEAD` directly so a freshly-applied fix-commit is visible without
+# needing to thread the new SHA back through the YAML scope.
+inputs:
+  commit_sha: { type: string, default: HEAD }
+
+nodes:
+  - id: review
+    spawn_agent:
+      agent: reviewer
+      # Tool boundaries are also enforced by the AgentDefinition itself
+      # (see agent-registry.ts) — repeated here as documentation.
+      allowed_tools: [Read, Grep, Glob, Bash]
+      denied_tools: [Edit, Write, NotebookEdit, MultiEdit]
+      output_format:
+        type: object
+        properties:
+          verdict:
+            type: string
+            enum: [pass, fail]
+          findings:
+            type: array
+        required: [verdict]
+      prompt: |
+        Review the most recent commit on this branch.
+
+        Run this command to get the diff:
+        `git show HEAD`
+
+        If you need broader context (the full branch diff), run:
+        `git diff $(git merge-base HEAD origin/HEAD)..HEAD`
+
+        You MUST respond with a JSON block at the end of your message in
+        exactly this format:
+
+        ```json
+        {
+          "verdict": "pass" | "fail",
+          "findings": [
+            {
+              "severity": "critical" | "high" | "medium" | "low",
+              "category": "bug" | "security" | "performance" | "logic" | "style",
+              "file": "path/to/file.ts",
+              "line": 42,
+              "description": "What is wrong"
+            }
+          ]
+        }
+        ```
+
+  - id: fix
+    depends_on: [review]
+    when: 'review.json.verdict = "fail"'
+    spawn_agent:
+      agent: corrector
+      prompt: |
+        The reviewer found these issues that need fixing:
+
+        {{#review.json.findings}}
+          - [{{severity}}] {{description}}{{#file}} ({{file}}:{{line}}){{/file}}
+        {{/review.json.findings}}
+
+        Apply the fixes and stage them with `git add`. Do NOT commit —
+        the pipeline will do that next so the new commit's SHA can be
+        captured for the DB run record.
+
+  # Pipeline-side commit so we can capture metadata.sha. The next review
+  # iteration reads `git show HEAD`, which now includes the fix.
+  - id: commit-fix
+    depends_on: [fix]
+    when: 'review.json.verdict = "fail"'
+    git_commit:
+      message: "fix: address review findings"
+      no_verify: true
+    loop:
+      until: 'review.json.verdict = "pass"'
+      max_iterations: 10
+      back_to: review

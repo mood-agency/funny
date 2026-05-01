@@ -43,6 +43,7 @@ import { gitRoutes, invalidateGitStatusCacheByProject } from './routes/git.js';
 import { githubRoutes } from './routes/github.js';
 import { ingestRoutes } from './routes/ingest.js';
 import mcpRoutes from './routes/mcp.js';
+import { pipelineRuntimeRoutes } from './routes/pipelines.js';
 import pluginRoutes from './routes/plugins.js';
 import { projectRoutes } from './routes/projects.js';
 import skillsRoutes from './routes/skills.js';
@@ -307,6 +308,7 @@ export async function createRuntimeApp(options: RuntimeAppOptions): Promise<Runt
   app.route('/api/github', githubRoutes);
   app.route('/api/tests', testRoutes);
   app.route('/api/automations', automationRoutes);
+  app.route('/api/pipelines', pipelineRuntimeRoutes);
   app.route('/api/projects', designProjectRoutes);
 
   // Serve static files from client build

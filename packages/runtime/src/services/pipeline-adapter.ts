@@ -16,17 +16,21 @@
 import { gitRead, runHookCommand, invalidateStatusCache } from '@funny/core/git';
 import type { ProgressReporter, StepProgressData } from '@funny/pipelines';
 import type { AgentModel, PermissionMode, WSEvent } from '@funny/shared';
+import { nanoid } from 'nanoid';
 
 import { log } from '../lib/logger.js';
+import { ApprovalTimeoutError } from '../pipelines/approval.js';
 import type {
   ActionProvider,
   ActionResult,
+  ApprovalDecision,
   SpawnAgentOpts,
   GitCommitOpts,
   GitPushOpts,
   CreatePrOpts,
   RunCommandOpts,
   NotifyOpts,
+  RequestApprovalOpts,
 } from '../pipelines/types.js';
 import {
   commitChanges as gitServiceCommit,
@@ -34,6 +38,7 @@ import {
   createPullRequest as gitServiceCreatePR,
   resolveIdentity,
 } from './git-service.js';
+import { pipelineApprovalStore } from './pipeline-approval-store.js';
 import { threadEventBus } from './thread-event-bus.js';
 import * as tm from './thread-manager.js';
 import { createAndStartThread } from './thread-service.js';
@@ -83,6 +88,12 @@ export class RuntimeActionProvider implements ActionProvider {
       const permissionMode: PermissionMode =
         effectiveMode === 'plan' ? 'plan' : effectiveMode === 'autoEdit' ? 'autoEdit' : 'autoEdit';
 
+      // Resolve tool boundaries: explicit opts > agent definition > undefined.
+      // Passing `undefined` lets `createAndStartThread` use its defaults; it
+      // already merges user-level "always allow" rules into allowedTools.
+      const allowedTools = agentOpts.allowedTools ?? agentOpts.agent?.allowedTools;
+      const disallowedTools = agentOpts.disallowedTools ?? agentOpts.agent?.disallowedTools;
+
       const childThread = await createAndStartThread({
         projectId,
         userId,
@@ -94,6 +105,8 @@ export class RuntimeActionProvider implements ActionProvider {
         source: 'automation',
         prompt,
         parentThreadId: threadId,
+        allowedTools,
+        disallowedTools,
       });
 
       log.info('Pipeline adapter: agent thread created', {
@@ -269,6 +282,101 @@ export class RuntimeActionProvider implements ActionProvider {
         error: err instanceof Error ? err.message : String(err),
       };
     }
+  }
+
+  async requestApproval(opts: RequestApprovalOpts): Promise<ApprovalDecision> {
+    const { threadId, userId, workflowId } = this.opts;
+
+    if (!threadId) {
+      // Approval requires a thread to address the WS event to.
+      throw new Error('requestApproval requires a threadId');
+    }
+
+    const approvalId = nanoid();
+    const requestedAt = new Date().toISOString();
+    const expiresAt = opts.timeoutMs
+      ? new Date(Date.now() + opts.timeoutMs).toISOString()
+      : undefined;
+
+    log.info('Pipeline approval requested', {
+      namespace: 'pipeline-adapter',
+      approvalId,
+      gateId: opts.gateId,
+      threadId,
+      timeoutMs: opts.timeoutMs,
+    });
+
+    // Emit BEFORE registering: keeps the UI honest about ordering — if the
+    // emit fails, we never block on a gate that the client doesn't know
+    // about. Risk: tiny race where the user clicks "approve" before the
+    // promise is registered. We accept it because (a) WS round-trip is
+    // slower than the next line of code and (b) the alternative (register
+    // first, emit after) would silently swallow approvals if the emit
+    // crashed. Future improvement: a small in-memory buffer of unmatched
+    // responses keyed by approvalId.
+    wsBroker.emitToUser(userId, {
+      type: 'pipeline:approval_requested',
+      threadId,
+      data: {
+        approvalId,
+        gateId: opts.gateId,
+        message: opts.message,
+        captureResponse: opts.captureResponse ?? false,
+        threadId,
+        workflowId,
+        requestedAt,
+        expiresAt,
+      },
+    } as WSEvent);
+
+    let payload;
+    try {
+      payload = await pipelineApprovalStore.register(
+        approvalId,
+        { threadId, userId, gateId: opts.gateId, requestedAt },
+        opts.timeoutMs,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Emit a resolved event so the UI can clear the pending dialog.
+      wsBroker.emitToUser(userId, {
+        type: 'pipeline:approval_resolved',
+        threadId,
+        data: {
+          approvalId,
+          gateId: opts.gateId,
+          threadId,
+          decision: 'timeout',
+          payload: message,
+        },
+      } as WSEvent);
+
+      // Surface as ApprovalTimeoutError when the message matches; otherwise
+      // re-throw the original error (cancellation, etc.).
+      if (opts.timeoutMs && message.includes('timed out')) {
+        throw new ApprovalTimeoutError(opts.gateId, opts.timeoutMs);
+      }
+      throw err;
+    }
+
+    // Notify clients that the approval is resolved (so any other tab
+    // showing the dialog can dismiss it).
+    wsBroker.emitToUser(userId, {
+      type: 'pipeline:approval_resolved',
+      threadId,
+      data: {
+        approvalId,
+        gateId: opts.gateId,
+        threadId,
+        decision: payload.decision,
+        payload: payload.text,
+      },
+    } as WSEvent);
+
+    if (payload.decision === 'approve') {
+      return { decision: 'approve', comment: payload.text };
+    }
+    return { decision: 'reject', reason: payload.text ?? 'rejected' };
   }
 
   async notify(opts: NotifyOpts): Promise<ActionResult> {

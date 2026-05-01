@@ -35,8 +35,22 @@ export interface SpawnAgentOpts {
   model?: string;
   /** Extra context from a previous step. */
   context?: string;
-  /** Agent definition — if provided, model and mode default to agent's values. */
+  /**
+   * Agent definition — if provided, model, mode, allowedTools, and
+   * disallowedTools default to the agent's values when not overridden
+   * explicitly on these opts.
+   */
   agent?: AgentDefinition;
+  /**
+   * Tools allow-list for this spawn. Falls back to `agent.allowedTools`.
+   * If both are unset, no allow-list is applied (the agent runs with the
+   * default tool surface for its permission mode).
+   */
+  allowedTools?: string[];
+  /**
+   * Tools deny-list for this spawn. Falls back to `agent.disallowedTools`.
+   */
+  disallowedTools?: string[];
 }
 
 export interface RunCommandOpts {
@@ -80,6 +94,42 @@ export interface NotifyOpts {
   level?: 'info' | 'warning' | 'error';
 }
 
+// ── Approval (human-in-the-loop) ────────────────────────────
+//
+// Modeled to match Archon's `approval:` node semantics so workflows can be
+// migrated/round-tripped without redesigning the data model:
+//   - `message` corresponds to Archon's `message` field
+//   - `captureResponse` corresponds to Archon's `capture_response`
+//   - rejection reasons are passed via the decision payload (Archon's
+//     `$REJECTION_REASON` template variable)
+//
+// Reference: https://github.com/coleam00/Archon — `.archon/workflows/defaults/`
+
+export interface RequestApprovalOpts {
+  /**
+   * Stable id for this approval gate within a pipeline run. Used by the UI
+   * and the response-handler to route the approval back to the correct
+   * pending promise.
+   */
+  gateId: string;
+  /** User-facing message shown in the approval UI. */
+  message: string;
+  /**
+   * If true, the approver may attach a free-text comment that gets returned
+   * in the decision payload. Default: false.
+   */
+  captureResponse?: boolean;
+  /**
+   * Optional timeout (ms). If reached, the returned promise rejects with
+   * an `ApprovalTimeoutError`. Default: no timeout (waits indefinitely).
+   */
+  timeoutMs?: number;
+}
+
+export type ApprovalDecision =
+  | { decision: 'approve'; comment?: string }
+  | { decision: 'reject'; reason: string };
+
 // ── ActionProvider interface ────────────────────────────────
 
 /**
@@ -106,6 +156,13 @@ export interface ActionProvider {
 
   /** Send a notification / status message. */
   notify(opts: NotifyOpts): Promise<ActionResult>;
+
+  /**
+   * Request a human approval and block until decided (or timeout).
+   * Throws `ApprovalTimeoutError` on timeout. Resolves to an
+   * `ApprovalDecision` describing approve/reject + optional payload.
+   */
+  requestApproval(opts: RequestApprovalOpts): Promise<ApprovalDecision>;
 }
 
 // ── Pipeline context ────────────────────────────────────────

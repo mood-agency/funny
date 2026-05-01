@@ -19,6 +19,7 @@
 
 import { runPipeline, type PipelineStateChange } from '@funny/pipelines';
 import type {
+  AgentDefinition,
   AgentModel,
   PipelineRunStatus,
   PipelineStageType,
@@ -27,14 +28,48 @@ import type {
 } from '@funny/shared';
 
 import { log } from '../lib/logger.js';
-import {
-  codeReviewPipeline,
-  type CodeReviewPipelineContext,
-} from '../pipelines/code-review.pipeline.js';
-import { BUILTIN_AGENTS, resolveAgent } from './agent-registry.js';
+import type { YamlPipelineContext } from '../pipelines/yaml-compiler.js';
+import { loadPipelines, type LoadedPipeline } from '../pipelines/yaml-loader.js';
+import { BUILTIN_AGENTS, resolveAgent, resolveBuiltinAgentByName } from './agent-registry.js';
 import { RuntimeActionProvider, RuntimeProgressReporter } from './pipeline-adapter.js';
 import { getServices } from './service-registry.js';
 import * as tm from './thread-manager.js';
+
+// ── Pipeline loading ─────────────────────────────────────────
+//
+// Caching was attempted here but couldn't be done correctly — the
+// resolveAgent closure captures per-run reviewer/corrector definitions
+// (with model overrides + custom prompts), so cache entries can't be
+// shared across runs. Re-loading on every run is fine: the YAML files
+// are small (~4 files, ~200 lines total) and the read-parse-compile
+// chain is sub-millisecond on modern disk. If profiling shows this as
+// a hotspot, cache by (repoRoot, reviewerKey, correctorKey) instead.
+
+async function getCodeReviewPipeline(
+  repoRoot: string,
+  reviewer: AgentDefinition,
+  corrector: AgentDefinition,
+): Promise<LoadedPipeline> {
+  const result = await loadPipelines({
+    repoRoot,
+    resolveAgent: (name) => {
+      if (name === 'reviewer') return reviewer;
+      if (name === 'corrector') return corrector;
+      return resolveBuiltinAgentByName(name);
+    },
+  });
+
+  if (result.warnings.length > 0) {
+    log.warn('Pipeline loader emitted warnings', {
+      namespace: 'pipeline',
+      warnings: result.warnings,
+    });
+  }
+
+  const found = result.pipelines.get('code-review');
+  if (!found) throw new Error('Built-in code-review pipeline not found');
+  return found;
+}
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -270,30 +305,56 @@ export async function startPipelineRun(opts: {
     workflowId: runId,
   });
 
-  // Build the code-review pipeline context with agent definitions
-  const initialCtx: CodeReviewPipelineContext = {
+  // Resolve agent definitions for THIS run (model overrides, custom prompts).
+  const reviewer = resolveAgent(BUILTIN_AGENTS.reviewer, {
+    model: pipeline.reviewModel,
+    ...(pipeline.reviewerPrompt ? { systemPrompt: pipeline.reviewerPrompt } : {}),
+  });
+  const corrector = resolveAgent(BUILTIN_AGENTS.corrector, {
+    model: pipeline.fixModel,
+    ...(pipeline.correctorPrompt ? { systemPrompt: pipeline.correctorPrompt } : {}),
+  });
+
+  // Load and compile the YAML-defined code-review pipeline. The loader
+  // honors `<repoRoot>/.funny/pipelines/code-review.yaml` overrides when
+  // present, so users can customize the prompt/loop without recompiling
+  // funny.
+  const codeReview = await getCodeReviewPipeline(cwd, reviewer, corrector);
+
+  // Build the YAML pipeline context. State that the old TS pipeline kept
+  // on the typed context (verdict, findings, iteration, commitSha) now
+  // lives on `ctx.outputs.<node>.json` (for JSON outputs) and on the
+  // engine's iteration counter.
+  const initialCtx: YamlPipelineContext = {
     provider,
     progress,
     cwd,
-    // Config
-    commitSha: commitSha ?? undefined,
-    maxIterations: pipeline.maxIterations,
-    reviewer: resolveAgent(BUILTIN_AGENTS.reviewer, {
-      model: pipeline.reviewModel,
-      ...(pipeline.reviewerPrompt ? { systemPrompt: pipeline.reviewerPrompt } : {}),
-    }),
-    corrector: resolveAgent(BUILTIN_AGENTS.corrector, {
-      model: pipeline.fixModel,
-      ...(pipeline.correctorPrompt ? { systemPrompt: pipeline.correctorPrompt } : {}),
-    }),
-    // State
-    iteration: 1,
-    noChanges: false,
+    inputs: { commit_sha: commitSha ?? 'HEAD' },
+    outputs: {},
+  };
+
+  // Helpers to project the YAML scope back onto the legacy DB column shape.
+  const verdictOf = (ctx: YamlPipelineContext): PipelineVerdict | undefined => {
+    const raw = ctx.outputs.review?.json?.verdict;
+    return raw === 'pass' || raw === 'fail' ? (raw as PipelineVerdict) : undefined;
+  };
+  const findingsOf = (ctx: YamlPipelineContext): string | undefined => {
+    const raw = ctx.outputs.review?.json?.findings;
+    if (raw === undefined || raw === null) return undefined;
+    return typeof raw === 'string' ? raw : JSON.stringify(raw);
+  };
+  // The current commit being reviewed: starts as the input `commit_sha`
+  // and updates after each fix-loop iteration to the SHA produced by
+  // the `commit-fix` node (captured in `ctx.outputs.commit-fix.json.sha`).
+  const commitShaOf = (ctx: YamlPipelineContext): string | undefined => {
+    const fixed = ctx.outputs['commit-fix']?.json?.sha;
+    if (typeof fixed === 'string' && fixed.length > 0) return fixed;
+    return typeof ctx.inputs.commit_sha === 'string' ? ctx.inputs.commit_sha : undefined;
   };
 
   // State change callback — persist to DB + emit WS
-  const onStateChange = async (change: PipelineStateChange<CodeReviewPipelineContext>) => {
-    const { kind, nodeName, ctx } = change;
+  const onStateChange = async (change: PipelineStateChange<YamlPipelineContext>) => {
+    const { kind, nodeName, ctx, iteration } = change;
 
     if (kind === 'entering' || kind === 'completed') {
       const dbStatus = nodeToRunStatus(nodeName, kind);
@@ -302,10 +363,10 @@ export async function startPipelineRun(opts: {
       await updateRun(runId, {
         status: dbStatus,
         currentStage: dbStage,
-        iteration: ctx.iteration,
-        commitSha: ctx.commitSha,
-        verdict: ctx.verdict,
-        findings: ctx.findings,
+        iteration,
+        commitSha: commitShaOf(ctx),
+        verdict: verdictOf(ctx),
+        findings: findingsOf(ctx),
         completedAt: null,
       });
 
@@ -318,10 +379,10 @@ export async function startPipelineRun(opts: {
             runId,
             threadId,
             stage: dbStage,
-            iteration: ctx.iteration,
-            maxIterations: ctx.maxIterations ?? pipeline.maxIterations,
-            verdict: ctx.verdict ?? undefined,
-            findings: ctx.findings ?? undefined,
+            iteration,
+            maxIterations: pipeline.maxIterations,
+            verdict: verdictOf(ctx),
+            findings: findingsOf(ctx),
           },
         });
       }
@@ -331,7 +392,9 @@ export async function startPipelineRun(opts: {
       const now = new Date().toISOString();
       let terminalStatus: PipelineRunStatus;
       if (change.outcome === 'completed') {
-        terminalStatus = ctx.noChanges ? 'skipped' : 'completed';
+        // The YAML version has no `noChanges` notion — treat verdict==pass
+        // with zero iterations of fix as the "skipped" case.
+        terminalStatus = 'completed';
       } else if (change.outcome === 'cancelled') {
         terminalStatus = 'failed';
       } else {
@@ -340,10 +403,10 @@ export async function startPipelineRun(opts: {
 
       await updateRun(runId, {
         status: terminalStatus,
-        iteration: ctx.iteration,
-        commitSha: ctx.commitSha,
-        verdict: ctx.verdict,
-        findings: ctx.findings,
+        iteration,
+        commitSha: commitShaOf(ctx),
+        verdict: verdictOf(ctx),
+        findings: findingsOf(ctx),
         completedAt: now,
       });
 
@@ -355,7 +418,7 @@ export async function startPipelineRun(opts: {
           runId,
           threadId,
           status: terminalStatus,
-          totalIterations: ctx.iteration,
+          totalIterations: iteration,
         },
       });
 
@@ -363,13 +426,13 @@ export async function startPipelineRun(opts: {
         namespace: 'pipeline',
         runId,
         status: terminalStatus,
-        iterations: ctx.iteration,
+        iterations: iteration,
       });
     }
   };
 
-  // Fire-and-forget — run the decoupled code-review pipeline
-  runPipeline(codeReviewPipeline, initialCtx, {
+  // Fire-and-forget — run the YAML-loaded code-review pipeline
+  runPipeline(codeReview.definition, initialCtx, {
     signal: abortController.signal,
     onStateChange: (change) => void onStateChange(change),
     maxIterations: pipeline.maxIterations,

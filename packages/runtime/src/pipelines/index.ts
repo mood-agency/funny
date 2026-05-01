@@ -15,22 +15,32 @@ export type {
   GitPushOpts,
   CreatePrOpts,
   NotifyOpts,
+  RequestApprovalOpts,
+  ApprovalDecision,
   PipelineContext,
 } from './types.js';
+
+// ── Approval node helper ────────────────────────────────────
+export { approvalNode, ApprovalRejectedError, ApprovalTimeoutError } from './approval.js';
+export type { ApprovalNodeOpts, ApprovalCapturedOutputs } from './approval.js';
+
+// ── YAML compiler ───────────────────────────────────────────
+export { compileYamlPipeline, YamlCompileError } from './yaml-compiler.js';
+export type {
+  YamlPipelineContext,
+  NodeOutput,
+  AgentResolver,
+  CompileOptions,
+} from './yaml-compiler.js';
+
+// ── YAML loader ─────────────────────────────────────────────
+export { loadPipelines, getPipelineByName } from './yaml-loader.js';
+export type { LoadOptions, LoadedPipeline, LoadResult } from './yaml-loader.js';
 
 // ── Runner ──────────────────────────────────────────────────
 export { PipelineRunner } from './runner.js';
 export type { RunnerOptions } from './runner.js';
 
-// ── Pipeline definitions ────────────────────────────────────
-export { commitPipeline } from './commit.pipeline.js';
-export type { CommitPipelineContext } from './commit.pipeline.js';
-
-export { codeReviewPipeline, parseReviewOutput } from './code-review.pipeline.js';
-export type { CodeReviewPipelineContext } from './code-review.pipeline.js';
-
-export { prePushPipeline } from './pre-push.pipeline.js';
-export type { PrePushPipelineContext } from './pre-push.pipeline.js';
-
-export { codeQualityPipeline } from './code-quality.pipeline.js';
-export type { CodeQualityContext } from './code-quality.pipeline.js';
+// Pipeline definitions are no longer exported from here — they live as
+// YAML files under `defaults/` and are loaded by `loadPipelines()`. To
+// override a built-in, place a file at `<repoRoot>/.funny/pipelines/<name>.yaml`.

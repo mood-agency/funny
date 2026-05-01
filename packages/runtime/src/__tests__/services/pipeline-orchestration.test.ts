@@ -91,6 +91,7 @@ vi.mock('../../services/pipeline-adapter.js', () => {
       gitPush = vi.fn().mockResolvedValue({ ok: true, output: '' });
       createPr = vi.fn().mockResolvedValue({ ok: true, output: '' });
       notify = vi.fn().mockResolvedValue({ ok: true });
+      requestApproval = vi.fn().mockResolvedValue({ decision: 'approve' });
     },
     RuntimeProgressReporter: class {
       constructor() {}

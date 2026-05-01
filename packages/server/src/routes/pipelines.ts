@@ -8,9 +8,18 @@
 import { Hono } from 'hono';
 
 import type { ServerEnv } from '../lib/types.js';
+import { proxyToRunner } from '../middleware/proxy.js';
 import * as pipelineRepo from '../services/pipeline-repository.js';
 
 export const pipelineRoutes = new Hono<ServerEnv>();
+
+// ── Approval gates (proxied to the runner where the in-memory store lives) ──
+//
+// These MUST be declared before the `:id` routes below so that the literal
+// `approvals` segment is matched as a path, not as an `:id` parameter.
+
+pipelineRoutes.post('/approvals/:approvalId/respond', proxyToRunner);
+pipelineRoutes.get('/approvals/pending', proxyToRunner);
 
 // GET /api/pipelines/project/:projectId
 pipelineRoutes.get('/project/:projectId', async (c) => {

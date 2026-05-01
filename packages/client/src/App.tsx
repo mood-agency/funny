@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { PipelineApprovalDialog } from '@/components/PipelineApprovalDialog';
 import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
 import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
@@ -361,6 +362,9 @@ export function App() {
       <Toaster position="bottom-right" duration={TOAST_DURATION} />
       {branchSyncDialog}
       <WorkflowErrorModal />
+      <Suspense>
+        <PipelineApprovalDialog />
+      </Suspense>
       <Suspense>
         <CircuitBreakerDialog />
       </Suspense>

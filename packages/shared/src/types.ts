@@ -142,6 +142,8 @@ export type {
   WSPipelineRunStartedData,
   WSPipelineStageUpdateData,
   WSPipelineRunCompletedData,
+  WSPipelineApprovalRequestedData,
+  WSPipelineApprovalResolvedData,
 } from './types/pipelines.js';
 
 export type {
@@ -254,6 +256,14 @@ export interface AgentDefinition {
   provider: AgentProvider;
   /** Default permission mode. */
   permissionMode: PermissionMode;
+  /**
+   * Tools that should be allow-listed for this agent role.
+   * When set, the agent can ONLY use these tools (in addition to anything
+   * permitted by user-level "always allow" rules). Useful for read-only
+   * roles like `reviewer` to harden the boundary at the SDK level instead
+   * of trusting the system prompt.
+   */
+  allowedTools?: string[];
   /** Tools that should be disabled for this agent role. */
   disallowedTools?: string[];
 }
@@ -599,6 +609,16 @@ export type WSEvent =
   | { type: 'pipeline:run_started'; threadId: string; data: WSPipelineRunStartedData }
   | { type: 'pipeline:stage_update'; threadId: string; data: WSPipelineStageUpdateData }
   | { type: 'pipeline:run_completed'; threadId: string; data: WSPipelineRunCompletedData }
+  | {
+      type: 'pipeline:approval_requested';
+      threadId: string;
+      data: WSPipelineApprovalRequestedData;
+    }
+  | {
+      type: 'pipeline:approval_resolved';
+      threadId: string;
+      data: WSPipelineApprovalResolvedData;
+    }
   | { type: 'org:member_added'; threadId: ''; data: WSOrgMemberData }
   | { type: 'org:member_removed'; threadId: ''; data: WSOrgMemberData }
   | { type: 'org:invitation_received'; threadId: ''; data: WSOrgInvitationData }
@@ -722,6 +742,8 @@ import type {
   WSPipelineRunStartedData,
   WSPipelineStageUpdateData,
   WSPipelineRunCompletedData,
+  WSPipelineApprovalRequestedData,
+  WSPipelineApprovalResolvedData,
 } from './types/pipelines.js';
 import type {
   WSTestActionData,

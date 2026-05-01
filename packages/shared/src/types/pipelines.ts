@@ -92,3 +92,40 @@ export interface WSPipelineRunCompletedData {
   status: PipelineRunStatus;
   totalIterations: number;
 }
+
+// ─── Approval gates (human-in-the-loop) ─────────────────
+//
+// Mirrors Archon's approval-node semantics so workflows defined in either
+// system share the same data model. See packages/runtime/src/pipelines/approval.ts.
+
+export interface WSPipelineApprovalRequestedData {
+  /** Globally-unique id for this pending approval. Used by the response endpoint. */
+  approvalId: string;
+  /** Stable id of the gate within the pipeline run (matches the node name). */
+  gateId: string;
+  /** User-facing message displayed in the approval UI. */
+  message: string;
+  /** If true, the UI should expose a free-text comment field. */
+  captureResponse: boolean;
+  /** Pipeline run that is paused on this approval. */
+  runId?: string;
+  /** Pipeline that defines the gate. */
+  pipelineId?: string;
+  /** Workflow id (when this approval is part of a higher-level workflow). */
+  workflowId?: string;
+  /** Thread id the pipeline is associated with. */
+  threadId: string;
+  /** ISO timestamp when the approval was requested. */
+  requestedAt: string;
+  /** Optional ISO timestamp when the approval will time out. */
+  expiresAt?: string;
+}
+
+export interface WSPipelineApprovalResolvedData {
+  approvalId: string;
+  gateId: string;
+  threadId: string;
+  decision: 'approve' | 'reject' | 'timeout';
+  /** On approve: optional comment. On reject: rejection reason. */
+  payload?: string;
+}

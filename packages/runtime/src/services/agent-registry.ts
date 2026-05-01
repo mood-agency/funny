@@ -127,6 +127,9 @@ export const BUILTIN_AGENTS = {
     model: 'sonnet' as AgentModel,
     provider: 'claude' as AgentProvider,
     permissionMode: 'plan' as PermissionMode,
+    // Hard-deny mutating tools at the SDK level so the reviewer can't
+    // edit files even if the system prompt is overridden or ignored.
+    disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'MultiEdit'],
   },
   corrector: {
     name: 'corrector',
@@ -153,3 +156,18 @@ export const BUILTIN_AGENTS = {
     permissionMode: 'autoEdit' as PermissionMode,
   },
 } as const satisfies Record<string, AgentDefinition>;
+
+// ── Lookup by `.name` (matches what YAML pipelines reference) ──
+//
+// `BUILTIN_AGENTS` is keyed by camelCase TypeScript identifiers (e.g.
+// `precommitFixer`), but YAML pipelines reference agents by their kebab-case
+// `name` field (e.g. `precommit-fixer`). This helper bridges the two and
+// is the canonical resolver passed to `loadPipelines({ resolveAgent })`.
+
+const BUILTIN_AGENTS_BY_NAME: Record<string, AgentDefinition> = Object.fromEntries(
+  Object.values(BUILTIN_AGENTS).map((def) => [def.name, def]),
+);
+
+export function resolveBuiltinAgentByName(name: string): AgentDefinition | undefined {
+  return BUILTIN_AGENTS_BY_NAME[name];
+}

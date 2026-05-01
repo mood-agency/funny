@@ -1,0 +1,33 @@
+# Built-in pre-push pipeline.
+#
+# Runs the test command; on failure, spawns the test-fixer agent. The
+# `retry` config drives the loop — up to 5 attempts with a fixer agent
+# between each attempt.
+#
+# Replaces packages/runtime/src/pipelines/pre-push.pipeline.ts.
+
+name: pre-push
+description: Run tests; spawn fixer agent and retry on failure
+
+inputs:
+  test_command: { type: string, required: true }
+
+nodes:
+  - id: test
+    run_command:
+      command: "{{test_command}}"
+    retry:
+      max_attempts: 5
+      before_retry:
+        agent: test-fixer
+        prompt: |
+          The test command `{{test_command}}` failed (attempt {{ATTEMPT}}) with:
+
+          ```
+          {{LAST_ERROR}}
+          ```
+
+          After fixing, run the tests again with `{{test_command}}` to verify
+          they pass. Stage your fixes with `git add` and commit them with
+          `git commit --no-verify -m "fix: address test failures"`.
+          Do NOT push.

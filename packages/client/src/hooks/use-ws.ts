@@ -274,6 +274,15 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
       });
       break;
     }
+    case 'pipeline:approval_requested':
+    case 'pipeline:approval_resolved': {
+      import('@/stores/pipeline-approval-store').then(({ usePipelineApprovalStore }) => {
+        const store = usePipelineApprovalStore.getState();
+        if (type === 'pipeline:approval_requested') store.handleApprovalRequested(data);
+        else store.handleApprovalResolved(data);
+      });
+      break;
+    }
     case 'thread:created': {
       useThreadStore.getState().loadThreadsForProject(data.projectId);
       break;
@@ -546,6 +555,8 @@ const ALL_EVENT_TYPES = [
   'pipeline:run_started',
   'pipeline:stage_update',
   'pipeline:run_completed',
+  'pipeline:approval_requested',
+  'pipeline:approval_resolved',
   'thread:created',
   'thread:comment_deleted',
   'thread:updated',
