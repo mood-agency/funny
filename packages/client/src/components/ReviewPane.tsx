@@ -118,6 +118,7 @@ import { PullRequestsTab } from './PullRequestsTab';
 import { ChangesToolbar } from './review-pane/ChangesToolbar';
 import { CommitDraftPanel } from './review-pane/CommitDraftPanel';
 import { DiffViewerModal } from './review-pane/DiffViewerModal';
+import { CreatePRDialog, MergeBranchDialog } from './review-pane/ReviewActionDialogs';
 import { StashTab } from './review-pane/StashTab';
 import { ExpandedDiffView } from './tool-cards/ExpandedDiffDialog';
 
@@ -2245,142 +2246,22 @@ export function ReviewPane() {
           onChoose={handlePullStrategyChosen}
         />
 
-        {/* Create PR dialog */}
-        <Dialog
-          open={!!prDialog}
-          onOpenChange={(open) => {
-            if (!open) setPrDialog(null);
-          }}
-        >
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>{t('review.createPR')}</DialogTitle>
-              <DialogDescription>
-                {t('review.createPRTooltip', {
-                  branch: threadBranch,
-                  target: baseBranch || 'base',
-                })}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2">
-              <Input
-                placeholder={t('review.prTitle', 'PR title')}
-                data-testid="review-pr-title"
-                value={prDialog?.title ?? ''}
-                onChange={(e) =>
-                  setPrDialog((prev) => (prev ? { ...prev, title: e.target.value } : prev))
-                }
-              />
-              <textarea
-                className="w-full resize-none rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-                rows={4}
-                placeholder={t('review.commitBody', 'Description (optional)')}
-                data-testid="review-pr-body"
-                value={prDialog?.body ?? ''}
-                onChange={(e) =>
-                  setPrDialog((prev) => (prev ? { ...prev, body: e.target.value } : prev))
-                }
-              />
-            </div>
-            <div className="mt-2 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPrDialog(null)}
-                data-testid="review-pr-cancel"
-              >
-                {t('common.cancel', 'Cancel')}
-              </Button>
-              <Button
-                size="sm"
-                disabled={!prDialog?.title.trim() || prInProgress}
-                onClick={handleCreatePROnly}
-                data-testid="review-pr-create"
-              >
-                {prInProgress ? (
-                  <Loader2 className="icon-sm mr-1.5 animate-spin" />
-                ) : (
-                  <GitPullRequest className="icon-sm mr-1.5" />
-                )}
-                {t('review.createPR')}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CreatePRDialog
+          prDialog={prDialog}
+          setPrDialog={setPrDialog}
+          threadBranch={threadBranch}
+          baseBranch={baseBranch}
+          prInProgress={prInProgress}
+          handleCreatePROnly={handleCreatePROnly}
+        />
 
-        {/* Merge into branch dialog */}
-        <Dialog
-          open={!!mergeDialog}
-          onOpenChange={(open) => {
-            if (!open) setMergeDialog(null);
-          }}
-        >
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>
-                {t('review.mergeIntoBranch', { target: '', defaultValue: 'Merge into branch' })}
-              </DialogTitle>
-              <DialogDescription>
-                {t('review.mergeDescription', {
-                  source: currentBranch,
-                  defaultValue: `Merge ${currentBranch} into the selected target branch.`,
-                })}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('review.targetBranch', 'Target branch')}
-              </label>
-              {mergeDialog?.loading ? (
-                <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                  <Loader2 className="icon-sm animate-spin" />
-                  {t('common.loading', 'Loading...')}
-                </div>
-              ) : (
-                <Select
-                  value={mergeDialog?.targetBranch}
-                  onValueChange={(v) =>
-                    setMergeDialog((prev) => (prev ? { ...prev, targetBranch: v } : null))
-                  }
-                >
-                  <SelectTrigger className="h-8 text-xs" data-testid="review-merge-target-select">
-                    <SelectValue placeholder={t('review.selectBranch', 'Select branch')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {mergeDialog?.branches.map((b) => (
-                      <SelectItem key={b} value={b} className="text-xs">
-                        {b}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-            <div className="mt-2 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setMergeDialog(null)}
-                data-testid="review-merge-cancel"
-              >
-                {t('common.cancel', 'Cancel')}
-              </Button>
-              <Button
-                size="sm"
-                disabled={!mergeDialog?.targetBranch || mergeDialog?.loading || mergeInProgress}
-                onClick={handleMergeWithTarget}
-                data-testid="review-merge-confirm"
-              >
-                {mergeInProgress ? (
-                  <Loader2 className="icon-sm mr-1.5 animate-spin" />
-                ) : (
-                  <GitMerge className="icon-sm mr-1.5" />
-                )}
-                {t('review.merge', 'Merge')}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <MergeBranchDialog
+          mergeDialog={mergeDialog}
+          setMergeDialog={setMergeDialog}
+          currentBranch={currentBranch}
+          mergeInProgress={mergeInProgress}
+          handleMergeWithTarget={handleMergeWithTarget}
+        />
       </Tabs>
 
       <PublishRepoDialog
