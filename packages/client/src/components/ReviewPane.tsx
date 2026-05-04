@@ -10,17 +10,15 @@ import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/ui/search-bar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { useCommitDraft } from '@/hooks/use-commit-draft';
 import { useCommitWorkflow } from '@/hooks/use-commit-workflow';
+import { useDiffData } from '@/hooks/use-diff-data';
 import { useFileTreeState } from '@/hooks/use-file-tree-state';
 import { useGenerateCommitMsg } from '@/hooks/use-generate-commit-msg';
 import { usePublishState } from '@/hooks/use-publish-state';
 import { useReviewActions } from '@/hooks/use-review-actions';
 import { useStashState } from '@/hooks/use-stash-state';
-import { gitApi } from '@/lib/api/git';
 import { createClientLogger } from '@/lib/client-logger';
-import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import { cn, resolveThreadBranch } from '@/lib/utils';
 import { useGitStatusStore, useGitStatusForThread } from '@/stores/git-status-store';
 import { usePRDetail } from '@/stores/pr-detail-store';
@@ -86,15 +84,7 @@ export function ReviewPane() {
   }, [worktreePath, threadProjectId, selectedProjectId, projectsForPath]);
 
   const [summaries, setSummaries] = useState<FileDiffSummary[]>([]);
-  const [diffCache, setDiffCache] = useState<Map<string, string>>(new Map());
-  const [loadingDiff, setLoadingDiff] = useState<string | null>(null);
-  const [truncatedInfo, setTruncatedInfo] = useState<{ total: number; truncated: boolean }>({
-    total: 0,
-    truncated: false,
-  });
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
   const [fileSearch, setFileSearch] = useState('');
   const [fileSearchCaseSensitive, setFileSearchCaseSensitive] = useState(false);
@@ -161,134 +151,6 @@ export function ReviewPane() {
   const isOnDifferentBranch =
     !!effectiveThreadId && !!baseBranch && !!threadBranch && threadBranch !== baseBranch;
 
-  // AbortController for in-flight git requests. Aborted when the git context
-  // changes (thread/project switch) to prevent piling up stale requests that
-  // saturate the server's git process pool and cause progressive slowdown.
-  const abortRef = useRef<AbortController | null>(null);
-
-  // Monotonically increasing counter to detect stale refresh results.
-  // When a new refresh starts, it captures the current value; if another
-  // refresh starts before it finishes, the older one detects the mismatch
-  // and bails out instead of overwriting state with stale data.
-  const refreshEpochRef = useRef(0);
-
-  // True while refresh() is running — used to suppress the selectedFile
-  // effect from firing a duplicate diff/file load (refresh already loads it).
-  const refreshingRef = useRef(false);
-
-  const refresh = async () => {
-    if (!hasGitContext) return;
-    refreshingRef.current = true;
-    const epoch = ++refreshEpochRef.current;
-
-    // Abort any in-flight git requests from a previous refresh to prevent
-    // piling up stale requests that saturate the server's git process pool.
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-    const { signal } = ac;
-
-    setLoading(true);
-    setLoadError(false);
-
-    // Fire git status refresh in parallel (don't await — it updates its own store).
-    // Respects cooldowns — WS git:status events invalidate them when data changes.
-    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId);
-    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId);
-
-    const result = effectiveThreadId
-      ? await gitApi.getDiffSummary(effectiveThreadId, undefined, undefined, signal)
-      : await gitApi.projectDiffSummary(projectModeId!, undefined, undefined, signal);
-
-    // Bail out if a newer refresh has started while we were awaiting
-    if (refreshEpochRef.current !== epoch || signal.aborted) {
-      refreshingRef.current = false;
-      return;
-    }
-
-    if (result.isOk()) {
-      const data = result.value;
-
-      // Determine which file to load and whether it's cached BEFORE state
-      // updates so we can fire the diff request in parallel with React batching.
-      const newPaths = new Set(data.files.map((d) => d.path));
-      const fileToLoad = selectedFile ?? (data.files.length > 0 ? data.files[0].path : null);
-      const fileToLoadSummary = fileToLoad
-        ? data.files.find((s) => s.path === fileToLoad)
-        : undefined;
-
-      // Check the existing cache (pre-prune) — if the file survived the prune
-      // it will still be there, and if it didn't the fetch is needed regardless.
-      const needsFetch =
-        fileToLoad && fileToLoadSummary && !diffCache.get(fileToLoad) && !signal.aborted;
-
-      // Start diff fetch immediately — don't wait for state updates (parallel)
-      let diffPromise: Promise<void> | undefined;
-      if (needsFetch) {
-        setLoadingDiff(fileToLoad);
-        diffPromise = (async () => {
-          const diffResult = effectiveThreadId
-            ? await gitApi.getFileDiff(
-                effectiveThreadId,
-                fileToLoad,
-                fileToLoadSummary.staged,
-                signal,
-              )
-            : await gitApi.projectFileDiff(
-                projectModeId!,
-                fileToLoad,
-                fileToLoadSummary.staged,
-                signal,
-              );
-          if (refreshEpochRef.current === epoch && diffResult.isOk()) {
-            setDiffCache((prev) => new Map(prev).set(fileToLoad, diffResult.value.diff));
-          }
-          setLoadingDiff((prev) => (prev === fileToLoad ? null : prev));
-        })();
-      }
-
-      // State updates run in parallel with the diff fetch above
-      setSummaries(data.files);
-      setTruncatedInfo({ total: data.total, truncated: data.truncated });
-      setDiffCache((prev) => {
-        const next = new Map<string, string>();
-        for (const [k, v] of prev) {
-          if (newPaths.has(k)) next.set(k, v);
-        }
-        return next;
-      });
-      setCheckedFiles((prev) => {
-        const next = new Set(prev);
-        const currentPaths = new Set(data.files.map((d) => d.path));
-        for (const f of data.files) {
-          if (!prev.has(f.path) && prev.size === 0) {
-            next.add(f.path);
-          } else if (!prev.has(f.path) && data.files.length > prev.size) {
-            next.add(f.path);
-          }
-        }
-        for (const p of prev) {
-          if (!currentPaths.has(p)) next.delete(p);
-        }
-        return next.size === 0 ? new Set(data.files.map((d) => d.path)) : next;
-      });
-      if (data.files.length > 0 && !selectedFile) {
-        setSelectedFile(data.files[0].path);
-      }
-
-      // Wait for the in-flight diff fetch to complete before finishing refresh
-      if (diffPromise) await diffPromise;
-    } else {
-      // Don't log abort errors as failures
-      if (!signal.aborted) {
-        console.error('Failed to load diff summary:', result.error);
-        setLoadError(true);
-      }
-    }
-    if (!signal.aborted) setLoading(false);
-    refreshingRef.current = false;
-  };
-
   const tree = useFileTreeState({
     summaries,
     fileSearch,
@@ -313,104 +175,35 @@ export function ReviewPane() {
     visiblePaths,
   } = tree;
 
-  // Lazy load diff content for the selected file
-  const loadDiffForFile = useCallback(
-    async (filePath: string) => {
-      if (!hasGitContext || diffCache.has(filePath)) return;
-      const submoduleEntry = resolveSubmoduleEntry(filePath);
-      const summary = submoduleEntry ? null : summaries.find((s) => s.path === filePath);
-      if (!submoduleEntry && !summary) return;
-      const signal = abortRef.current?.signal;
-      setLoadingDiff(filePath);
-      const result = submoduleEntry
-        ? effectiveThreadId
-          ? await gitApi.getSubmoduleFileDiff(
-              effectiveThreadId,
-              submoduleEntry.submodulePath,
-              submoduleEntry.innerPath,
-              submoduleEntry.staged,
-              signal,
-            )
-          : await gitApi.projectSubmoduleFileDiff(
-              projectModeId!,
-              submoduleEntry.submodulePath,
-              submoduleEntry.innerPath,
-              submoduleEntry.staged,
-              signal,
-            )
-        : effectiveThreadId
-          ? await gitApi.getFileDiff(effectiveThreadId, filePath, summary!.staged, signal)
-          : await gitApi.projectFileDiff(projectModeId!, filePath, summary!.staged, signal);
-      if (result.isOk() && !signal?.aborted) {
-        setDiffCache((prev) => new Map(prev).set(filePath, result.value.diff));
-      }
-      setLoadingDiff((prev) => (prev === filePath ? null : prev));
-    },
-    [hasGitContext, diffCache, summaries, effectiveThreadId, projectModeId, resolveSubmoduleEntry],
-  );
-
-  // Fetch full-context diff for the "Show full file" toggle
-  const requestFullDiff = async (
-    path: string,
-  ): Promise<{ oldValue: string; newValue: string; rawDiff?: string } | null> => {
-    if (!hasGitContext) return null;
-    const submoduleEntry = resolveSubmoduleEntry(path);
-    const summary = submoduleEntry ? null : summaries.find((s) => s.path === path);
-    if (!submoduleEntry && !summary) return null;
-    const signal = abortRef.current?.signal;
-    const result = submoduleEntry
-      ? effectiveThreadId
-        ? await gitApi.getSubmoduleFileDiff(
-            effectiveThreadId,
-            submoduleEntry.submodulePath,
-            submoduleEntry.innerPath,
-            submoduleEntry.staged,
-            signal,
-            'full',
-          )
-        : await gitApi.projectSubmoduleFileDiff(
-            projectModeId!,
-            submoduleEntry.submodulePath,
-            submoduleEntry.innerPath,
-            submoduleEntry.staged,
-            signal,
-            'full',
-          )
-      : effectiveThreadId
-        ? await gitApi.getFileDiff(effectiveThreadId, path, summary!.staged, signal, 'full')
-        : await gitApi.projectFileDiff(projectModeId!, path, summary!.staged, signal, 'full');
-    if (result.isOk() && !signal?.aborted) {
-      return {
-        oldValue: parseDiffOld(result.value.diff),
-        newValue: parseDiffNew(result.value.diff),
-        rawDiff: result.value.diff,
-      };
-    }
-    return null;
-  };
-
-  // Load diff when selected file or expanded file changes.
-  // Skip when refresh() is running — it already loads the diff for the
-  // selected file inline, so firing here would cause a duplicate request.
-  useEffect(() => {
-    if (selectedFile && !diffCache.has(selectedFile) && !refreshingRef.current) {
-      loadDiffForFile(selectedFile);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on file selection change; diffCache/loadDiffForFile change on every refresh and would cause loops
-  }, [selectedFile]);
-
-  useEffect(() => {
-    if (expandedFile && !diffCache.has(expandedFile)) {
-      loadDiffForFile(expandedFile);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on expanded file change; diffCache/loadDiffForFile change on every refresh and would cause loops
-  }, [expandedFile]);
-
-  // Track whether we need to refresh when the pane becomes visible
-  const needsRefreshRef = useRef(false);
-
-  // Track when a dropdown menu closes so we can suppress the parent row click
-  const dropdownCloseRef = useRef(0);
+  // Diff data lifecycle (summary + per-file load + full-context fetch + the
+  // 3 effects that trigger loads when file selection changes or pane opens).
+  const diffData = useDiffData({
+    hasGitContext,
+    effectiveThreadId,
+    projectModeId,
+    selectedFile,
+    expandedFile,
+    reviewPaneOpen,
+    summaries,
+    setSummaries,
+    submoduleExpansions,
+    setSelectedFile,
+    setCheckedFiles,
+  });
+  const {
+    diffCache,
+    loadingDiff,
+    loading,
+    loadError,
+    truncatedInfo,
+    setDiffCache,
+    setLoadError,
+    abortRef,
+    needsRefreshRef,
+    refresh,
+    loadDiffForFile,
+    requestFullDiff,
+  } = diffData;
 
   // Reset state and refresh when the active thread or project-mode changes,
   // or when the project branch changes (e.g. after a checkout from the BranchPicker).
@@ -596,22 +389,6 @@ export function ReviewPane() {
       setSelectedAction('commit');
     }
   }, [selectedAction, gitStatus?.prNumber]);
-
-  // Fire deferred refresh when the review pane becomes visible.
-  // Uses requestAnimationFrame to yield to the browser first so it can paint
-  // the pane opening animation before we start the async fetch.
-  useEffect(() => {
-    if (reviewPaneOpen && needsRefreshRef.current) {
-      needsRefreshRef.current = false;
-      refresh();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh is a non-memoized function; only trigger on pane visibility change
-  }, [reviewPaneOpen]);
-
-  // Auto-refresh diffs when agent modifies files (debounced 2s).
-  // Pass reviewPaneOpen so dirty signals that arrive while the pane is hidden
-  // trigger an immediate refresh when the pane becomes visible again.
-  useAutoRefreshDiff(effectiveThreadId, refresh, 2000, reviewPaneOpen);
 
   const checkedCount = [...checkedFiles].filter((p) => visiblePaths.has(p)).length;
   const totalCount = visibleFiles.length;
