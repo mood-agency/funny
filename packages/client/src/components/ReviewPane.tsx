@@ -82,6 +82,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { TriCheckbox } from '@/components/ui/tri-checkbox';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { useCommitDraft } from '@/hooks/use-commit-draft';
+import { useCommitWorkflow } from '@/hooks/use-commit-workflow';
 import { useGenerateCommitMsg } from '@/hooks/use-generate-commit-msg';
 import { usePublishState } from '@/hooks/use-publish-state';
 import { useStashState } from '@/hooks/use-stash-state';
@@ -193,11 +194,6 @@ export function ReviewPane() {
     setCommitTitle,
     setCommitBody,
   });
-  const [selectedAction, setSelectedAction] = useState<
-    'commit' | 'commit-push' | 'commit-pr' | 'commit-merge' | 'amend'
-  >('commit');
-  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
-
   // New git operations state
   const [pullInProgress, setPullInProgress] = useState(false);
   const [pullStrategyDialog, setPullStrategyDialog] = useState<{
@@ -243,17 +239,6 @@ export function ReviewPane() {
   );
   // Derive unpushed count from gitStatus store (populated by git/status endpoint).
   const unpushedCommitCount = gitStatus?.unpushedCommitCount ?? 0;
-  const [mergeInProgress, setMergeInProgress] = useState(false);
-  const [pushInProgress, setPushInProgress] = useState(false);
-  const [prInProgress, setPrInProgress] = useState(false);
-  const [prDialog, setPrDialog] = useState<{ title: string; body: string } | null>(null);
-  const [mergeDialog, setMergeDialog] = useState<{
-    targetBranch: string;
-    branches: string[];
-    loading: boolean;
-  } | null>(null);
-  const [hasRebaseConflict, setHasRebaseConflict] = useState(false);
-  const commitLockRef = useRef(false);
 
   // Publish repository state — detect repos with no remote origin
   // remoteCheckProjectId resolves either the project-mode id or the active
@@ -263,103 +248,6 @@ export function ReviewPane() {
     remoteCheckProjectId,
     hasRemoteBranch: gitStatus?.hasRemoteBranch,
   });
-
-  // Track when a workflow just completed so we can auto-close the pane
-  // once the refresh shows a fully-clean branch.
-  const justCompletedWorkflowRef = useRef(false);
-
-  // Commit progress (per-thread, persists across thread switches)
-  const commitProgressId = effectiveThreadId || projectModeId || '';
-  const commitEntry = useCommitProgressStore((s) => s.activeCommits[commitProgressId]);
-  const commitInProgress = !!commitEntry;
-
-  // React to server-driven workflow progress (completion, failure, cleanup)
-  const prevCommitEntryRef = useRef(commitEntry);
-  useEffect(() => {
-    const prev = prevCommitEntryRef.current;
-    prevCommitEntryRef.current = commitEntry;
-
-    // Workflow finished (entry removed by finishCommit after completed)
-    if (prev && !commitEntry) {
-      setActionInProgress(null);
-      commitLockRef.current = false;
-      setPushInProgress(false);
-      setMergeInProgress(false);
-      setPrInProgress(false);
-      justCompletedWorkflowRef.current = true;
-      // Refresh diffs and git status
-      refresh();
-      if (effectiveThreadId && (prev.action === 'commit-merge' || prev.action === 'merge')) {
-        // Refresh both active thread and sidebar thread list
-        useThreadStore.getState().refreshActiveThread();
-        useThreadStore.getState().refreshAllLoadedThreads();
-      }
-      return;
-    }
-
-    if (!commitEntry) return;
-
-    const hasFailed = commitEntry.steps.some((s) => s.status === 'failed');
-    const allCompleted = commitEntry.steps.every((s) => s.status === 'completed');
-
-    if (hasFailed) {
-      setActionInProgress(null);
-      commitLockRef.current = false;
-      setPushInProgress(false);
-      setMergeInProgress(false);
-      setPrInProgress(false);
-
-      // Detect rebase/merge conflicts
-      const mergeStep = commitEntry.steps.find((s) => s.id === 'merge' && s.status === 'failed');
-      if (mergeStep?.error) {
-        const lower = mergeStep.error.toLowerCase();
-        if (
-          lower.includes('conflict') ||
-          lower.includes('rebase failed') ||
-          lower.includes('merge failed') ||
-          lower.includes('automatic merge failed') ||
-          lower.includes('fix conflicts') ||
-          lower.includes('could not apply')
-        ) {
-          setHasRebaseConflict(true);
-        }
-      }
-
-      // Detect hook failures for toast
-      const hookStep = commitEntry.steps.find((s) => s.id === 'hooks' && s.status === 'failed');
-      if (hookStep?.error) {
-        const failedHook = hookStep.subItems?.find((si) => si.status === 'failed');
-        toast.error(
-          t('review.hookFailed', 'Pre-commit hook failed: {{hook}}', {
-            hook: failedHook?.label || 'unknown',
-          }),
-        );
-      }
-
-      refresh();
-    }
-
-    if (allCompleted && prev && !prev.steps.every((s) => s.status === 'completed')) {
-      // Just transitioned to all-completed — show success toast
-      // Note: push toast is handled in use-ws.ts to avoid duplication
-      const action = commitEntry.action;
-      if (action === 'push') {
-        // handled in use-ws.ts
-      } else if (action === 'merge' || action === 'commit-merge') {
-        toast.success(
-          t('review.mergeSuccess', {
-            branch: threadBranch || 'branch',
-            target: baseBranch || 'base',
-            defaultValue: `Merged "${threadBranch || 'branch'}" into "${baseBranch || 'base'}" successfully`,
-          }),
-        );
-      } else if (action === 'create-pr') {
-        toast.success(t('review.prSuccess', 'Pull request created'));
-      } else {
-        toast.success(t('review.commitSuccess', 'Changes committed successfully'));
-      }
-    }
-  }, [commitEntry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Whether the thread is on a different branch from base (worktree or local mode)
   const isOnDifferentBranch =
@@ -639,6 +527,52 @@ export function ReviewPane() {
     gitContextKey: gitContextKey ?? '',
   });
 
+  // Commit / push / PR / merge workflow — owns the in-progress flags, the
+  // dialogs, the rebase-conflict flag, and the watcher that clears them.
+  const wf = useCommitWorkflow({
+    hasGitContext,
+    effectiveThreadId,
+    projectModeId,
+    threadProjectId,
+    selectedProjectId,
+    summaries,
+    checkedFiles,
+    commitTitle,
+    commitBody,
+    draftId,
+    clearCommitDraft,
+    setCommitTitle,
+    setCommitBody,
+    baseBranch,
+    threadBranch,
+    currentBranch,
+    refresh,
+  });
+  const {
+    selectedAction,
+    setSelectedAction,
+    actionInProgress,
+    setActionInProgress,
+    pushInProgress,
+    mergeInProgress,
+    prInProgress,
+    prDialog,
+    setPrDialog,
+    mergeDialog,
+    setMergeDialog,
+    hasRebaseConflict,
+    setHasRebaseConflict,
+    justCompletedWorkflowRef,
+    commitInProgress,
+    commitEntry,
+    commitProgressId,
+    handleCommitAction,
+    handlePushOnly,
+    openMergeDialog,
+    handleMergeWithTarget,
+    handleCreatePROnly,
+  } = wf;
+
   // Auto-close the review pane when the branch becomes fully clean after a workflow
   // (commit-push, push, merge, etc.). This avoids leaving an empty "No changes" pane.
   useEffect(() => {
@@ -875,81 +809,6 @@ export function ReviewPane() {
       // Check all visible (filtered) files, keep existing checked
       setCheckedFiles((prev) => new Set([...prev, ...targetPaths]));
     }
-  };
-
-  const handleCommitAction = async () => {
-    if (!hasGitContext || !commitTitle.trim() || checkedFiles.size === 0 || actionInProgress)
-      return;
-    if (commitLockRef.current) return;
-    commitLockRef.current = true;
-    setActionInProgress(selectedAction);
-
-    const toUnstage = summaries
-      .filter((f) => f.staged && !checkedFiles.has(f.path))
-      .map((f) => f.path);
-    const toStage = Array.from(checkedFiles).filter((p) => {
-      const s = summaries.find((f) => f.path === p);
-      return s && !s.staged;
-    });
-
-    const commitMsg = commitBody.trim()
-      ? `${commitTitle.trim()}\n\n${commitBody.trim()}`
-      : commitTitle.trim();
-
-    // When a thread is active, use the server-side workflow service
-    // so operations appear as grouped workflow events (not agent messages)
-    if (effectiveThreadId) {
-      const params: import('@funny/shared').GitWorkflowRequest = {
-        action: selectedAction,
-        message: commitMsg,
-        filesToStage: toStage,
-        filesToUnstage: toUnstage,
-        amend: selectedAction === 'amend',
-        prTitle: selectedAction === 'commit-pr' ? commitTitle.trim() : undefined,
-        prBody: selectedAction === 'commit-pr' ? commitBody.trim() : undefined,
-        cleanup: selectedAction === 'commit-merge',
-      };
-
-      const result = await api.startWorkflow(effectiveThreadId, params);
-      if (result.isErr()) {
-        toastError(result.error);
-        setActionInProgress(null);
-        commitLockRef.current = false;
-        return;
-      }
-
-      // Progress is now driven by WS events (workflow events in the timeline)
-      setCommitTitle('');
-      setCommitBody('');
-      if (draftId) clearCommitDraft(draftId);
-      return;
-    }
-
-    // Project-mode (no thread) — use existing git-workflow-service
-    const params: import('@funny/shared').GitWorkflowRequest = {
-      action: selectedAction,
-      message: commitMsg,
-      filesToStage: toStage,
-      filesToUnstage: toUnstage,
-      amend: selectedAction === 'amend',
-      prTitle: selectedAction === 'commit-pr' ? commitTitle.trim() : undefined,
-      prBody: selectedAction === 'commit-pr' ? commitBody.trim() : undefined,
-      cleanup: selectedAction === 'commit-merge',
-    };
-
-    const result = await api.projectStartWorkflow(projectModeId!, params);
-
-    if (result.isErr()) {
-      toastError(result.error);
-      setActionInProgress(null);
-      commitLockRef.current = false;
-      return;
-    }
-
-    // Clear draft on successful submission — progress is now driven by WS
-    setCommitTitle('');
-    setCommitBody('');
-    if (draftId) clearCommitDraft(draftId);
   };
 
   const handleRevertFile = (path: string) => {
@@ -1206,93 +1065,6 @@ export function ReviewPane() {
       toast.success(t('review.ignoreSuccess'));
       await refresh();
     }
-  };
-
-  const handlePushOnly = async () => {
-    if (!hasGitContext || pushInProgress) return;
-    setPushInProgress(true);
-
-    const result = effectiveThreadId
-      ? await api.startWorkflow(effectiveThreadId, { action: 'push' })
-      : await api.projectStartWorkflow(projectModeId!, { action: 'push' });
-
-    if (result.isErr()) {
-      toastError(result.error);
-      setPushInProgress(false);
-    }
-    // pushInProgress will be cleared by the useEffect watching commitEntry
-  };
-
-  const openMergeDialog = async () => {
-    const pid = threadProjectId ?? selectedProjectId ?? '';
-    if (!pid) return;
-
-    setMergeDialog({ targetBranch: baseBranch || '', branches: [], loading: true });
-
-    const result = await api.listBranches(pid);
-    if (result.isOk()) {
-      const data = result.value;
-      const branches = data.branches.filter((b) => b !== currentBranch);
-      const defaultTarget =
-        baseBranch && branches.includes(baseBranch)
-          ? baseBranch
-          : data.defaultBranch && branches.includes(data.defaultBranch)
-            ? data.defaultBranch
-            : branches[0] || '';
-      setMergeDialog((prev) =>
-        prev ? { ...prev, targetBranch: defaultTarget, branches, loading: false } : null,
-      );
-    } else {
-      setMergeDialog(null);
-      toastError(result.error);
-    }
-  };
-
-  const handleMergeWithTarget = async () => {
-    if (!hasGitContext || mergeInProgress || !mergeDialog?.targetBranch) return;
-    setMergeInProgress(true);
-
-    const params: import('@funny/shared').GitWorkflowRequest = {
-      action: 'merge',
-      cleanup: true,
-      targetBranch: mergeDialog.targetBranch,
-    };
-
-    const result = effectiveThreadId
-      ? await api.startWorkflow(effectiveThreadId, params)
-      : await api.projectStartWorkflow(projectModeId!, params);
-
-    if (result.isErr()) {
-      toastError(result.error);
-      setMergeInProgress(false);
-    }
-    setMergeDialog(null);
-    // mergeInProgress will be cleared by the useEffect watching commitEntry
-  };
-
-  const handleCreatePROnly = async () => {
-    if (!hasGitContext || prInProgress || !prDialog) return;
-    setPrInProgress(true);
-
-    const result = effectiveThreadId
-      ? await api.startWorkflow(effectiveThreadId, {
-          action: 'create-pr',
-          prTitle: prDialog.title.trim(),
-          prBody: prDialog.body.trim(),
-        })
-      : await api.projectStartWorkflow(projectModeId!, {
-          action: 'create-pr',
-          prTitle: prDialog.title.trim(),
-          prBody: prDialog.body.trim(),
-        });
-
-    if (result.isErr()) {
-      toastError(result.error);
-      setPrInProgress(false);
-      return;
-    }
-    setPrDialog(null);
-    // prInProgress will be cleared by the useEffect watching commitEntry
   };
 
   const handleAskAgentResolve = async () => {
@@ -2624,7 +2396,7 @@ export function ReviewPane() {
               </div>
 
               {/* Commit / workflow progress */}
-              {commitInProgress && (
+              {commitEntry && (
                 <div className="flex-shrink-0 space-y-2 border-t border-sidebar-border p-2">
                   <p className="text-xs font-medium text-foreground">{commitEntry.title}</p>
                   <InlineProgressSteps steps={commitEntry.steps} />
