@@ -81,6 +81,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TriCheckbox } from '@/components/ui/tri-checkbox';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
+import { useStashState } from '@/hooks/use-stash-state';
 import { api, type PullStrategy } from '@/lib/api';
 import { createClientLogger } from '@/lib/client-logger';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
@@ -231,11 +232,6 @@ export function ReviewPane() {
   }>({ open: false, errorMessage: '' });
   const [fetchInProgress, setFetchInProgress] = useState(false);
   const [stashInProgress, setStashInProgress] = useState(false);
-  const [stashEntries, setStashEntries] = useState<
-    Array<{ index: string; message: string; relativeDate: string }>
-  >([]);
-  const [stashPopInProgress, setStashPopInProgress] = useState(false);
-  const [stashDropInProgress, setStashDropInProgress] = useState<string | null>(null);
   const [resetInProgress, setResetInProgress] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     type: 'revert' | 'reset' | 'discard-all' | 'drop-stash' | 'ignore';
@@ -258,16 +254,6 @@ export function ReviewPane() {
     return pid ? s.branchByProject[pid] : undefined;
   });
   const currentBranch = threadBranch || projectBranch;
-
-  // Filter stash entries to only show those from the current branch
-  const filteredStashEntries = useMemo(() => {
-    if (!currentBranch) return stashEntries;
-    return stashEntries.filter((e) => {
-      // Stash messages have format: "On <branch>: <message>" or "WIP on <branch>: <message>"
-      const match = e.message.match(/^(?:WIP )?[Oo]n ([^:]+):/);
-      return match ? match[1] === currentBranch : true;
-    });
-  }, [stashEntries, currentBranch]);
 
   const _hasWorktreePath = useThreadStore((s) => !!s.activeThread?.worktreePath);
   const isAgentRunning = useThreadStore((s) => s.activeThread?.status === 'running');
@@ -395,29 +381,6 @@ export function ReviewPane() {
       }
     }
   }, [commitEntry]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-close the review pane when the branch becomes fully clean after a workflow
-  // (commit-push, push, merge, etc.). This avoids leaving an empty "No changes" pane.
-  useEffect(() => {
-    if (
-      justCompletedWorkflowRef.current &&
-      !loading &&
-      summaries.length === 0 &&
-      stashEntries.length === 0 &&
-      unpushedCommitCount === 0 &&
-      !hasRebaseConflict
-    ) {
-      justCompletedWorkflowRef.current = false;
-      setReviewPaneOpen(false);
-    }
-  }, [
-    loading,
-    summaries.length,
-    stashEntries.length,
-    unpushedCommitCount,
-    hasRebaseConflict,
-    setReviewPaneOpen,
-  ]);
 
   // Whether the thread is on a different branch from base (worktree or local mode)
   const isOnDifferentBranch =
@@ -683,6 +646,43 @@ export function ReviewPane() {
   // when switching between two local threads of the same project that share
   // the same git working directory.
   const gitContextKey = effectiveThreadId || projectModeId;
+
+  // Stash state + ops live in their own hook to keep ReviewPane focused.
+  const stash = useStashState({
+    hasGitContext,
+    effectiveThreadId,
+    projectModeId,
+    currentBranch,
+    abortRef,
+    reviewPaneOpen,
+    reviewSubTab,
+    refresh,
+    gitContextKey: gitContextKey ?? '',
+  });
+
+  // Auto-close the review pane when the branch becomes fully clean after a workflow
+  // (commit-push, push, merge, etc.). This avoids leaving an empty "No changes" pane.
+  useEffect(() => {
+    if (
+      justCompletedWorkflowRef.current &&
+      !loading &&
+      summaries.length === 0 &&
+      stash.stashEntries.length === 0 &&
+      unpushedCommitCount === 0 &&
+      !hasRebaseConflict
+    ) {
+      justCompletedWorkflowRef.current = false;
+      setReviewPaneOpen(false);
+    }
+  }, [
+    loading,
+    summaries.length,
+    stash.stashEntries.length,
+    unpushedCommitCount,
+    hasRebaseConflict,
+    setReviewPaneOpen,
+  ]);
+
   useEffect(() => {
     // Abort any in-flight git requests from the previous thread/project.
     // This is the key fix for progressive slowdown: without this, each thread
@@ -1559,7 +1559,7 @@ export function ReviewPane() {
     }
     setStashInProgress(false);
     await refresh();
-    refreshStashList();
+    stash.refreshStashList();
   };
 
   const handleStashSelected = async () => {
@@ -1587,62 +1587,7 @@ export function ReviewPane() {
     }
     setStashInProgress(false);
     await refresh();
-    refreshStashList();
-  };
-
-  const handleStashPop = async () => {
-    if (!hasGitContext || stashPopInProgress) return;
-    setStashPopInProgress(true);
-    const result = effectiveThreadId
-      ? await api.stashPop(effectiveThreadId)
-      : await api.projectStashPop(projectModeId!);
-    if (result.isErr()) {
-      toast.error(
-        t('review.stashPopFailed', {
-          message: result.error.message,
-          defaultValue: `Stash pop failed: ${result.error.message}`,
-        }),
-      );
-    } else {
-      toast.success(t('review.stashPopSuccess', 'Stash applied'));
-    }
-    setStashPopInProgress(false);
-    await refresh();
-    refreshStashList();
-  };
-
-  const executeStashDrop = async (stashIndex: string) => {
-    if (!hasGitContext || stashDropInProgress) return;
-    setStashDropInProgress(stashIndex);
-    const result = effectiveThreadId
-      ? await api.stashDrop(effectiveThreadId, stashIndex)
-      : await api.projectStashDrop(projectModeId!, stashIndex);
-    if (result.isErr()) {
-      toast.error(
-        t('review.stashDropFailed', {
-          message: result.error.message,
-          defaultValue: `Drop stash failed: ${result.error.message}`,
-        }),
-      );
-    } else {
-      toast.success(t('review.stashDropSuccess', 'Stash discarded'));
-    }
-    setStashDropInProgress(null);
-    setSelectedStashIndex(null);
-    setStashFiles([]);
-    await refresh();
-    refreshStashList();
-  };
-
-  const refreshStashList = async () => {
-    if (!hasGitContext) return;
-    const signal = abortRef.current?.signal;
-    const result = effectiveThreadId
-      ? await api.stashList(effectiveThreadId, signal)
-      : await api.projectStashList(projectModeId!, signal);
-    if (result.isOk() && !signal?.aborted) {
-      setStashEntries(result.value.entries);
-    }
+    stash.refreshStashList();
   };
 
   const executeResetSoft = async () => {
@@ -1665,16 +1610,6 @@ export function ReviewPane() {
     await refresh();
   };
 
-  // Load stash list lazily — only when the stash tab is active and visible.
-  // Previously loaded on every context change even if only the Changes tab
-  // was active, wasting a git request that saturated the process pool.
-  useEffect(() => {
-    if (reviewPaneOpen && reviewSubTab === 'stash') {
-      refreshStashList();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshStashList is a non-memoized function; only trigger on context/visibility/tab change
-  }, [gitContextKey, reviewPaneOpen, reviewSubTab]);
-
   // ── Sync active sub-tab with URL query param ──
   const setReviewSubTab = useCallback(
     (tab: ReviewSubTab) => {
@@ -1691,113 +1626,6 @@ export function ReviewPane() {
     },
     [setReviewSubTabStore, location.pathname, location.search, navigate],
   );
-
-  // ── Stash tab: dialog state for viewing stash contents ──
-  const [selectedStashIndex, setSelectedStashIndex] = useState<string | null>(null);
-  const [stashFiles, setStashFiles] = useState<
-    Array<{ path: string; additions: number; deletions: number }>
-  >([]);
-  const [stashFilesLoading, setStashFilesLoading] = useState(false);
-  const [stashDialogFile, setStashDialogFile] = useState<string | null>(null);
-  const [stashDialogDiff, setStashDialogDiff] = useState<string | null>(null);
-  const [stashDialogDiffLoading, setStashDialogDiffLoading] = useState(false);
-  const [stashFileSearch, setStashFileSearch] = useState('');
-  const [stashFileSearchCaseSensitive, setStashFileSearchCaseSensitive] = useState(false);
-
-  const loadStashFileDiff = useCallback(
-    async (index: string, filePath: string) => {
-      if (!hasGitContext) return;
-      setStashDialogFile(filePath);
-      setStashDialogDiffLoading(true);
-      setStashDialogDiff(null);
-      const result = effectiveThreadId
-        ? await api.stashFileDiff(effectiveThreadId, index, filePath)
-        : await api.projectStashFileDiff(projectModeId!, index, filePath);
-      if (result.isOk()) {
-        setStashDialogDiff(result.value.diff);
-      } else {
-        toast.error(`Failed to load diff: ${result.error.message}`);
-      }
-      setStashDialogDiffLoading(false);
-    },
-    [hasGitContext, effectiveThreadId, projectModeId],
-  );
-
-  // Load files + first diff when a stash is selected
-  useEffect(() => {
-    if (!selectedStashIndex || !hasGitContext) {
-      setStashFiles([]);
-      setStashDialogFile(null);
-      setStashDialogDiff(null);
-      setStashFileSearch('');
-      return;
-    }
-    let cancelled = false;
-    setStashFilesLoading(true);
-    setStashFileSearch('');
-    const load = async () => {
-      const filesResult = effectiveThreadId
-        ? await api.stashShow(effectiveThreadId, selectedStashIndex)
-        : await api.projectStashShow(projectModeId!, selectedStashIndex);
-      if (cancelled) return;
-      if (filesResult.isOk()) {
-        setStashFiles(filesResult.value.files);
-        if (filesResult.value.files.length > 0) {
-          const firstPath = filesResult.value.files[0].path;
-          setStashDialogFile(firstPath);
-          setStashDialogDiffLoading(true);
-          setStashDialogDiff(null);
-          const diffResult = effectiveThreadId
-            ? await api.stashFileDiff(effectiveThreadId, selectedStashIndex, firstPath)
-            : await api.projectStashFileDiff(projectModeId!, selectedStashIndex, firstPath);
-          if (!cancelled && diffResult.isOk()) {
-            setStashDialogDiff(diffResult.value.diff);
-          }
-          if (!cancelled) setStashDialogDiffLoading(false);
-        }
-      } else {
-        toast.error(`Failed to load stash files: ${filesResult.error.message}`);
-        setStashFiles([]);
-      }
-      if (!cancelled) setStashFilesLoading(false);
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedStashIndex, hasGitContext, effectiveThreadId, projectModeId]);
-
-  // Treeview data for stash dialog
-  const stashTreeFiles = useMemo<FileDiffSummary[]>(() => {
-    const all: FileDiffSummary[] = stashFiles.map((f) => ({
-      path: f.path,
-      status: 'modified',
-      staged: false,
-      additions: f.additions,
-      deletions: f.deletions,
-    }));
-    if (!stashFileSearch.trim()) return all;
-    if (stashFileSearchCaseSensitive) {
-      return all.filter((f) => f.path.includes(stashFileSearch));
-    }
-    const q = stashFileSearch.toLowerCase();
-    return all.filter((f) => f.path.toLowerCase().includes(q));
-  }, [stashFiles, stashFileSearch, stashFileSearchCaseSensitive]);
-
-  const selectedStashEntry = useMemo(() => {
-    if (!selectedStashIndex) return null;
-    return (
-      stashEntries.find(
-        (e) => e.index.replace('stash@{', '').replace('}', '') === selectedStashIndex,
-      ) ?? null
-    );
-  }, [selectedStashIndex, stashEntries]);
-
-  const stashDialogDiffCache = useMemo(() => {
-    const m = new Map<string, string>();
-    if (stashDialogFile && stashDialogDiff) m.set(stashDialogFile, stashDialogDiff);
-    return m;
-  }, [stashDialogFile, stashDialogDiff]);
 
   // When a thread is active, commits are delegated to the agent, so allow even if agent is running
   const canCommit =
@@ -1824,6 +1652,32 @@ export function ReviewPane() {
   const ExpandedIcon = expandedSummary
     ? fileStatusIcons[expandedSummary.status] || FileCode
     : FileCode;
+
+  // Destructure stash hook for the stash-tab JSX below (keeps the JSX
+  // unchanged from when the state lived inline; will be passed wholesale
+  // to <StashTab> in Step 2 of the ReviewPane split).
+  const {
+    stashEntries,
+    filteredStashEntries,
+    selectedStashIndex,
+    setSelectedStashIndex,
+    selectedStashEntry,
+    stashFiles,
+    stashTreeFiles,
+    stashFilesLoading,
+    stashDialogFile,
+    stashDialogDiff,
+    stashDialogDiffLoading,
+    stashDialogDiffCache,
+    stashFileSearch,
+    setStashFileSearch,
+    stashFileSearchCaseSensitive,
+    setStashFileSearchCaseSensitive,
+    stashPopInProgress,
+    stashDropInProgress,
+    handleStashPop,
+    loadStashFileDiff,
+  } = stash;
 
   return (
     <div className="flex h-full flex-col">
@@ -3408,7 +3262,7 @@ export function ReviewPane() {
             } else if (dialog?.type === 'ignore' && dialog.paths) {
               await executeIgnoreFiles(dialog.paths);
             } else if (dialog?.type === 'drop-stash' && dialog.stashIndex != null) {
-              await executeStashDrop(dialog.stashIndex);
+              await stash.executeStashDrop(dialog.stashIndex);
             }
           }}
         />
