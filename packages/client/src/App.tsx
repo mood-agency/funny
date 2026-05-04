@@ -1,23 +1,20 @@
 import { PanelLeft } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { PipelineApprovalDialog } from '@/components/PipelineApprovalDialog';
-import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
+import { MainContentSwitcher } from '@/components/MainContentSwitcher';
+import { OverlayDialogs } from '@/components/OverlayDialogs';
+import { RightPane } from '@/components/RightPane';
 import { SidebarProvider, SidebarInset, useSidebar } from '@/components/ui/sidebar';
-import { Toaster } from '@/components/ui/sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { WorkflowErrorModal } from '@/components/WorkflowErrorModal';
 import { useActiveThreadBranchSync } from '@/hooks/use-active-thread-branch-sync';
 import { useGlobalShortcuts } from '@/hooks/use-global-shortcuts';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { useRouteSync } from '@/hooks/use-route-sync';
 import { useThreadHistoryTracker } from '@/hooks/use-thread-history-tracker';
 import { useWS } from '@/hooks/use-ws';
-import { cn, TOAST_DURATION } from '@/lib/utils';
 import { useAgentTemplateStore } from '@/stores/agent-template-store';
-import { useInternalEditorStore } from '@/stores/internal-editor-store';
 import { useProjectStore } from '@/stores/project-store';
 import { setAppNavigate } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -25,10 +22,6 @@ import { useUIStore } from '@/stores/ui-store';
 const AppSidebar = lazy(() =>
   import('@/components/Sidebar').then((m) => ({ default: m.AppSidebar })),
 );
-// Prefetch ThreadView immediately — it's the primary view users always see.
-// This fires the chunk download in parallel with auth bootstrap.
-const threadViewImport = import('@/components/ThreadView').then((m) => ({ default: m.ThreadView }));
-const ThreadView = lazy(() => threadViewImport);
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'sidebar_width';
 const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -65,93 +58,14 @@ function CollapsedSidebarStrip() {
   );
 }
 
-// Lazy-load conditional views (bundle-conditional / bundle-dynamic-imports)
-const AllThreadsView = lazy(() =>
-  import('@/components/AllThreadsView').then((m) => ({ default: m.AllThreadsView })),
-);
-const reviewPaneImport = () =>
-  import('@/components/ReviewPane').then((m) => ({ default: m.ReviewPane }));
-const ReviewPane = lazy(reviewPaneImport);
-const TestRunnerPane = lazy(() =>
-  import('@/components/TestRunnerPane').then((m) => ({ default: m.TestRunnerPane })),
-);
-const ActivityPane = lazy(() =>
-  import('@/components/ActivityPane').then((m) => ({ default: m.ActivityPane })),
-);
-const ProjectFilesPane = lazy(() =>
-  import('@/components/ProjectFilesPane').then((m) => ({ default: m.ProjectFilesPane })),
-);
 const TerminalPanel = lazy(() =>
   import('@/components/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
-);
-const SettingsDetailView = lazy(() =>
-  import('@/components/SettingsDetailView').then((m) => ({ default: m.SettingsDetailView })),
-);
-const GeneralSettingsView = lazy(() =>
-  import('@/components/GeneralSettingsView').then((m) => ({ default: m.GeneralSettingsView })),
-);
-const AutomationInboxView = lazy(() =>
-  import('@/components/AutomationInboxView').then((m) => ({ default: m.AutomationInboxView })),
-);
-const AddProjectView = lazy(() =>
-  import('@/components/AddProjectView').then((m) => ({ default: m.AddProjectView })),
-);
-const AnalyticsView = lazy(() =>
-  import('@/components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })),
-);
-const LiveColumnsView = lazy(() =>
-  import('@/components/LiveColumnsView').then((m) => ({ default: m.LiveColumnsView })),
-);
-const DesignsListView = lazy(() =>
-  import('@/components/DesignsListView').then((m) => ({ default: m.DesignsListView })),
-);
-const DesignView = lazy(() =>
-  import('@/components/DesignView').then((m) => ({ default: m.DesignView })),
-);
-const commandPaletteImport = () =>
-  import('@/components/CommandPalette').then((m) => ({ default: m.CommandPalette }));
-const CommandPalette = lazy(commandPaletteImport);
-const fileSearchImport = () =>
-  import('@/components/FileSearchDialog').then((m) => ({ default: m.FileSearchDialog }));
-const FileSearchDialog = lazy(fileSearchImport);
-// Prefetch the CommandPalette and ReviewPane chunks on idle so they open instantly
-if (typeof requestIdleCallback === 'function') {
-  requestIdleCallback(() => {
-    commandPaletteImport();
-  });
-  requestIdleCallback(() => {
-    fileSearchImport();
-  });
-  requestIdleCallback(() => {
-    reviewPaneImport();
-  });
-} else {
-  setTimeout(() => {
-    commandPaletteImport();
-  }, 2000);
-  setTimeout(() => {
-    fileSearchImport();
-  }, 2500);
-  setTimeout(() => {
-    reviewPaneImport();
-  }, 3000);
-}
-const CircuitBreakerDialog = lazy(() =>
-  import('@/components/CircuitBreakerDialog').then((m) => ({ default: m.CircuitBreakerDialog })),
-);
-const MonacoEditorDialog = lazy(() =>
-  import('@/components/MonacoEditorDialog').then((m) => ({ default: m.MonacoEditorDialog })),
 );
 
 export function App() {
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const loadTemplates = useAgentTemplateStore((s) => s.loadTemplates);
   const reviewPaneOpen = useUIStore((s) => s.reviewPaneOpen);
-  const reviewPaneWidth = useUIStore((s) => s.reviewPaneWidth);
-  const setReviewPaneWidth = useUIStore((s) => s.setReviewPaneWidth);
-  const reviewPaneResizing = useUIStore((s) => s.reviewPaneResizing);
-  const setReviewPaneResizing = useUIStore((s) => s.setReviewPaneResizing);
-  const rightPaneTab = useUIStore((s) => s.rightPaneTab);
   const settingsOpen = useUIStore((s) => s.settingsOpen);
   const generalSettingsOpen = useUIStore((s) => s.generalSettingsOpen);
   const allThreadsProjectId = useUIStore((s) => s.allThreadsProjectId);
@@ -165,9 +79,6 @@ export function App() {
   const designsListProjectId = useUIStore((s) => s.designsListProjectId);
   const designsListOpen = !!designsListProjectId;
   const testRunnerOpen = useUIStore((s) => s.testRunnerOpen);
-  const internalEditorOpen = useInternalEditorStore((s) => s.isOpen);
-  const internalEditorFilePath = useInternalEditorStore((s) => s.filePath);
-  const internalEditorContent = useInternalEditorStore((s) => s.initialContent);
   const navigate = useNavigate();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -185,25 +96,6 @@ export function App() {
     designViewOpen ||
     !!allThreadsProjectId;
   const rightPaneVisible = reviewPaneOpen && !isFullScreenView;
-
-  // Drag-to-resize for the right pane. Capture starting width on pointerdown
-  // so the first drag responds immediately (no unit-normalization snap).
-  const dragStartWidthVw = useRef(0);
-  const { resizing, handlePointerDown, handlePointerMove, handlePointerUp } = useResizeHandle({
-    direction: 'horizontal',
-    onResizeStart: () => {
-      dragStartWidthVw.current = useUIStore.getState().reviewPaneWidth;
-      setReviewPaneResizing(true);
-    },
-    onResize: (deltaPx) => {
-      const deltaVw = (deltaPx / window.innerWidth) * 100;
-      // Dragging the handle right shrinks the right pane
-      setReviewPaneWidth(dragStartWidthVw.current - deltaVw);
-    },
-    onResizeEnd: () => {
-      setReviewPaneResizing(false);
-    },
-  });
 
   // Register navigate so the store can trigger navigation (e.g. from toasts)
   useEffect(() => {
@@ -273,29 +165,18 @@ export function App() {
             <div className="flex min-h-0 flex-1 overflow-hidden">
               <ErrorBoundary area="main-content">
                 <Suspense>
-                  {generalSettingsOpen ? (
-                    <GeneralSettingsView />
-                  ) : settingsOpen ? (
-                    <SettingsDetailView />
-                  ) : analyticsOpen ? (
-                    <AnalyticsView />
-                  ) : liveColumnsOpen ? (
-                    <LiveColumnsView />
-                  ) : testRunnerOpen ? (
-                    <TestRunnerPane />
-                  ) : automationInboxOpen ? (
-                    <AutomationInboxView />
-                  ) : addProjectOpen ? (
-                    <AddProjectView />
-                  ) : designViewOpen ? (
-                    <DesignView />
-                  ) : designsListOpen ? (
-                    <DesignsListView />
-                  ) : allThreadsProjectId ? (
-                    <AllThreadsView />
-                  ) : (
-                    <ThreadView />
-                  )}
+                  <MainContentSwitcher
+                    generalSettingsOpen={generalSettingsOpen}
+                    settingsOpen={settingsOpen}
+                    analyticsOpen={analyticsOpen}
+                    liveColumnsOpen={liveColumnsOpen}
+                    testRunnerOpen={testRunnerOpen}
+                    automationInboxOpen={automationInboxOpen}
+                    addProjectOpen={addProjectOpen}
+                    designViewOpen={designViewOpen}
+                    designsListOpen={designsListOpen}
+                    allThreadsProjectId={allThreadsProjectId}
+                  />
                 </Suspense>
               </ErrorBoundary>
             </div>
@@ -316,75 +197,16 @@ export function App() {
           </SidebarInset>
         </div>
 
-        {/* Resize handle between center and right pane — only when right pane is shown */}
-        {rightPaneVisible && (
-          <ResizeHandle
-            direction="horizontal"
-            resizing={resizing}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            data-testid="right-pane-resize-handle"
-          />
-        )}
-
-        {/* Right panel — Review / Tasks / Activity. Wrapper stays mounted so
-            width can animate open/closed; inner content unmounts when hidden. */}
-        <div
-          className={cn(
-            'flex min-w-0 flex-shrink-0 flex-col overflow-hidden bg-sidebar',
-            !resizing && !reviewPaneResizing && 'transition-[width] duration-200 ease-linear',
-          )}
-          style={{ width: rightPaneVisible ? `${reviewPaneWidth}vw` : 0 }}
-        >
-          {rightPaneVisible && (
-            <div
-              className="min-h-0 flex-1 overflow-hidden"
-              style={{ width: `${reviewPaneWidth}vw` }}
-            >
-              <ErrorBoundary area="right-pane">
-                <Suspense>
-                  {rightPaneTab === 'review' ? (
-                    <ReviewPane />
-                  ) : rightPaneTab === 'files' ? (
-                    <ProjectFilesPane />
-                  ) : (
-                    <ActivityPane />
-                  )}
-                </Suspense>
-              </ErrorBoundary>
-            </div>
-          )}
-        </div>
+        <RightPane visible={rightPaneVisible} />
       </div>
 
-      <Toaster position="bottom-right" duration={TOAST_DURATION} />
-      {branchSyncDialog}
-      <WorkflowErrorModal />
-      <Suspense>
-        <PipelineApprovalDialog />
-      </Suspense>
-      <Suspense>
-        <CircuitBreakerDialog />
-      </Suspense>
-      <Suspense>
-        <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
-      </Suspense>
-      <Suspense>
-        <FileSearchDialog open={fileSearchOpen} onOpenChange={setFileSearchOpen} />
-      </Suspense>
-
-      {/* Internal Monaco Editor Dialog (global, lazy-loaded) */}
-      <Suspense>
-        <MonacoEditorDialog
-          open={internalEditorOpen}
-          onOpenChange={(open) => {
-            if (!open) useInternalEditorStore.getState().closeEditor();
-          }}
-          filePath={internalEditorFilePath || ''}
-          initialContent={internalEditorContent}
-        />
-      </Suspense>
+      <OverlayDialogs
+        branchSyncDialog={branchSyncDialog}
+        commandPaletteOpen={commandPaletteOpen}
+        setCommandPaletteOpen={setCommandPaletteOpen}
+        fileSearchOpen={fileSearchOpen}
+        setFileSearchOpen={setFileSearchOpen}
+      />
     </SidebarProvider>
   );
 }
