@@ -2,8 +2,6 @@ import { DEFAULT_FOLLOW_UP_MODE } from '@funny/shared/models';
 import { useReducedMotion } from 'motion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 
 import { FollowUpModeDialog } from '@/components/FollowUpModeDialog';
 import { ImageLightbox } from '@/components/ImageLightbox';
@@ -15,11 +13,7 @@ import { ProjectHeader } from '@/components/thread/ProjectHeader';
 import { PromptTimeline } from '@/components/thread/PromptTimeline';
 import { ThreadSearchBar } from '@/components/thread/ThreadSearchBar';
 import { useTodoSnapshots } from '@/hooks/use-todo-panel';
-import { api } from '@/lib/api';
-import { createClientLogger } from '@/lib/client-logger';
-import { buildPath } from '@/lib/url';
 import { useProjectStore } from '@/stores/project-store';
-import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import {
   useActiveCompactionEvents,
   useActiveMessages,
@@ -28,30 +22,9 @@ import {
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
 
-const log = createClientLogger('ThreadChatView');
+import { useThreadHandlers, type PendingSend } from './use-thread-handlers';
 
 type ActiveThread = NonNullable<ReturnType<typeof useThreadStore.getState>['activeThread']>;
-
-interface PendingSend {
-  prompt: string;
-  opts: {
-    provider?: string;
-    model?: string;
-    permissionMode?: string;
-    allowedTools?: string[];
-    disallowedTools?: string[];
-    fileReferences?: { path: string }[];
-    symbolReferences?: {
-      path: string;
-      name: string;
-      kind: string;
-      line: number;
-      endLine?: number;
-    }[];
-    baseBranch?: string;
-  };
-  images?: any[];
-}
 
 function useThreadSearch(
   activeThreadId: string | null,
@@ -152,7 +125,7 @@ function useThreadSearch(
     highlightedMsgRef.current = null;
   }, [clearSearchHighlights]);
 
-  return { searchOpen, setSearchOpen, handleSearchNavigate, handleSearchClose };
+  return { searchOpen, handleSearchNavigate, handleSearchClose };
 }
 
 interface Props {
@@ -161,7 +134,6 @@ interface Props {
 
 export function ThreadChatView({ activeThread }: Props) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const stableMessages = useActiveMessages();
   const stableThreadEvents = useActiveThreadEvents();
   const stableCompactionEvents = useActiveCompactionEvents();
@@ -171,21 +143,37 @@ export function ThreadChatView({ activeThread }: Props) {
   const loadingMore = activeThread.loadingMore ?? false;
   const prefersReducedMotion = useReducedMotion();
 
-  const [sending, setSending] = useState(false);
   const streamRef = useRef<MessageStreamHandle>(null);
   const [visibleMessageId, setVisibleMessageId] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<{ src: string; alt: string }[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
-  const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
 
   const pendingSendRef = useRef<PendingSend | null>(null);
   const setPromptRef = useRef<((text: string) => void) | null>(null);
-  const activeThreadRef = useRef(activeThread);
+  const activeThreadRef = useRef<ActiveThread | null>(activeThread);
   activeThreadRef.current = activeThread;
-  const sendingRef = useRef(sending);
-  sendingRef.current = sending;
+  const sendingRef = useRef(false);
+
+  const handlers = useThreadHandlers({
+    activeThreadRef,
+    sendingRef,
+    streamRef,
+    pendingSendRef,
+    setPromptRef,
+  });
+  const {
+    sending,
+    followUpDialogOpen,
+    handleSend,
+    handleFollowUpAction,
+    handleFollowUpCancel,
+    handleStop,
+    handlePermissionApproval,
+    handleToolRespond,
+    handleFork,
+    forkingMessageId,
+  } = handlers;
 
   // Track which message/tool-call IDs existed when the thread was loaded.
   const knownIdsRef = useRef<Set<string>>(new Set());
@@ -224,146 +212,6 @@ export function ThreadChatView({ activeThread }: Props) {
     setLightboxImages(images);
     setLightboxIndex(index);
     setLightboxOpen(true);
-  }, []);
-
-  const handleToolRespond = useCallback((toolCallId: string, answer: string) => {
-    const thread = activeThreadRef.current;
-    if (!thread) return;
-    useThreadStore.getState().handleWSToolOutput(thread.id, { toolCallId, output: answer });
-  }, []);
-
-  const handleFork = useCallback(
-    async (messageId: string) => {
-      const thread = activeThreadRef.current;
-      if (!thread || forkingMessageId) return;
-      setForkingMessageId(messageId);
-      try {
-        const result = await api.forkThread(thread.id, messageId);
-        if (result.isErr()) {
-          log.error('Failed to fork thread', {
-            threadId: thread.id,
-            messageId,
-            error: result.error.message,
-          });
-          toast.error(t('thread.forkFailed', 'Failed to fork conversation'));
-          return;
-        }
-        const newThread = result.value;
-        useThreadStore.setState({ selectedThreadId: newThread.id });
-        await useThreadStore.getState().loadThreadsForProject(thread.projectId);
-        navigate(buildPath(`/projects/${thread.projectId}/threads/${newThread.id}`));
-        toast.success(t('thread.forkSuccess', 'Forked conversation'));
-      } finally {
-        setForkingMessageId(null);
-      }
-    },
-    [forkingMessageId, navigate, t],
-  );
-
-  const handleStop = useCallback(async () => {
-    const thread = activeThreadRef.current;
-    if (!thread) return;
-    const result = await api.stopThread(thread.id);
-    if (result.isErr()) {
-      console.error('Stop failed:', result.error);
-    }
-  }, []);
-
-  const handlePermissionApproval = useCallback(
-    async (toolName: string, approved: boolean, alwaysAllow?: boolean) => {
-      const thread = activeThreadRef.current;
-      if (!thread) return;
-      const toolInput = thread.pendingPermission?.toolInput;
-      useThreadStore
-        .getState()
-        .appendOptimisticMessage(
-          thread.id,
-          approved
-            ? alwaysAllow
-              ? `Always allowed: ${toolName}`
-              : `Approved: ${toolName}`
-            : `Denied: ${toolName}`,
-        );
-      const { allowedTools, disallowedTools } = deriveToolLists(
-        useSettingsStore.getState().toolPermissions,
-      );
-      const result = await api.approveTool(
-        thread.id,
-        toolName,
-        approved,
-        allowedTools,
-        disallowedTools,
-        approved && alwaysAllow ? { scope: 'always', toolInput } : { scope: 'once' },
-      );
-      if (result.isErr()) {
-        console.error('Permission approval failed:', result.error);
-      }
-    },
-    [],
-  );
-
-  const handleSend = useSendMessage({
-    activeThreadRef,
-    sendingRef,
-    setSending,
-    streamRef,
-    pendingSendRef,
-    setFollowUpDialogOpen,
-  });
-
-  const handleFollowUpAction = useCallback(
-    async (action: 'interrupt' | 'queue') => {
-      setFollowUpDialogOpen(false);
-      const pending = pendingSendRef.current;
-      if (!pending) return;
-      pendingSendRef.current = null;
-      const thread = activeThreadRef.current;
-      if (!thread) return;
-      setSending(true);
-      if (action === 'interrupt') toast.info(t('thread.interruptingAgent'));
-      if (action === 'interrupt') {
-        useThreadStore
-          .getState()
-          .appendOptimisticMessage(
-            thread.id,
-            pending.prompt,
-            pending.images,
-            pending.opts.model as any,
-            pending.opts.permissionMode as any,
-            pending.opts.fileReferences as any,
-          );
-      }
-      requestAnimationFrame(() => streamRef.current?.scrollToBottom());
-      const result = await api.sendMessage(
-        thread.id,
-        pending.prompt,
-        { ...pending.opts, forceQueue: action === 'queue' ? true : undefined },
-        pending.images,
-      );
-      if (result.isErr()) {
-        const err = result.error;
-        toast.error(
-          err.type === 'INTERNAL'
-            ? t('thread.sendFailed')
-            : t('thread.sendFailedGeneric', { error: err.message }),
-        );
-      } else if (result.value && (result.value as any).queued) {
-        if (action === 'interrupt') {
-          useThreadStore.getState().rollbackOptimisticMessage(thread.id);
-        }
-        applyQueuedCount(thread.id, (result.value as any).queuedCount);
-        toast.success(t('thread.messageQueued'));
-      }
-      setSending(false);
-    },
-    [t],
-  );
-
-  const handleFollowUpCancel = useCallback(() => {
-    setFollowUpDialogOpen(false);
-    const pending = pendingSendRef.current;
-    if (pending && setPromptRef.current) setPromptRef.current(pending.prompt);
-    pendingSendRef.current = null;
   }, []);
 
   const uiQueuedCount = activeThread.queuedCount ?? 0;
@@ -474,148 +322,5 @@ export function ThreadChatView({ activeThread }: Props) {
         onCancel={handleFollowUpCancel}
       />
     </div>
-  );
-}
-
-function applyQueuedCount(threadId: string, responseQueuedCount: unknown) {
-  if (typeof responseQueuedCount !== 'number') return;
-  const current = useThreadStore.getState().activeThread;
-  const { queuedCountByThread } = useThreadStore.getState();
-  if (current?.id === threadId) {
-    useThreadStore.setState({
-      activeThread: { ...current, queuedCount: responseQueuedCount },
-      queuedCountByThread: { ...queuedCountByThread, [threadId]: responseQueuedCount },
-    });
-  } else {
-    useThreadStore.setState({
-      queuedCountByThread: { ...queuedCountByThread, [threadId]: responseQueuedCount },
-    });
-  }
-}
-
-function useSendMessage({
-  activeThreadRef,
-  sendingRef,
-  setSending,
-  streamRef,
-  pendingSendRef,
-  setFollowUpDialogOpen,
-}: {
-  activeThreadRef: RefObject<ActiveThread | null>;
-  sendingRef: RefObject<boolean>;
-  setSending: (v: boolean) => void;
-  streamRef: RefObject<MessageStreamHandle | null>;
-  pendingSendRef: RefObject<PendingSend | null>;
-  setFollowUpDialogOpen: (open: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  return useCallback(
-    async (
-      prompt: string,
-      opts: {
-        provider?: string;
-        model: string;
-        mode: string;
-        effort?: string;
-        fileReferences?: { path: string; type?: 'file' | 'folder' }[];
-        symbolReferences?: {
-          path: string;
-          name: string;
-          kind: string;
-          line: number;
-          endLine?: number;
-        }[];
-        baseBranch?: string;
-      },
-      images?: any[],
-    ) => {
-      if (sendingRef.current) {
-        log.warn('handleSend: blocked by sendingRef', { promptPreview: prompt.slice(0, 80) });
-        return;
-      }
-      const thread = activeThreadRef.current;
-      if (!thread) return;
-      const queuedCount = thread.queuedCount ?? 0;
-      const threadIsRunning = thread.status === 'running' || queuedCount > 0;
-      const currentProject = useProjectStore
-        .getState()
-        .projects.find((p) => p.id === thread.projectId);
-      const followUpMode = currentProject?.followUpMode || DEFAULT_FOLLOW_UP_MODE;
-
-      if (threadIsRunning && followUpMode === 'ask') {
-        const { allowedTools, disallowedTools } = deriveToolLists(
-          useSettingsStore.getState().toolPermissions,
-        );
-        pendingSendRef.current = {
-          prompt,
-          opts: {
-            provider: opts.provider || undefined,
-            model: opts.model || undefined,
-            permissionMode: opts.mode || undefined,
-            allowedTools,
-            disallowedTools,
-            fileReferences: opts.fileReferences,
-            symbolReferences: opts.symbolReferences,
-            baseBranch: opts.baseBranch,
-          },
-          images,
-        };
-        setFollowUpDialogOpen(true);
-        return;
-      }
-
-      setSending(true);
-      if (threadIsRunning && followUpMode === 'interrupt') {
-        toast.info(t('thread.interruptingAgent'));
-      }
-      if (!threadIsRunning) {
-        useThreadStore
-          .getState()
-          .appendOptimisticMessage(
-            thread.id,
-            prompt,
-            images,
-            opts.model as any,
-            opts.mode as any,
-            opts.fileReferences,
-          );
-      }
-      requestAnimationFrame(() => streamRef.current?.scrollToBottom());
-      const { allowedTools, disallowedTools } = deriveToolLists(
-        useSettingsStore.getState().toolPermissions,
-      );
-      const result = await api.sendMessage(
-        thread.id,
-        prompt,
-        {
-          provider: opts.provider || undefined,
-          model: opts.model || undefined,
-          permissionMode: opts.mode || undefined,
-          effort: opts.effort || undefined,
-          allowedTools,
-          disallowedTools,
-          fileReferences: opts.fileReferences,
-          symbolReferences: opts.symbolReferences,
-          baseBranch: opts.baseBranch,
-        },
-        images,
-      );
-      if (result.isErr()) {
-        const err = result.error;
-        toast.error(
-          err.type === 'INTERNAL'
-            ? t('thread.sendFailed')
-            : t('thread.sendFailedGeneric', { error: err.message }),
-        );
-      } else if (result.value && (result.value as any).queued) {
-        if (!threadIsRunning) {
-          useThreadStore.getState().rollbackOptimisticMessage(thread.id);
-        }
-        applyQueuedCount(thread.id, (result.value as any).queuedCount);
-        toast.success(t('thread.messageQueued'));
-      }
-      setSending(false);
-    },
-    [activeThreadRef, sendingRef, setSending, streamRef, pendingSendRef, setFollowUpDialogOpen, t],
   );
 }
