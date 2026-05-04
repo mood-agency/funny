@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 import { gitApi } from '@/lib/api/git';
+import { useGitStatusStore } from '@/stores/git-status-store';
 
 interface UsePublishStateArgs {
   /** Project id used to look up the remote (project-mode or the thread's project). */
@@ -17,10 +19,10 @@ export interface UsePublishStateResult {
    * `string` = the resolved remote URL.
    */
   remoteUrl: string | null | undefined;
-  /** Update the cached remote URL after a successful publish flow. */
-  setRemoteUrl: (url: string | null | undefined) => void;
   publishDialogOpen: boolean;
   setPublishDialogOpen: (open: boolean) => void;
+  /** Handle successful publish: update cached URL, close dialog, force-refresh status, toast. */
+  handlePublishSuccess: (repoUrl: string) => void;
 }
 
 /**
@@ -55,5 +57,17 @@ export function usePublishState({
     return () => controller.abort();
   }, [remoteCheckProjectId, hasRemoteBranch]);
 
-  return { remoteUrl, setRemoteUrl, publishDialogOpen, setPublishDialogOpen };
+  const handlePublishSuccess = useCallback(
+    (repoUrl: string) => {
+      setRemoteUrl(repoUrl);
+      setPublishDialogOpen(false);
+      if (remoteCheckProjectId) {
+        useGitStatusStore.getState().fetchProjectStatus(remoteCheckProjectId, true);
+      }
+      toast.success('Repository ready');
+    },
+    [remoteCheckProjectId],
+  );
+
+  return { remoteUrl, publishDialogOpen, setPublishDialogOpen, handlePublishSuccess };
 }

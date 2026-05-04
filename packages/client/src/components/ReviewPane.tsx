@@ -3,7 +3,6 @@ import { FileCheck2, FileCode, FilePlus, FileWarning, FileX, PanelRightClose } f
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PullStrategyDialog } from '@/components/pull-strategy-dialog';
@@ -152,10 +151,11 @@ export function ReviewPane() {
   // remoteCheckProjectId resolves either the project-mode id or the active
   // thread's project (worktrees share git config with the project).
   const remoteCheckProjectId = projectModeId ?? threadProjectId ?? null;
-  const { remoteUrl, setRemoteUrl, publishDialogOpen, setPublishDialogOpen } = usePublishState({
-    remoteCheckProjectId,
-    hasRemoteBranch: gitStatus?.hasRemoteBranch,
-  });
+  const { remoteUrl, publishDialogOpen, setPublishDialogOpen, handlePublishSuccess } =
+    usePublishState({
+      remoteCheckProjectId,
+      hasRemoteBranch: gitStatus?.hasRemoteBranch,
+    });
 
   // Whether the thread is on a different branch from base (worktree or local mode)
   const isOnDifferentBranch =
@@ -1031,14 +1031,7 @@ export function ReviewPane() {
         projectPath={basePath}
         open={publishDialogOpen}
         onOpenChange={setPublishDialogOpen}
-        onSuccess={(repoUrl) => {
-          setRemoteUrl(repoUrl);
-          setPublishDialogOpen(false);
-          if (remoteCheckProjectId) {
-            useGitStatusStore.getState().fetchProjectStatus(remoteCheckProjectId, true);
-          }
-          toast.success('Repository ready');
-        }}
+        onSuccess={handlePublishSuccess}
       />
     </div>
   );
