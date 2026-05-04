@@ -17,6 +17,8 @@ export interface UsePublishStateResult {
    * `string` = the resolved remote URL.
    */
   remoteUrl: string | null | undefined;
+  /** Update the cached remote URL after a successful publish flow. */
+  setRemoteUrl: (url: string | null | undefined) => void;
   publishDialogOpen: boolean;
   setPublishDialogOpen: (open: boolean) => void;
 }
@@ -53,5 +55,5 @@ export function usePublishState({
     return () => controller.abort();
   }, [remoteCheckProjectId, hasRemoteBranch]);
 
-  return { remoteUrl, publishDialogOpen, setPublishDialogOpen };
+  return { remoteUrl, setRemoteUrl, publishDialogOpen, setPublishDialogOpen };
 }

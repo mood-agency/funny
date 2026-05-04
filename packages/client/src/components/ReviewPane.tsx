@@ -82,6 +82,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { TriCheckbox } from '@/components/ui/tri-checkbox';
 import { useAutoRefreshDiff } from '@/hooks/use-auto-refresh-diff';
 import { useCommitDraft } from '@/hooks/use-commit-draft';
+import { useGenerateCommitMsg } from '@/hooks/use-generate-commit-msg';
 import { usePublishState } from '@/hooks/use-publish-state';
 import { useStashState } from '@/hooks/use-stash-state';
 import { api, type PullStrategy } from '@/lib/api';
@@ -184,11 +185,14 @@ export function ReviewPane() {
   const draftId = effectiveThreadId || projectModeId;
   const { commitTitle, commitBody, setCommitTitle, setCommitBody, commitTitleRef, commitBodyRef } =
     useCommitDraft(draftId);
-  const generatingMsg = useReviewPaneStore((s) =>
-    draftId ? (s.generatingCommitMsg[draftId] ?? false) : false,
-  );
-  const setGeneratingCommitMsg = useReviewPaneStore((s) => s.setGeneratingCommitMsg);
-  const generateAbortRef = useRef<AbortController | null>(null);
+  const { generatingMsg, handleGenerateCommitMsg, abortGenerate } = useGenerateCommitMsg({
+    hasGitContext,
+    draftId,
+    effectiveThreadId,
+    projectModeId,
+    setCommitTitle,
+    setCommitBody,
+  });
   const [selectedAction, setSelectedAction] = useState<
     'commit' | 'commit-push' | 'commit-pr' | 'commit-merge' | 'amend'
   >('commit');
@@ -255,7 +259,7 @@ export function ReviewPane() {
   // remoteCheckProjectId resolves either the project-mode id or the active
   // thread's project (worktrees share git config with the project).
   const remoteCheckProjectId = projectModeId ?? threadProjectId ?? null;
-  const { remoteUrl, publishDialogOpen, setPublishDialogOpen } = usePublishState({
+  const { remoteUrl, setRemoteUrl, publishDialogOpen, setPublishDialogOpen } = usePublishState({
     remoteCheckProjectId,
     hasRemoteBranch: gitStatus?.hasRemoteBranch,
   });
@@ -665,7 +669,7 @@ export function ReviewPane() {
     abortRef.current?.abort();
     // Also abort any in-flight commit message generation so it doesn't write
     // stale results back to local state after the thread switch.
-    generateAbortRef.current?.abort();
+    abortGenerate();
 
     setSummaries([]);
     setDiffCache(new Map());
@@ -870,53 +874,6 @@ export function ReviewPane() {
     } else {
       // Check all visible (filtered) files, keep existing checked
       setCheckedFiles((prev) => new Set([...prev, ...targetPaths]));
-    }
-  };
-
-  const handleGenerateCommitMsg = async () => {
-    if (!hasGitContext || generatingMsg) return;
-
-    // Capture identity at invocation time so the result always writes to the
-    // correct thread/project, even if the user switches away during the await.
-    const capturedDraftId = draftId;
-    const capturedThreadId = effectiveThreadId;
-    const capturedProjectModeId = projectModeId;
-    if (!capturedDraftId) return;
-
-    // Abort any previous in-flight generation for this draft
-    generateAbortRef.current?.abort();
-    const ac = new AbortController();
-    generateAbortRef.current = ac;
-
-    setGeneratingCommitMsg(capturedDraftId, true);
-    try {
-      const result = capturedThreadId
-        ? await api.generateCommitMessage(capturedThreadId, true, ac.signal)
-        : await api.projectGenerateCommitMessage(capturedProjectModeId!, true, ac.signal);
-
-      if (ac.signal.aborted) return;
-
-      if (result.isOk()) {
-        // Always persist to the draft store with the captured ID
-        useDraftStore
-          .getState()
-          .setCommitDraft(capturedDraftId, result.value.title, result.value.body);
-        // Only update local state if the user is still on the same thread/project
-        const currentDraftId =
-          useThreadStore.getState().selectedThreadId ||
-          useProjectStore.getState().selectedProjectId;
-        if (currentDraftId === capturedDraftId) {
-          setCommitTitle(result.value.title);
-          setCommitBody(result.value.body);
-        }
-      } else if (!ac.signal.aborted) {
-        toast.error(t('review.generateFailed', { message: result.error.message }));
-      }
-    } finally {
-      setGeneratingCommitMsg(capturedDraftId, false);
-      if (generateAbortRef.current === ac) {
-        generateAbortRef.current = null;
-      }
     }
   };
 
