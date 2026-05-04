@@ -22,14 +22,11 @@ import { createClientLogger } from '@/lib/client-logger';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
 import { toastError } from '@/lib/toast-error';
 import { cn, resolveThreadBranch } from '@/lib/utils';
-import { useCommitProgressStore } from '@/stores/commit-progress-store';
 import { useDraftStore } from '@/stores/draft-store';
 import { useGitStatusStore, useGitStatusForThread } from '@/stores/git-status-store';
 import { usePRDetail } from '@/stores/pr-detail-store';
 import { useProjectStore } from '@/stores/project-store';
-import { useReviewPaneStore } from '@/stores/review-pane-store';
 import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
-import { editorLabels } from '@/stores/settings-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore, type ReviewSubTab } from '@/stores/ui-store';
 
