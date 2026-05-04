@@ -116,6 +116,7 @@ import { PRSummaryCard } from './PRSummaryCard';
 import { PublishRepoDialog } from './PublishRepoDialog';
 import { PullRequestsTab } from './PullRequestsTab';
 import { ChangesToolbar } from './review-pane/ChangesToolbar';
+import { CommitDraftPanel } from './review-pane/CommitDraftPanel';
 import { StashTab } from './review-pane/StashTab';
 import { ExpandedDiffView } from './tool-cards/ExpandedDiffDialog';
 
@@ -2174,223 +2175,33 @@ export function ReviewPane() {
                 )}
               </div>
 
-              {/* Commit / workflow progress */}
-              {commitEntry && (
-                <div className="flex-shrink-0 space-y-2 border-t border-sidebar-border p-2">
-                  <p className="text-xs font-medium text-foreground">{commitEntry.title}</p>
-                  <InlineProgressSteps steps={commitEntry.steps} />
-                  {(() => {
-                    const hasFailed = commitEntry.steps.some((s) => s.status === 'failed');
-                    const isRunning = commitEntry.steps.some((s) => s.status === 'running');
-                    const isFinished =
-                      !isRunning &&
-                      (commitEntry.steps.every(
-                        (s) => s.status === 'completed' || s.status === 'failed',
-                      ) ||
-                        hasFailed);
-                    if (isFinished && hasFailed) {
-                      return (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full"
-                          onClick={() => {
-                            useCommitProgressStore.getState().finishCommit(commitProgressId);
-                            setActionInProgress(null);
-                          }}
-                        >
-                          {t('review.progress.dismiss', 'Dismiss')}
-                        </Button>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
-              {summaries.length > 0 && !commitInProgress && (
-                <div className="flex-shrink-0 space-y-1.5 border-t border-sidebar-border p-2">
-                  <Input
-                    type="text"
-                    placeholder={t('review.commitTitle')}
-                    aria-label={t('review.commitTitle', 'Commit title')}
-                    data-testid="review-commit-title"
-                    value={commitTitle}
-                    onChange={(e) => setCommitTitle(e.target.value)}
-                    disabled={!!actionInProgress || generatingMsg}
-                    className="h-auto px-2 py-1.5 text-xs"
-                  />
-                  <div className="rounded-md border border-input bg-background focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/50">
-                    <textarea
-                      className="w-full resize-none bg-transparent px-2 py-1.5 text-xs placeholder:text-muted-foreground focus-visible:outline-none"
-                      rows={7}
-                      aria-label={t('review.commitBody', 'Commit body')}
-                      data-testid="review-commit-body"
-                      placeholder={t('review.commitBody')}
-                      value={commitBody}
-                      onChange={(e) => setCommitBody(e.target.value)}
-                      disabled={!!actionInProgress || generatingMsg}
-                    />
-                    <div className="flex items-center px-1.5 py-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={handleGenerateCommitMsg}
-                            disabled={summaries.length === 0 || generatingMsg || !!actionInProgress}
-                            data-testid="review-generate-commit-msg"
-                          >
-                            <Sparkles
-                              className={cn('icon-2xs', generatingMsg && 'animate-pulse')}
-                            />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          {generatingMsg
-                            ? t('review.generatingCommitMsg')
-                            : t('review.generateCommitMsg')}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-                  <div
-                    className={cn(
-                      'grid gap-1 mt-2',
-                      isOnDifferentBranch
-                        ? gitStatus?.prNumber
-                          ? 'grid-cols-4'
-                          : 'grid-cols-5'
-                        : 'grid-cols-3',
-                    )}
-                  >
-                    {[
-                      {
-                        value: 'commit' as const,
-                        icon: GitCommit,
-                        label: t('review.commit', 'Commit'),
-                        testId: 'review-action-commit',
-                      },
-                      {
-                        value: 'amend' as const,
-                        icon: PenLine,
-                        label: t('review.amend', 'Amend'),
-                        testId: 'review-action-amend',
-                      },
-                      {
-                        value: 'commit-push' as const,
-                        icon: Upload,
-                        label: t('review.commitAndPush', 'Commit & Push'),
-                        testId: 'review-action-commit-push',
-                      },
-                      ...(!gitStatus?.prNumber && isOnDifferentBranch
-                        ? [
-                            {
-                              value: 'commit-pr' as const,
-                              icon: GitPullRequest,
-                              label: t('review.commitAndCreatePR', 'Commit & Create PR'),
-                              testId: 'review-action-commit-pr',
-                            },
-                          ]
-                        : []),
-                      ...(isOnDifferentBranch
-                        ? [
-                            {
-                              value: 'commit-merge' as const,
-                              icon: GitMerge,
-                              label: t('review.commitAndMerge', 'Commit & Merge'),
-                              testId: 'review-action-commit-merge',
-                            },
-                          ]
-                        : []),
-                    ].map(({ value, icon: ActionIcon, label, testId }) => (
-                      <Tooltip key={value}>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedAction(value)}
-                            disabled={
-                              !!actionInProgress || (!!isAgentRunning && !effectiveThreadId)
-                            }
-                            data-testid={testId}
-                            className={cn(
-                              'flex flex-col items-center gap-1 rounded-md border p-2 text-center transition-all',
-                              'hover:bg-accent/50 disabled:opacity-50 disabled:cursor-not-allowed',
-                              selectedAction === value
-                                ? 'border-primary bg-primary/5 text-foreground'
-                                : 'border-border text-muted-foreground',
-                            )}
-                          >
-                            <ActionIcon
-                              className={cn(
-                                'icon-base',
-                                selectedAction === value && 'text-primary',
-                              )}
-                            />
-                            <span className="text-xs font-medium leading-tight">{label}</span>
-                          </button>
-                        </TooltipTrigger>
-                        {isAgentRunning && (
-                          <TooltipContent side="top">
-                            {t('review.agentRunningTooltip')}
-                          </TooltipContent>
-                        )}
-                      </Tooltip>
-                    ))}
-                  </div>
-                  <div className="flex gap-1.5">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="flex-1">
-                          <Button
-                            className="w-full"
-                            size="sm"
-                            onClick={handleCommitAction}
-                            disabled={!canCommit}
-                            data-testid="review-commit-execute"
-                          >
-                            {actionInProgress ? (
-                              <Loader2 className="icon-sm mr-1.5 animate-spin" />
-                            ) : null}
-                            {t('review.continue', 'Continue')}
-                          </Button>
-                        </div>
-                      </TooltipTrigger>
-                      {isAgentRunning && (
-                        <TooltipContent side="top">
-                          {t('review.agentRunningTooltip')}
-                        </TooltipContent>
-                      )}
-                    </Tooltip>
-                  </div>
-                </div>
-              )}
-
-              {/* Rebase conflict resolution — shown when merge/rebase failed with conflicts */}
-              {hasRebaseConflict && (
-                <div className="flex-shrink-0 space-y-2 border-t border-sidebar-border p-3">
-                  <div className="flex items-center gap-2 text-xs text-destructive">
-                    <AlertTriangle className="icon-sm" />
-                    <span>{t('review.mergeConflict', { target: baseBranch || 'main' })}</span>
-                  </div>
-                  {isWorktree && (
-                    <Button
-                      className="w-full"
-                      size="sm"
-                      variant="outline"
-                      onClick={handleOpenInEditorConflict}
-                    >
-                      <ExternalLink className="icon-sm mr-1.5" />
-                      {t('review.openInEditor', {
-                        editor: editorLabels[useSettingsStore.getState().defaultEditor],
-                      })}
-                    </Button>
-                  )}
-                  <Button className="w-full" size="sm" onClick={handleAskAgentResolve}>
-                    <Sparkles className="icon-sm mr-1.5" />
-                    {t('review.askAgentResolve')}
-                  </Button>
-                </div>
-              )}
+              <CommitDraftPanel
+                commitEntry={commitEntry}
+                commitProgressId={commitProgressId}
+                setActionInProgress={setActionInProgress}
+                summaries={summaries}
+                commitInProgress={commitInProgress}
+                commitTitle={commitTitle}
+                commitBody={commitBody}
+                setCommitTitle={setCommitTitle}
+                setCommitBody={setCommitBody}
+                generatingMsg={generatingMsg}
+                handleGenerateCommitMsg={handleGenerateCommitMsg}
+                selectedAction={selectedAction}
+                setSelectedAction={setSelectedAction}
+                actionInProgress={actionInProgress}
+                isOnDifferentBranch={isOnDifferentBranch}
+                gitStatus={gitStatus}
+                canCommit={canCommit}
+                handleCommitAction={handleCommitAction}
+                isAgentRunning={isAgentRunning}
+                effectiveThreadId={effectiveThreadId}
+                hasRebaseConflict={hasRebaseConflict}
+                baseBranch={baseBranch}
+                isWorktree={isWorktree}
+                handleOpenInEditorConflict={handleOpenInEditorConflict}
+                handleAskAgentResolve={handleAskAgentResolve}
+              />
             </div>
           </div>
         </TabsContent>
