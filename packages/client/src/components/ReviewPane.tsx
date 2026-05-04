@@ -6,7 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { PullStrategyDialog, isDivergedBranchesError } from '@/components/pull-strategy-dialog';
+import { PullStrategyDialog } from '@/components/pull-strategy-dialog';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/ui/search-bar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -17,16 +17,15 @@ import { useCommitWorkflow } from '@/hooks/use-commit-workflow';
 import { useFileTreeState } from '@/hooks/use-file-tree-state';
 import { useGenerateCommitMsg } from '@/hooks/use-generate-commit-msg';
 import { usePublishState } from '@/hooks/use-publish-state';
+import { useReviewActions } from '@/hooks/use-review-actions';
 import { useStashState } from '@/hooks/use-stash-state';
-import { api, type PullStrategy } from '@/lib/api';
+import { gitApi } from '@/lib/api/git';
 import { createClientLogger } from '@/lib/client-logger';
 import { parseDiffOld, parseDiffNew } from '@/lib/diff-parse';
-import { toastError } from '@/lib/toast-error';
 import { cn, resolveThreadBranch } from '@/lib/utils';
 import { useGitStatusStore, useGitStatusForThread } from '@/stores/git-status-store';
 import { usePRDetail } from '@/stores/pr-detail-store';
 import { useProjectStore } from '@/stores/project-store';
-import { useSettingsStore, deriveToolLists } from '@/stores/settings-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore, type ReviewSubTab } from '@/stores/ui-store';
 
@@ -112,15 +111,6 @@ export function ReviewPane() {
     setCommitTitle,
     setCommitBody,
   });
-  // New git operations state
-  const [pullInProgress, setPullInProgress] = useState(false);
-  const [pullStrategyDialog, setPullStrategyDialog] = useState<{
-    open: boolean;
-    errorMessage: string;
-  }>({ open: false, errorMessage: '' });
-  const [fetchInProgress, setFetchInProgress] = useState(false);
-  const [stashInProgress, setStashInProgress] = useState(false);
-  const [resetInProgress, setResetInProgress] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
     type: 'revert' | 'reset' | 'discard-all' | 'drop-stash' | 'ignore';
     path?: string;
@@ -207,8 +197,8 @@ export function ReviewPane() {
     else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId);
 
     const result = effectiveThreadId
-      ? await api.getDiffSummary(effectiveThreadId, undefined, undefined, signal)
-      : await api.projectDiffSummary(projectModeId!, undefined, undefined, signal);
+      ? await gitApi.getDiffSummary(effectiveThreadId, undefined, undefined, signal)
+      : await gitApi.projectDiffSummary(projectModeId!, undefined, undefined, signal);
 
     // Bail out if a newer refresh has started while we were awaiting
     if (refreshEpochRef.current !== epoch || signal.aborted) {
@@ -238,8 +228,13 @@ export function ReviewPane() {
         setLoadingDiff(fileToLoad);
         diffPromise = (async () => {
           const diffResult = effectiveThreadId
-            ? await api.getFileDiff(effectiveThreadId, fileToLoad, fileToLoadSummary.staged, signal)
-            : await api.projectFileDiff(
+            ? await gitApi.getFileDiff(
+                effectiveThreadId,
+                fileToLoad,
+                fileToLoadSummary.staged,
+                signal,
+              )
+            : await gitApi.projectFileDiff(
                 projectModeId!,
                 fileToLoad,
                 fileToLoadSummary.staged,
@@ -329,14 +324,14 @@ export function ReviewPane() {
       setLoadingDiff(filePath);
       const result = submoduleEntry
         ? effectiveThreadId
-          ? await api.getSubmoduleFileDiff(
+          ? await gitApi.getSubmoduleFileDiff(
               effectiveThreadId,
               submoduleEntry.submodulePath,
               submoduleEntry.innerPath,
               submoduleEntry.staged,
               signal,
             )
-          : await api.projectSubmoduleFileDiff(
+          : await gitApi.projectSubmoduleFileDiff(
               projectModeId!,
               submoduleEntry.submodulePath,
               submoduleEntry.innerPath,
@@ -344,8 +339,8 @@ export function ReviewPane() {
               signal,
             )
         : effectiveThreadId
-          ? await api.getFileDiff(effectiveThreadId, filePath, summary!.staged, signal)
-          : await api.projectFileDiff(projectModeId!, filePath, summary!.staged, signal);
+          ? await gitApi.getFileDiff(effectiveThreadId, filePath, summary!.staged, signal)
+          : await gitApi.projectFileDiff(projectModeId!, filePath, summary!.staged, signal);
       if (result.isOk() && !signal?.aborted) {
         setDiffCache((prev) => new Map(prev).set(filePath, result.value.diff));
       }
@@ -365,7 +360,7 @@ export function ReviewPane() {
     const signal = abortRef.current?.signal;
     const result = submoduleEntry
       ? effectiveThreadId
-        ? await api.getSubmoduleFileDiff(
+        ? await gitApi.getSubmoduleFileDiff(
             effectiveThreadId,
             submoduleEntry.submodulePath,
             submoduleEntry.innerPath,
@@ -373,7 +368,7 @@ export function ReviewPane() {
             signal,
             'full',
           )
-        : await api.projectSubmoduleFileDiff(
+        : await gitApi.projectSubmoduleFileDiff(
             projectModeId!,
             submoduleEntry.submodulePath,
             submoduleEntry.innerPath,
@@ -382,8 +377,8 @@ export function ReviewPane() {
             'full',
           )
       : effectiveThreadId
-        ? await api.getFileDiff(effectiveThreadId, path, summary!.staged, signal, 'full')
-        : await api.projectFileDiff(projectModeId!, path, summary!.staged, signal, 'full');
+        ? await gitApi.getFileDiff(effectiveThreadId, path, summary!.staged, signal, 'full')
+        : await gitApi.projectFileDiff(projectModeId!, path, summary!.staged, signal, 'full');
     if (result.isOk() && !signal?.aborted) {
       return {
         oldValue: parseDiffOld(result.value.diff),
@@ -481,6 +476,66 @@ export function ReviewPane() {
     handleMergeWithTarget,
     handleCreatePROnly,
   } = wf;
+
+  // Action handlers — staging, discard/ignore, pull/fetch, stash creation,
+  // reset, conflict resolution, copy/open. All co-located here so the bulk
+  // of the api+toast scaffolding lives outside ReviewPane.
+  const actions = useReviewActions({
+    hasGitContext,
+    effectiveThreadId,
+    projectModeId,
+    summaries,
+    checkedFiles,
+    expandedFile,
+    selectedFile,
+    baseBranch,
+    basePath,
+    refresh,
+    loadDiffForFile,
+    setDiffCache,
+    setHasRebaseConflict,
+    setConfirmDialog,
+    refreshStashList: stash.refreshStashList,
+  });
+  const {
+    pullInProgress,
+    fetchInProgress,
+    stashInProgress,
+    resetInProgress,
+    patchStagingInProgress,
+    pullStrategyDialog,
+    setPullStrategyDialog,
+    fileSelectionState,
+    setFileSelectionState,
+    selectAllSignal,
+    setSelectAllSignal,
+    deselectAllSignal,
+    setDeselectAllSignal,
+    handleRevertFile,
+    executeRevert,
+    handleDiscardAll,
+    executeDiscardAll,
+    handleIgnoreFiles,
+    executeIgnoreFiles,
+    handleIgnore,
+    executeResetSoft,
+    handleStageFile,
+    handleUnstageFile,
+    handleStageSelected,
+    handleUnstageAll,
+    handleStagePatch,
+    handleSelectionStateChange,
+    handleResolveConflict,
+    handleAskAgentResolve,
+    handleOpenInEditorConflict,
+    handlePull,
+    handlePullStrategyChosen,
+    handleFetchOrigin,
+    handleStash,
+    handleStashSelected,
+    handleCopyPath,
+    handleOpenDirectory,
+  } = actions;
 
   // Auto-close the review pane when the branch becomes fully clean after a workflow
   // (commit-push, push, merge, etc.). This avoids leaving an empty "No changes" pane.
@@ -584,484 +639,6 @@ export function ReviewPane() {
       // Check all visible (filtered) files, keep existing checked
       setCheckedFiles((prev) => new Set([...prev, ...targetPaths]));
     }
-  };
-
-  const handleRevertFile = (path: string) => {
-    setConfirmDialog({ type: 'revert', path });
-  };
-
-  const executeRevert = async (path: string) => {
-    if (!hasGitContext) return;
-    const result = effectiveThreadId
-      ? await api.revertFiles(effectiveThreadId, [path])
-      : await api.projectRevertFiles(projectModeId!, [path]);
-    if (result.isErr()) {
-      toast.error(t('review.revertFailed', { message: result.error.message }));
-    } else {
-      toast.success(t('review.revertSuccess', { path, defaultValue: '{{path}} reverted' }));
-      await refresh();
-    }
-  };
-
-  const handleDiscardAll = () => {
-    const paths = checkedFiles.size > 0 ? Array.from(checkedFiles) : summaries.map((s) => s.path);
-    if (paths.length === 0) return;
-    setConfirmDialog({ type: 'discard-all', paths });
-  };
-
-  const executeDiscardAll = async (paths: string[]) => {
-    if (!hasGitContext) return;
-    const result = effectiveThreadId
-      ? await api.revertFiles(effectiveThreadId, paths)
-      : await api.projectRevertFiles(projectModeId!, paths);
-    if (result.isErr()) {
-      toast.error(t('review.revertFailed', { message: result.error.message }));
-    } else {
-      toast.success(
-        t('review.discardSuccess', {
-          count: paths.length,
-          defaultValue: '{{count}} file(s) discarded',
-        }),
-      );
-      await refresh();
-    }
-  };
-
-  const handleIgnoreFiles = () => {
-    const paths = checkedFiles.size > 0 ? Array.from(checkedFiles) : summaries.map((s) => s.path);
-    if (paths.length === 0) return;
-    setConfirmDialog({ type: 'ignore', paths });
-  };
-
-  const executeIgnoreFiles = async (paths: string[]) => {
-    if (!hasGitContext) return;
-    const result = effectiveThreadId
-      ? await api.addPatternsToGitignore(effectiveThreadId, paths)
-      : await api.projectAddPatternsToGitignore(projectModeId!, paths);
-    if (result.isErr()) {
-      toast.error(`Failed to update .gitignore: ${result.error.message}`);
-    } else {
-      toast.success(`${paths.length} path(s) added to .gitignore`);
-      await refresh();
-    }
-  };
-
-  const handleResolveConflict = useCallback(
-    async (blockId: number, resolution: 'ours' | 'theirs' | 'both') => {
-      const filePath = expandedFile || selectedFile;
-      if (!filePath || !hasGitContext) return;
-
-      const resolutionLabel =
-        resolution === 'ours' ? 'current' : resolution === 'theirs' ? 'incoming' : 'both';
-      const result = effectiveThreadId
-        ? await api.resolveConflict(effectiveThreadId, filePath, blockId, resolution)
-        : await api.projectResolveConflict(projectModeId!, filePath, blockId, resolution);
-
-      if (result.isErr()) {
-        toast.error(`Failed to resolve conflict: ${result.error.message}`);
-      } else {
-        toast.success(
-          `Conflict ${blockId + 1} resolved (${resolutionLabel})` +
-            (result.value.remainingConflicts > 0
-              ? ` — ${result.value.remainingConflicts} remaining`
-              : ' — file resolved'),
-        );
-        // Clear cached diff so it reloads
-        setDiffCache((prev) => {
-          const next = new Map(prev);
-          next.delete(filePath);
-          return next;
-        });
-        // Reload the diff for this file
-        loadDiffForFile(filePath);
-        await refresh();
-      }
-    },
-    [
-      expandedFile,
-      selectedFile,
-      hasGitContext,
-      effectiveThreadId,
-      projectModeId,
-      refresh,
-      loadDiffForFile,
-    ],
-  );
-
-  const handleStageFile = async (path: string) => {
-    if (!hasGitContext) return;
-    const result = effectiveThreadId
-      ? await api.stageFiles(effectiveThreadId, [path])
-      : await api.projectStageFiles(projectModeId!, [path]);
-    if (result.isErr()) {
-      toast.error(t('review.stageFailed', { path, defaultValue: 'Failed to stage {{path}}' }));
-    } else {
-      toast.success(t('review.stageSuccess', { path, defaultValue: '{{path}} staged' }));
-      await refresh();
-    }
-  };
-
-  const handleUnstageFile = async (path: string) => {
-    if (!hasGitContext) return;
-    const result = effectiveThreadId
-      ? await api.unstageFiles(effectiveThreadId, [path])
-      : await api.projectUnstageFiles(projectModeId!, [path]);
-    if (result.isErr()) {
-      toast.error(t('review.unstageFailed', { path, defaultValue: 'Failed to unstage {{path}}' }));
-    } else {
-      toast.success(t('review.unstageSuccess', { path, defaultValue: '{{path}} unstaged' }));
-      await refresh();
-    }
-  };
-
-  // ── Partial (line-level) staging ──
-  const [patchStagingInProgress, setPatchStagingInProgress] = useState(false);
-  // Track per-file line selection state for indeterminate checkbox: 'all' | 'partial' | 'none'
-  const [fileSelectionState, setFileSelectionState] = useState<
-    Map<string, 'all' | 'partial' | 'none'>
-  >(new Map());
-  // Increment to signal ExpandedDiffView to re-select all lines
-  const [selectAllSignal, setSelectAllSignal] = useState(0);
-  // Increment to signal ExpandedDiffView to deselect all lines
-  const [deselectAllSignal, setDeselectAllSignal] = useState(0);
-
-  const handleSelectionStateChange = useCallback(
-    (filePath: string, state: 'all' | 'partial' | 'none') => {
-      setFileSelectionState((prev) => {
-        if (prev.get(filePath) === state) return prev;
-        const next = new Map(prev);
-        next.set(filePath, state);
-        return next;
-      });
-    },
-    [],
-  );
-
-  const handleStagePatch = useCallback(
-    async (patch: string) => {
-      if (!hasGitContext) return;
-      setPatchStagingInProgress(true);
-      const result = effectiveThreadId
-        ? await api.stagePatch(effectiveThreadId, patch)
-        : await api.projectStagePatch(projectModeId!, patch);
-      setPatchStagingInProgress(false);
-      if (result.isErr()) {
-        toastError(
-          result.error,
-          t('review.stageFailed', {
-            path: 'selected lines',
-            defaultValue: 'Failed to stage {{path}}',
-          }),
-        );
-      } else {
-        toast.success(t('review.stageLinesSuccess', { defaultValue: 'Selected lines staged' }));
-        await refresh();
-      }
-    },
-    [hasGitContext, effectiveThreadId, projectModeId, refresh, t],
-  );
-
-  const handleStageSelected = async () => {
-    if (!hasGitContext) return;
-    const paths =
-      checkedFiles.size > 0
-        ? Array.from(checkedFiles).filter((p) => {
-            const s = summaries.find((f) => f.path === p);
-            return s && !s.staged;
-          })
-        : summaries.filter((f) => !f.staged).map((f) => f.path);
-    if (paths.length === 0) {
-      toast.info(t('review.allAlreadyStaged', { defaultValue: 'All files already staged' }));
-      return;
-    }
-    const result = effectiveThreadId
-      ? await api.stageFiles(effectiveThreadId, paths)
-      : await api.projectStageFiles(projectModeId!, paths);
-    if (result.isErr()) {
-      toast.error(
-        t('review.stageFailed', {
-          path: `${paths.length} files`,
-          defaultValue: 'Failed to stage {{path}}',
-        }),
-      );
-    } else {
-      toast.success(
-        t('review.stageSelectedSuccess', {
-          count: paths.length,
-          defaultValue: '{{count}} file(s) staged',
-        }),
-      );
-      await refresh();
-    }
-  };
-
-  const handleUnstageAll = async () => {
-    if (!hasGitContext) return;
-    const paths =
-      checkedFiles.size > 0
-        ? Array.from(checkedFiles).filter((p) => {
-            const s = summaries.find((f) => f.path === p);
-            return s && s.staged;
-          })
-        : summaries.filter((f) => f.staged).map((f) => f.path);
-    if (paths.length === 0) {
-      toast.info(t('review.noneStaged', { defaultValue: 'No staged files to unstage' }));
-      return;
-    }
-    const result = effectiveThreadId
-      ? await api.unstageFiles(effectiveThreadId, paths)
-      : await api.projectUnstageFiles(projectModeId!, paths);
-    if (result.isErr()) {
-      toast.error(
-        t('review.unstageFailed', {
-          path: `${paths.length} files`,
-          defaultValue: 'Failed to unstage {{path}}',
-        }),
-      );
-    } else {
-      toast.success(
-        t('review.unstageSelectedSuccess', {
-          count: paths.length,
-          defaultValue: '{{count}} file(s) unstaged',
-        }),
-      );
-      await refresh();
-    }
-  };
-
-  const handleIgnore = async (pattern: string) => {
-    if (!hasGitContext) return;
-    const result = effectiveThreadId
-      ? await api.addToGitignore(effectiveThreadId, pattern)
-      : await api.projectAddToGitignore(projectModeId!, pattern);
-    if (result.isErr()) {
-      toast.error(t('review.ignoreFailed', { message: result.error.message }));
-    } else {
-      toast.success(t('review.ignoreSuccess'));
-      await refresh();
-    }
-  };
-
-  const handleAskAgentResolve = async () => {
-    // Agent resolve only works with threads, not in project-only mode
-    if (!effectiveThreadId) return;
-
-    const target = baseBranch || 'main';
-    const prompt = t('review.agentResolvePrompt', { target });
-    const { allowedTools, disallowedTools } = deriveToolLists(
-      useSettingsStore.getState().toolPermissions,
-    );
-
-    const result = await api.sendMessage(effectiveThreadId, prompt, {
-      allowedTools,
-      disallowedTools,
-    });
-
-    if (result.isErr()) {
-      toastError(result.error);
-      return;
-    }
-
-    toast.success(t('review.agentResolveSent'));
-    setHasRebaseConflict(false);
-  };
-
-  const handleOpenInEditorConflict = () => {
-    const worktreePath = useThreadStore.getState().activeThread?.worktreePath;
-    if (!worktreePath) return;
-    const editor = useSettingsStore.getState().defaultEditor;
-    api.openInEditor(worktreePath, editor);
-  };
-
-  const getParentFolders = (filePath: string): string[] => {
-    const parts = filePath.split('/');
-    const folders: string[] = [];
-    for (let i = parts.length - 1; i > 0; i--) {
-      folders.push('/' + parts.slice(0, i).join('/'));
-    }
-    return folders;
-  };
-
-  const getFileExtension = (filePath: string): string | null => {
-    const lastDot = filePath.lastIndexOf('.');
-    if (lastDot === -1 || lastDot === filePath.length - 1) return null;
-    return filePath.substring(lastDot);
-  };
-
-  const handleCopyPath = (path: string, relative: boolean) => {
-    const text = relative ? path : basePath ? `${basePath}/${path}` : path;
-    navigator.clipboard.writeText(text);
-    toast.success(t('review.pathCopied'));
-  };
-
-  const handleOpenDirectory = async (relativePath: string, isFile: boolean) => {
-    if (!basePath) return;
-    const dirRelative = isFile
-      ? relativePath.includes('/')
-        ? relativePath.slice(0, relativePath.lastIndexOf('/'))
-        : ''
-      : relativePath;
-    const absoluteDir = dirRelative ? `${basePath}/${dirRelative}` : basePath;
-    const result = await api.openDirectory(absoluteDir);
-    if (result.isErr()) {
-      log.error('Failed to open directory', {
-        path: absoluteDir,
-        error: String(result.error),
-      });
-      toast.error(t('review.openDirectoryError', 'Failed to open directory'));
-    }
-  };
-
-  // ── New git operation handlers ──
-
-  const runPull = async (strategy: PullStrategy) => {
-    const result = effectiveThreadId
-      ? await api.pull(effectiveThreadId, strategy)
-      : await api.projectPull(projectModeId!, strategy);
-    if (result.isErr()) {
-      const msg = result.error.message;
-      // When ff-only fails because of a diverged branch, offer merge/rebase
-      // instead of just surfacing the raw git hint to the user.
-      if (strategy === 'ff-only' && isDivergedBranchesError(msg)) {
-        setPullStrategyDialog({ open: true, errorMessage: msg });
-        return;
-      }
-      toast.error(
-        t('review.pullFailed', {
-          message: msg,
-          defaultValue: `Pull failed: ${msg}`,
-        }),
-      );
-    } else {
-      toast.success(t('review.pullSuccess', 'Pulled successfully'));
-    }
-    // Force-refresh git status so unpulled badge clears immediately after pull.
-    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId, true);
-    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId, true);
-    await refresh();
-  };
-
-  const handlePull = async () => {
-    if (!hasGitContext || pullInProgress) return;
-    setPullInProgress(true);
-    try {
-      await runPull('ff-only');
-    } finally {
-      setPullInProgress(false);
-    }
-  };
-
-  const handlePullStrategyChosen = async (strategy: Exclude<PullStrategy, 'ff-only'>) => {
-    setPullStrategyDialog({ open: false, errorMessage: '' });
-    if (pullInProgress) return;
-    setPullInProgress(true);
-    try {
-      await runPull(strategy);
-    } finally {
-      setPullInProgress(false);
-    }
-  };
-
-  const handleFetchOrigin = async () => {
-    if (!hasGitContext || fetchInProgress) return;
-    setFetchInProgress(true);
-    const result = effectiveThreadId
-      ? await api.fetchOrigin(effectiveThreadId)
-      : await api.projectFetchOrigin(projectModeId!);
-    if (result.isErr()) {
-      const msg = result.error.message;
-      const isAuthError =
-        /auth|token|credential|permission|denied|403|fatal:/i.test(msg) ||
-        result.error.type === 'INTERNAL';
-      toast.error(
-        isAuthError
-          ? t('review.fetchAuthFailed', {
-              defaultValue:
-                'Fetch failed: authentication error. Check your GitHub token in Settings > Profile.',
-            })
-          : t('review.fetchFailed', {
-              message: msg,
-              defaultValue: `Fetch failed: ${msg}`,
-            }),
-      );
-    } else {
-      toast.success(t('review.fetchSuccess', 'Fetched from origin'));
-    }
-    setFetchInProgress(false);
-    // Force-refresh git status to bypass client-side cooldown so unpulled/unpushed
-    // counts update immediately after a manual fetch.
-    if (effectiveThreadId) useGitStatusStore.getState().fetchForThread(effectiveThreadId, true);
-    else if (projectModeId) useGitStatusStore.getState().fetchProjectStatus(projectModeId, true);
-    await refresh();
-  };
-
-  const handleStash = async () => {
-    if (!hasGitContext || stashInProgress) return;
-    setStashInProgress(true);
-    const result = effectiveThreadId
-      ? await api.stash(effectiveThreadId)
-      : await api.projectStash(projectModeId!);
-    if (result.isErr()) {
-      toast.error(
-        t('review.stashFailed', {
-          message: result.error.message,
-          defaultValue: `Stash failed: ${result.error.message}`,
-        }),
-      );
-    } else {
-      toast.success(t('review.stashSuccess', 'Changes stashed'));
-    }
-    setStashInProgress(false);
-    await refresh();
-    stash.refreshStashList();
-  };
-
-  const handleStashSelected = async () => {
-    if (!hasGitContext || stashInProgress) return;
-    const paths = checkedFiles.size > 0 ? Array.from(checkedFiles) : summaries.map((f) => f.path);
-    if (paths.length === 0) return;
-    setStashInProgress(true);
-    const result = effectiveThreadId
-      ? await api.stash(effectiveThreadId, paths)
-      : await api.projectStash(projectModeId!, paths);
-    if (result.isErr()) {
-      toast.error(
-        t('review.stashFailed', {
-          message: result.error.message,
-          defaultValue: `Stash failed: ${result.error.message}`,
-        }),
-      );
-    } else {
-      toast.success(
-        t('review.stashSelectedSuccess', {
-          count: paths.length,
-          defaultValue: '{{count}} file(s) stashed',
-        }),
-      );
-    }
-    setStashInProgress(false);
-    await refresh();
-    stash.refreshStashList();
-  };
-
-  const executeResetSoft = async () => {
-    if (!hasGitContext || resetInProgress) return;
-    setResetInProgress(true);
-    const result = effectiveThreadId
-      ? await api.resetSoft(effectiveThreadId)
-      : await api.projectResetSoft(projectModeId!);
-    if (result.isErr()) {
-      toast.error(
-        t('review.resetSoftFailed', {
-          message: result.error.message,
-          defaultValue: `Reset failed: ${result.error.message}`,
-        }),
-      );
-    } else {
-      toast.success(t('review.resetSoftSuccess', 'Last commit undone'));
-    }
-    setResetInProgress(false);
-    await refresh();
   };
 
   // ── Sync active sub-tab with URL query param ──
