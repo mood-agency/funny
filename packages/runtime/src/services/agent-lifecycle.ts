@@ -16,13 +16,13 @@ import { getResumeSystemPrefix } from '@funny/shared/thread-machine';
 import type { ThreadEvent } from '@funny/shared/thread-machine';
 
 import { log } from '../lib/logger.js';
-import { metric, startSpan, setThreadTrace, clearThreadTrace } from '../lib/telemetry.js';
+import { clearThreadTrace, metric, setThreadTrace, startSpan } from '../lib/telemetry.js';
 import type { AgentEventRouter } from './agent-event-router.js';
+import { loadProjectMcpServers } from './agent-startup/load-mcp-servers.js';
+import { recoverThreadContext } from './agent-startup/recover-context.js';
 import type { AgentStateTracker } from './agent-state.js';
-import { listMcpServers } from './mcp-service.js';
 import type { IThreadManager } from './server-interfaces.js';
 import { getServices } from './service-registry.js';
-import { buildThreadContext, needsContextRecovery } from './thread-context-builder.js';
 import { threadEventBus } from './thread-event-bus.js';
 import { transitionStatus } from './thread-status-machine.js';
 
@@ -133,28 +133,12 @@ export class AgentLifecycleManager {
     const thread = await this.threadManager.getThread(threadId);
 
     // Context recovery (post-merge or model/provider change)
-    let effectivePrompt = prompt;
-    let effectiveSessionId = thread?.sessionId ?? undefined;
-    const needsRecovery = await needsContextRecovery(threadId);
-
-    if (needsRecovery) {
-      const recoveryReason = thread?.contextRecoveryReason ?? 'post-merge';
-      log.info('Thread needs context recovery', {
-        namespace: 'agent',
-        threadId,
-        isPostMerge: !!thread?.mergedAt,
-        reason: recoveryReason,
-      });
-      const context = await buildThreadContext(threadId);
-      if (context) {
-        effectivePrompt = `${context}\n\nUSER (new message):\n${prompt}`;
-      }
-      await this.threadManager.updateThread(threadId, {
-        sessionId: null,
-        contextRecoveryReason: null,
-      });
-      effectiveSessionId = undefined;
-    }
+    let { effectivePrompt, effectiveSessionId, needsRecovery } = await recoverThreadContext({
+      threadId,
+      prompt,
+      thread,
+      threadManager: this.threadManager,
+    });
 
     // Derive system prefix from the machine's resumeReason
     const isPostMerge = !!thread?.mergedAt;
@@ -175,48 +159,7 @@ export class AgentLifecycleManager {
     // ~/.claude.json project settings and .mcp.json are found correctly.
     const mcpProjectPath = project?.path ?? cwd;
     if (!mcpServers) {
-      try {
-        const serverListResult = await listMcpServers(mcpProjectPath);
-        if (serverListResult.isOk()) {
-          const enabledServers = serverListResult.value.filter((s) => !s.disabled);
-          if (enabledServers.length > 0) {
-            mcpServers = {};
-            for (const srv of enabledServers) {
-              const entry: Record<string, any> = { type: srv.type };
-              if (srv.type === 'http' || srv.type === 'sse') {
-                if (srv.url) entry.url = srv.url;
-              } else {
-                if (srv.command) entry.command = srv.command;
-                if (srv.args) entry.args = srv.args;
-              }
-              if (srv.headers) entry.headers = srv.headers;
-              if (srv.env) entry.env = srv.env;
-              mcpServers[srv.name] = entry;
-            }
-            log.info('Loaded project MCP servers', {
-              namespace: 'agent',
-              threadId,
-              count: enabledServers.length,
-              names: enabledServers.map((s) => s.name),
-              serversWithHeaders: enabledServers
-                .filter((s) => s.headers && Object.keys(s.headers).length > 0)
-                .map((s) => s.name),
-            });
-          }
-        } else {
-          log.warn('Failed to list project MCP servers', {
-            namespace: 'agent',
-            threadId,
-            error: String(serverListResult.error),
-          });
-        }
-      } catch (e) {
-        log.warn('Error loading project MCP servers', {
-          namespace: 'agent',
-          threadId,
-          error: String(e),
-        });
-      }
+      mcpServers = await loadProjectMcpServers(threadId, mcpProjectPath);
     }
 
     // Resolve agent template (Deep Agent only)
