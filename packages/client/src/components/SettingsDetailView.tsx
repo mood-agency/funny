@@ -1,30 +1,18 @@
 import { useTranslation } from 'react-i18next';
 
+import { SettingsPageContent } from '@/components/settings/SettingsPageContent';
+import { settingsLabelKeys, type SettingsItemId } from '@/components/SettingsPanel';
 import {
   Breadcrumb,
-  BreadcrumbList,
   BreadcrumbItem,
   BreadcrumbLink,
+  BreadcrumbList,
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useProjectStore } from '@/stores/project-store';
 import { useUIStore } from '@/stores/ui-store';
-
-import { ArchivedThreadsSettings } from './ArchivedThreadsSettings';
-import { AutomationSettings } from './AutomationSettings';
-import { GeneralSettings } from './GeneralSettings';
-import { McpServerSettings } from './McpServerSettings';
-import { PipelineSettings } from './PipelineSettings';
-import { ProjectConfigSettings } from './ProjectConfigSettings';
-import { ProjectHooksSettings } from './ProjectHooksSettings';
-import { TeamMembers } from './settings/TeamMembers';
-import { UserManagement } from './settings/UserManagement';
-import { settingsLabelKeys, type SettingsItemId } from './SettingsPanel';
-import { SkillsSettings } from './SkillsSettings';
-import { StartupCommandsSettings } from './StartupCommandsSettings';
-import { WorktreeSettings } from './WorktreeSettings';
 
 export function SettingsDetailView() {
   const { t } = useTranslation();
@@ -45,7 +33,6 @@ export function SettingsDetailView() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      {/* Page header */}
       <div className="border-b border-border px-4 py-2">
         <div className="flex min-h-8 items-center">
           <Breadcrumb>
@@ -66,36 +53,9 @@ export function SettingsDetailView() {
         </div>
       </div>
 
-      {/* Page content */}
       <ScrollArea className="min-h-0 flex-1">
         <div className="max-w-4xl px-8 py-8">
-          {page === 'general' ? (
-            <GeneralSettings />
-          ) : page === 'mcp-server' ? (
-            <McpServerSettings />
-          ) : page === 'skills' ? (
-            <SkillsSettings />
-          ) : page === 'worktrees' ? (
-            <WorktreeSettings />
-          ) : page === 'startup-commands' ? (
-            <StartupCommandsSettings />
-          ) : page === 'project-config' ? (
-            <ProjectConfigSettings />
-          ) : page === 'hooks' ? (
-            <ProjectHooksSettings />
-          ) : page === 'automations' ? (
-            <AutomationSettings />
-          ) : page === 'pipelines' ? (
-            <PipelineSettings />
-          ) : page === 'archived-threads' ? (
-            <ArchivedThreadsSettings />
-          ) : page === 'users' ? (
-            <UserManagement />
-          ) : page === 'team-members' ? (
-            <TeamMembers />
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('settings.comingSoon', { label })}</p>
-          )}
+          <SettingsPageContent page={page} label={label ?? ''} />
         </div>
       </ScrollArea>
     </div>
