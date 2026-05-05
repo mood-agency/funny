@@ -9,6 +9,8 @@ import { invalidateCooldownsForKeys, useGitStatusStore } from '@/stores/git-stat
 import { useTerminalStore } from '@/stores/terminal-store';
 import { useThreadStore } from '@/stores/thread-store';
 
+import { dispatchTestEvent } from './dispatch-test-events';
+
 const wsLog = createClientLogger('ws');
 
 // ── Remote container WS connections ─────────────────────────────
@@ -321,42 +323,13 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
       useThreadStore.getState().handleWSQueueUpdate(threadId, data);
       break;
     case 'test:frame':
-      import('@/components/test-runner/BrowserPreview').then(({ renderFrame }) => {
-        renderFrame(data.data);
-      });
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().addFrameToHistory(data.data, data.timestamp);
-      });
-      break;
     case 'test:output':
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().handleTestOutput(data);
-      });
-      break;
     case 'test:status':
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().handleTestStatus(data);
-      });
-      break;
     case 'test:console':
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().handleTestConsole(data);
-      });
-      break;
     case 'test:network':
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().handleTestNetwork(data);
-      });
-      break;
     case 'test:error':
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().handleTestError(data);
-      });
-      break;
     case 'test:action':
-      import('@/stores/test-store').then(({ useTestStore }) => {
-        useTestStore.getState().handleTestAction(data);
-      });
+      dispatchTestEvent(type, data);
       break;
     case 'clone:progress':
       window.dispatchEvent(new CustomEvent('clone:progress', { detail: data }));
