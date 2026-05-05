@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useTranslation } from 'react-i18next';
 
 import { FollowUpModeDialog } from '@/components/FollowUpModeDialog';
-import { ImageLightbox } from '@/components/ImageLightbox';
 import { PipelineProgressBanner } from '@/components/PipelineProgressBanner';
 import { PromptInput } from '@/components/PromptInput';
 import { EMPTY_MESSAGES } from '@/components/thread/MemoizedMessageList';
@@ -12,6 +11,7 @@ import { MessageStream, type MessageStreamHandle } from '@/components/thread/Mes
 import { ProjectHeader } from '@/components/thread/ProjectHeader';
 import { PromptTimeline } from '@/components/thread/PromptTimeline';
 import { ThreadSearchBar } from '@/components/thread/ThreadSearchBar';
+import { useImageLightbox } from '@/hooks/use-image-lightbox';
 import { useTodoSnapshots } from '@/hooks/use-todo-panel';
 import { useProjectStore } from '@/stores/project-store';
 import {
@@ -145,9 +145,7 @@ export function ThreadChatView({ activeThread }: Props) {
 
   const streamRef = useRef<MessageStreamHandle>(null);
   const [visibleMessageId, setVisibleMessageId] = useState<string | null>(null);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxImages, setLightboxImages] = useState<{ src: string; alt: string }[]>([]);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const { openLightbox, lightbox } = useImageLightbox();
 
   const pendingSendRef = useRef<PendingSend | null>(null);
   const setPromptRef = useRef<((text: string) => void) | null>(null);
@@ -207,12 +205,6 @@ export function ThreadChatView({ activeThread }: Props) {
     activeThread.id,
     streamRef,
   );
-
-  const openLightbox = useCallback((images: { src: string; alt: string }[], index: number) => {
-    setLightboxImages(images);
-    setLightboxIndex(index);
-    setLightboxOpen(true);
-  }, []);
 
   const uiQueuedCount = activeThread.queuedCount ?? 0;
   const isRunning = activeThread.status === 'running' || uiQueuedCount > 0;
@@ -309,12 +301,7 @@ export function ThreadChatView({ activeThread }: Props) {
           />
         )}
       </div>
-      <ImageLightbox
-        images={lightboxImages}
-        initialIndex={lightboxIndex}
-        open={lightboxOpen}
-        onClose={() => setLightboxOpen(false)}
-      />
+      {lightbox}
       <FollowUpModeDialog
         open={followUpDialogOpen}
         onInterrupt={() => handleFollowUpAction('interrupt')}
