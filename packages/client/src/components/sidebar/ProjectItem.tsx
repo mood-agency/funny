@@ -21,7 +21,7 @@ import {
 import { useState, useRef, useEffect, memo, useCallback, useMemo, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { SetupProjectDialog } from '@/components/SetupProjectDialog';
+import { ProjectSetupHost } from '@/components/sidebar/ProjectSetupHost';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -549,14 +549,11 @@ export const ProjectItem = memo(function ProjectItem({
         </div>
       </CollapsibleContent>
 
-      {project.needsSetup && (
-        <SetupProjectDialog
-          projectId={project.id}
-          projectName={project.name}
-          open={setupDialogOpen}
-          onOpenChange={setSetupDialogOpen}
-        />
-      )}
+      <ProjectSetupHost
+        project={project}
+        open={setupDialogOpen}
+        onOpenChange={setSetupDialogOpen}
+      />
     </Collapsible>
   );
 }, projectItemAreEqual);
