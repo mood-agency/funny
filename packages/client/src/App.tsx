@@ -1,5 +1,5 @@
 import { PanelLeft } from 'lucide-react';
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { lazy, Suspense } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MainContentSwitcher } from '@/components/MainContentSwitcher';
@@ -53,12 +53,7 @@ function CollapsedSidebarStrip() {
 }
 
 export function App() {
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [fileSearchOpen, setFileSearchOpen] = useState(false);
-
-  const toggleCommandPalette = useCallback(() => setCommandPaletteOpen((prev) => !prev), []);
-  const toggleFileSearch = useCallback(() => setFileSearchOpen((prev) => !prev), []);
-  const shell = useAppShell({ toggleCommandPalette, toggleFileSearch });
+  const shell = useAppShell();
 
   const fullscreenSwitcher =
     shell.generalSettingsOpen ||
@@ -109,13 +104,7 @@ export function App() {
         <RightPane visible={shell.rightPaneVisible} />
       </div>
 
-      <OverlayDialogs
-        branchSyncDialog={shell.branchSyncDialog}
-        commandPaletteOpen={commandPaletteOpen}
-        setCommandPaletteOpen={setCommandPaletteOpen}
-        fileSearchOpen={fileSearchOpen}
-        setFileSearchOpen={setFileSearchOpen}
-      />
+      <OverlayDialogs branchSyncDialog={shell.branchSyncDialog} />
     </SidebarProvider>
   );
 }

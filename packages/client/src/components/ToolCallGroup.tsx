@@ -2,6 +2,7 @@ import { ChevronRight, Wrench, ListTodo } from 'lucide-react';
 import { useState, memo, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { timeAgo } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
 
@@ -48,10 +49,14 @@ export const ToolCallGroup = memo(function ToolCallGroup({
   renderCall,
 }: ToolCallGroupProps) {
   const { t } = useTranslation();
+  const tick = useMinuteTick(); // re-render every 60s so timeAgo stays fresh (memo blocks parent ticks)
   const [expanded, setExpanded] = useState(false);
   const label = getToolLabel(name, t);
   const isTodo = name === 'TodoWrite';
-  const displayTime = useMemo(() => (timestamp ? timeAgo(timestamp, t) : null), [timestamp, t]);
+  const displayTime = useMemo(
+    () => (timestamp ? timeAgo(timestamp, t) : null),
+    [timestamp, t, tick],
+  );
 
   return (
     <div className="max-w-full overflow-hidden rounded-lg border border-border text-sm">

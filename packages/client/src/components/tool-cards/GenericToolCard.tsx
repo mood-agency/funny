@@ -136,13 +136,16 @@ export function GenericToolCard({
         )}
       </button>
       {expanded && (
-        <ScrollArea className="max-h-[50vh] border-t border-border/40">
+        <ScrollArea
+          className="border-t border-border/40"
+          viewportProps={{ className: 'max-h-[50vh]' }}
+        >
           {isTodo && todos ? (
-            <div className="px-3">
+            <div className="px-3 pb-2">
               <TodoList todos={todos} />
             </div>
           ) : (
-            <div className="px-3">
+            <div className="px-3 pb-2">
               <div className="mt-1.5 space-y-1.5">
                 {Object.entries(parsed).map(([key, value]) => (
                   <div key={key}>

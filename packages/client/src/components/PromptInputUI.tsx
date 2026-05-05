@@ -246,6 +246,24 @@ export function formatRemoteUrl(url: string): string {
   }
 }
 
+/** Convert a git remote URL (SSH or HTTPS) to a browseable HTTPS URL. */
+export function remoteUrlToBrowseUrl(url: string): string | null {
+  // SSH form: git@host:owner/repo(.git)
+  const sshMatch = url.match(/^[^@]+@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) {
+    const [, host, path] = sshMatch;
+    return `https://${host}/${path}`;
+  }
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    const path = u.pathname.replace(/\.git$/, '');
+    return `https://${u.host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
 // ── Props ────────────────────────────────────────────────────────
 
 export interface PromptInputUIProps {
@@ -727,7 +745,7 @@ export const PromptInputUI = memo(function PromptInputUI({
 
   // ── Render ──
   return (
-    <div className="border-border">
+    <div className="px-3 sm:px-4">
       <div className="mx-auto w-full min-w-0 max-w-3xl pb-4">
         {/* Image lightbox */}
         <ImageLightbox

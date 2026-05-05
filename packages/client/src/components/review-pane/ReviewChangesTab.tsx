@@ -1,0 +1,78 @@
+import type { FileDiffSummary } from '@funny/shared';
+import type { ComponentProps } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { SearchBar } from '@/components/ui/search-bar';
+import { TabsContent } from '@/components/ui/tabs';
+
+import { PRSummaryCard } from '../PRSummaryCard';
+import { ChangesFilesPanel } from './ChangesFilesPanel';
+import { ChangesToolbar } from './ChangesToolbar';
+import { CommitDraftPanel } from './CommitDraftPanel';
+
+interface ReviewChangesTabProps {
+  /** Diff-load truncation info — surfaces the yellow banner when files were dropped. */
+  truncatedInfo: { truncated: boolean; total: number };
+  /** Used to gate SearchBar visibility (only show once we have files). */
+  summaries: FileDiffSummary[];
+  /** Pre-built PRSummaryCard props, or null to hide. */
+  prSummary: ComponentProps<typeof PRSummaryCard> | null;
+  /** SearchBar bundle for filtering the file list. */
+  search: ComponentProps<typeof SearchBar>;
+  toolbar: ComponentProps<typeof ChangesToolbar>;
+  filesPanel: ComponentProps<typeof ChangesFilesPanel>;
+  commitDraft: ComponentProps<typeof CommitDraftPanel>;
+}
+
+/**
+ * The "Changes" tab body — toolbar, file search, file tree, and commit draft.
+ * Extracted from ReviewPane.tsx so the orchestrator stops directly importing
+ * five children just to forward their props.
+ */
+export function ReviewChangesTab({
+  truncatedInfo,
+  summaries,
+  prSummary,
+  search,
+  toolbar,
+  filesPanel,
+  commitDraft,
+}: ReviewChangesTabProps) {
+  const { t } = useTranslation();
+
+  return (
+    <TabsContent
+      value="changes"
+      className="flex min-h-0 flex-1 data-[state=inactive]:hidden"
+      forceMount
+    >
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {truncatedInfo.truncated && (
+            <div className="border-b border-sidebar-border bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-600 dark:text-yellow-400">
+              {t('review.truncatedWarning', {
+                shown: summaries.length,
+                total: truncatedInfo.total,
+                defaultValue: `Showing ${summaries.length} of ${truncatedInfo.total} files. Some files were excluded.`,
+              })}
+            </div>
+          )}
+
+          {prSummary && <PRSummaryCard {...prSummary} />}
+
+          <ChangesToolbar {...toolbar} />
+
+          {summaries.length > 0 && (
+            <div className="border-b border-sidebar-border px-2 py-1">
+              <SearchBar {...search} />
+            </div>
+          )}
+
+          <ChangesFilesPanel {...filesPanel} />
+
+          <CommitDraftPanel {...commitDraft} />
+        </div>
+      </div>
+    </TabsContent>
+  );
+}

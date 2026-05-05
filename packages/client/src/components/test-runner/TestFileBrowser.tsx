@@ -105,7 +105,7 @@ function SpecItem({
     <>
       <div
         data-testid={`test-spec-${spec.file}-${spec.line}`}
-        className="group flex h-6 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
+        className="group flex h-[24px] cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
         style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
         onClick={hasMultipleProjects ? () => setExpanded(!expanded) : undefined}
       >
@@ -149,7 +149,7 @@ function SpecItem({
           <div
             key={project}
             data-testid={`test-spec-${spec.file}-${spec.line}-${project}`}
-            className="group flex h-6 cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
+            className="group flex h-[24px] cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent/50"
             style={{ paddingLeft: `${8 + (depth + 1) * INDENT_PX}px` }}
           >
             <StatusDot status={fileStatus} />
@@ -221,7 +221,7 @@ function SuiteItem({
       <div
         data-testid={`test-suite-${suite.file}-${suite.line}`}
         className={cn(
-          'flex h-6 cursor-pointer select-none items-center gap-1.5 text-xs',
+          'flex h-[24px] cursor-pointer select-none items-center gap-1.5 text-xs',
           'text-muted-foreground transition-colors hover:bg-sidebar-accent/50',
         )}
         style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
@@ -326,7 +326,7 @@ function TreeItem({
           data-testid={`test-folder-${node.path}`}
           onClick={() => toggleFolder(node.path)}
           className={cn(
-            'flex h-6 cursor-pointer select-none items-center gap-1.5 text-xs',
+            'flex h-[24px] cursor-pointer select-none items-center gap-1.5 text-xs',
             'text-muted-foreground transition-colors hover:bg-sidebar-accent/50',
           )}
           style={{ paddingLeft: `${8 + depth * INDENT_PX}px` }}
@@ -389,7 +389,7 @@ function TreeItem({
       <div
         data-testid={`test-file-${node.path}`}
         className={cn(
-          'group flex h-6 items-center gap-1.5 text-xs cursor-pointer transition-colors',
+          'group flex h-[24px] items-center gap-1.5 text-xs cursor-pointer transition-colors',
           status === 'running'
             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
             : 'hover:bg-sidebar-accent/50 text-muted-foreground',

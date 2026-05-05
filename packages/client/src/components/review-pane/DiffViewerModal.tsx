@@ -147,6 +147,7 @@ export function DiffViewerModal({
                 icon={ExpandedIcon}
                 loading={loadingDiff === expandedFile}
                 rawDiff={expandedDiffContent}
+                files={summaries}
                 diffCache={diffCache}
                 onClose={onClose}
                 prReviewThreads={prThreads}

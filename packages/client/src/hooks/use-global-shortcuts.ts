@@ -10,10 +10,7 @@ import { useUIStore } from '@/stores/ui-store';
 
 const log = createClientLogger('hooks:global-shortcuts');
 
-export function useGlobalShortcuts(
-  onToggleCommandPalette: () => void,
-  onToggleFileSearch: () => void,
-) {
+export function useGlobalShortcuts() {
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -24,7 +21,7 @@ export function useGlobalShortcuts(
       if (e.ctrlKey && e.key === 'k') {
         e.preventDefault();
         e.stopPropagation();
-        onToggleCommandPalette();
+        useUIStore.getState().toggleCommandPalette();
         return;
       }
 
@@ -32,7 +29,7 @@ export function useGlobalShortcuts(
       if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
         e.stopPropagation();
-        onToggleFileSearch();
+        useUIStore.getState().toggleFileSearch();
         return;
       }
 
@@ -84,5 +81,5 @@ export function useGlobalShortcuts(
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [navigate, onToggleCommandPalette, onToggleFileSearch]);
+  }, [navigate]);
 }

@@ -56,6 +56,12 @@ interface UIState {
   } | null;
   /** Pre-fill context for creating a thread from a GitHub issue */
   newThreadIssueContext: { prompt: string; branchName: string; title: string } | null;
+  commandPaletteOpen: boolean;
+  fileSearchOpen: boolean;
+  setCommandPaletteOpen: (open: boolean) => void;
+  setFileSearchOpen: (open: boolean) => void;
+  toggleCommandPalette: () => void;
+  toggleFileSearch: () => void;
   setReviewSubTab: (tab: ReviewSubTab) => void;
   setReviewPaneOpen: (open: boolean) => void;
   setTestRunnerOpen: (open: boolean) => void;
@@ -162,6 +168,12 @@ export const useUIStore = create<UIState>((set) => ({
   })(),
   kanbanContext: null,
   newThreadIssueContext: null,
+  commandPaletteOpen: false,
+  fileSearchOpen: false,
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
+  setFileSearchOpen: (open) => set({ fileSearchOpen: open }),
+  toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
+  toggleFileSearch: () => set((s) => ({ fileSearchOpen: !s.fileSearchOpen })),
   setReviewSubTab: (tab) => {
     try {
       localStorage.setItem(REVIEW_SUB_TAB_KEY, tab);

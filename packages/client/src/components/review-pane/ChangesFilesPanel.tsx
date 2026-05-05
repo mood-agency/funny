@@ -96,6 +96,7 @@ interface ChangesFilesPanelProps {
   setSelectedFile: (path: string | null) => void;
   expandedFile: string | null;
   setExpandedFile: (path: string | null) => void;
+  loadDiffForFile: (path: string) => Promise<void>;
   checkedFiles: Set<string>;
   toggleFile: (path: string) => void;
   toggleFolder: (path: string) => void;
@@ -148,6 +149,7 @@ export function ChangesFilesPanel({
   setSelectedFile,
   expandedFile,
   setExpandedFile,
+  loadDiffForFile,
   checkedFiles,
   toggleFile,
   toggleFolder,
@@ -435,6 +437,11 @@ export function ChangesFilesPanel({
                       if (Date.now() - dropdownCloseRef.current < 400) return;
                       setSelectedFile(f.path);
                       setExpandedFile(f.path);
+                      // Kick off the diff fetch synchronously so loadingDiff is
+                      // set in the same render batch — avoids a flash of
+                      // "No diff available" before the useEffect-on-expandedFile
+                      // fires the request.
+                      loadDiffForFile(f.path);
                     }}
                   >
                     <TriCheckbox

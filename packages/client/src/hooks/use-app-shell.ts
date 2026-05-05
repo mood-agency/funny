@@ -12,11 +12,6 @@ import { useProjectStore } from '@/stores/project-store';
 import { setAppNavigate } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
 
-interface Args {
-  toggleCommandPalette: () => void;
-  toggleFileSearch: () => void;
-}
-
 interface ShellState {
   designViewProjectId: string | null;
   designViewOpen: boolean;
@@ -47,7 +42,7 @@ interface ShellState {
  * Pulling these out drops App.tsx fan-out by ~10 edges (every store +
  * bootstrap hook moves into this single import).
  */
-export function useAppShell({ toggleCommandPalette, toggleFileSearch }: Args): ShellState {
+export function useAppShell(): ShellState {
   const navigate = useNavigate();
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const loadTemplates = useAgentTemplateStore((s) => s.loadTemplates);
@@ -113,7 +108,7 @@ export function useAppShell({ toggleCommandPalette, toggleFileSearch }: Args): S
     }
   }, [selectedProjectId, selectedProjectName, selectedProjectBranch]);
 
-  useGlobalShortcuts(toggleCommandPalette, toggleFileSearch);
+  useGlobalShortcuts();
   useThreadHistoryTracker();
 
   return {

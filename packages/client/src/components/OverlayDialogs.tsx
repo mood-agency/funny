@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { WorkflowErrorModal } from '@/components/WorkflowErrorModal';
 import { TOAST_DURATION } from '@/lib/utils';
 import { useInternalEditorStore } from '@/stores/internal-editor-store';
+import { useUIStore } from '@/stores/ui-store';
 
 const commandPaletteImport = () =>
   import('@/components/CommandPalette').then((m) => ({ default: m.CommandPalette }));
@@ -39,10 +40,6 @@ if (typeof requestIdleCallback === 'function') {
 
 interface OverlayDialogsProps {
   branchSyncDialog: React.ReactNode;
-  commandPaletteOpen: boolean;
-  setCommandPaletteOpen: (open: boolean) => void;
-  fileSearchOpen: boolean;
-  setFileSearchOpen: (open: boolean) => void;
 }
 
 /**
@@ -56,13 +53,11 @@ interface OverlayDialogsProps {
  * CommandPalette, FileSearchDialog, MonacoEditorDialog imports +
  * useInternalEditorStore + TOAST_DURATION from App's fan-out.
  */
-export function OverlayDialogs({
-  branchSyncDialog,
-  commandPaletteOpen,
-  setCommandPaletteOpen,
-  fileSearchOpen,
-  setFileSearchOpen,
-}: OverlayDialogsProps) {
+export function OverlayDialogs({ branchSyncDialog }: OverlayDialogsProps) {
+  const commandPaletteOpen = useUIStore((s) => s.commandPaletteOpen);
+  const setCommandPaletteOpen = useUIStore((s) => s.setCommandPaletteOpen);
+  const fileSearchOpen = useUIStore((s) => s.fileSearchOpen);
+  const setFileSearchOpen = useUIStore((s) => s.setFileSearchOpen);
   const internalEditorOpen = useInternalEditorStore((s) => s.isOpen);
   const internalEditorFilePath = useInternalEditorStore((s) => s.filePath);
   const internalEditorContent = useInternalEditorStore((s) => s.initialContent);

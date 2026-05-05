@@ -412,7 +412,7 @@ export function FileTree({
         <div
           key={`submodule-status-${row.submodulePath}-${row.state}`}
           className={cn(
-            'flex h-6 select-none items-center gap-1.5 overflow-hidden pr-1 italic',
+            'flex h-[24px] select-none items-center gap-1.5 overflow-hidden pr-1 italic',
             fontSize,
             'text-muted-foreground/80',
           )}
@@ -433,7 +433,7 @@ export function FileTree({
         <div
           key={`folder-${row.path}`}
           className={cn(
-            'group flex h-6 cursor-pointer select-none items-center gap-1.5 overflow-hidden pr-1',
+            'group flex h-[24px] cursor-pointer select-none items-center gap-1.5 overflow-hidden pr-1',
             fontSize,
             'text-muted-foreground transition-colors',
             hoverClass,
@@ -551,7 +551,7 @@ export function FileTree({
       <div
         key={f.path}
         className={cn(
-          'group flex h-6 items-center gap-1.5 cursor-pointer transition-colors overflow-hidden pr-1',
+          'group flex h-[24px] items-center gap-1.5 cursor-pointer transition-colors overflow-hidden pr-1',
           fontSize,
           isActive ? activeClass : hoverClass,
         )}
