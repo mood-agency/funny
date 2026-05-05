@@ -56,7 +56,12 @@ projectGitRoutes.get('/:id/branches', async (c) => {
   const defaultBranch = defaultBranchResult.isOk() ? defaultBranchResult.value : 'main';
   const currentBranch = currentBranchResult.isOk() ? currentBranchResult.value : null;
 
-  return c.json({ branches: detailed, defaultBranch, currentBranch });
+  // Client contract: `branches` = local branch names, `remoteBranches` = names
+  // that exist on origin (used by BranchPicker to render the "origin" badge).
+  const branches = detailed.filter((b) => b.isLocal).map((b) => b.name);
+  const remoteBranches = detailed.filter((b) => b.isRemote).map((b) => b.name);
+
+  return c.json({ branches, remoteBranches, defaultBranch, currentBranch });
 });
 
 // GET /api/projects/:id/checkout-preflight?branch=<branch>

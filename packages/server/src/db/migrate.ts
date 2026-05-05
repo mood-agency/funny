@@ -1071,6 +1071,18 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    // Avoid full scans when joining tool_calls to messages (e.g. follow-up
+    // sendMessage calls findLastUnansweredInteractiveToolCall which would
+    // otherwise time out on threads with many tool_calls).
+    name: '046_idx_tool_calls_message_id',
+    async up() {
+      await ctx().exec(sql`
+        CREATE INDEX IF NOT EXISTS idx_tool_calls_message_id
+        ON tool_calls (message_id)
+      `);
+    },
+  },
 ];
 
 export async function autoMigrate() {

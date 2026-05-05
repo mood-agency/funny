@@ -149,7 +149,7 @@ describe('agentCompletedQueueHandler', () => {
       undefined, // disallowedTools
       undefined, // allowedTools
       'claude', // thread.provider
-      true, // skipMessageInsert
+      false, // skipMessageInsert — message was queued without persisting; insert now
     );
   });
 
@@ -206,7 +206,7 @@ describe('agentCompletedQueueHandler', () => {
       ['Bash'], // parsed disallowedTools
       ['Read'], // parsed allowedTools
       'openai', // message-level provider
-      true,
+      false,
     );
   });
 

@@ -147,7 +147,9 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     await tm.updateThread(params.threadId, updates);
   }
 
-  // Auto-move idle backlog threads to in_progress when a message is sent
+  // Auto-move idle backlog threads to in_progress when a message is sent.
+  // Detect a pre-existing user draft so the persistence step below updates it
+  // instead of inserting a duplicate.
   let hasDraftMessage = false;
   if (thread.status === 'idle' && thread.stage === 'backlog') {
     const stageUpdates: Record<string, any> = { stage: 'in_progress' };
@@ -163,47 +165,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     });
     const draftMsg = draftMessages[0];
     if (draftMsg && draftMsg.role === 'user') {
-      await tm.updateMessage(draftMsg.id, {
-        content: params.content,
-        images: params.images?.length ? JSON.stringify(params.images) : null,
-      });
       hasDraftMessage = true;
-    }
-  }
-
-  // Persist the user's answer in the tool call output.
-  // Always attempt this (not just when status === 'waiting') because the thread
-  // status may have already transitioned away from 'waiting' by the time the
-  // user's response arrives — e.g. due to interruption or race conditions.
-  // Without this, the tool call output stays NULL and the UI re-shows
-  // accept/reject buttons on refresh.
-  {
-    const pendingTC = await tm.findLastUnansweredInteractiveToolCall(params.threadId);
-    if (pendingTC) {
-      log.info('sendMessage: resolving unanswered interactive tool call', {
-        namespace: 'thread-service',
-        threadId: params.threadId,
-        userId: thread.userId ?? 'unknown',
-        projectId: thread.projectId,
-        threadStatus: thread.status,
-        pendingToolCallId: pendingTC.id,
-        pendingToolCallName: pendingTC.name,
-      });
-      await tm.updateToolCallOutput(pendingTC.id, params.content);
-
-      // When the user accepts a plan (ExitPlanMode), switch from plan-only mode
-      // to autoEdit so the agent can actually execute. Without this, the agent
-      // restarts in plan mode and immediately calls ExitPlanMode again — an
-      // infinite loop.
-      if (pendingTC.name === 'ExitPlanMode' && effectivePermission === 'plan') {
-        effectivePermission = 'autoEdit';
-        await tm.updateThread(params.threadId, { permissionMode: 'autoEdit' });
-        emitThreadUpdated(thread.userId, params.threadId, { permissionMode: 'autoEdit' });
-        log.info('sendMessage: upgrading permissionMode from plan to autoEdit after ExitPlanMode', {
-          namespace: 'thread-service',
-          threadId: params.threadId,
-        });
-      }
     }
   }
 
@@ -211,31 +173,101 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
   let augmentedContent = await augmentPromptWithFiles(params.content, params.fileReferences, cwd);
   augmentedContent = await augmentPromptWithSymbols(augmentedContent, params.symbolReferences, cwd);
 
-  // Check if the agent is running and the project uses queue mode
+  // Decide whether this send will be queued. When queued, we deliberately
+  // skip persisting the user message to `messages` here — the message lives
+  // only in the queue table until dequeue, where startAgent inserts it with
+  // a timestamp that matches when the agent actually starts processing it.
+  // This avoids the double-render bug where the stored message and the
+  // client-side dequeue buffer both surface the same content twice.
   const agentRunning = isAgentRunning(params.threadId);
   const project = await getServices().projects.getProject(thread.projectId);
   const followUpMode = project?.followUpMode || DEFAULT_FOLLOW_UP_MODE;
-
-  // When the thread is waiting for user input (plan acceptance, question answer),
-  // always bypass the queue and deliver the response immediately. The agent process
-  // may still appear "running" due to a race condition (process hasn't fully exited
-  // after emitting the result), but agent:completed is never emitted for waiting
-  // threads, so queued messages would never be drained — causing a deadlock.
   const isWaitingResponse = thread.status === 'waiting';
-
-  // When the thread has been stopped/completed/failed, bypass the queue even if
-  // isAgentRunning() still returns true (race condition: the stop request hasn't
-  // fully cleaned up the process yet). The user intends to restart the thread,
-  // not queue a message that would be drained by the stop completion handler.
   const threadIsTerminal =
     thread.status === 'stopped' || thread.status === 'completed' || thread.status === 'failed';
-
-  if (
+  const willQueue =
     agentRunning &&
     !isWaitingResponse &&
     !threadIsTerminal &&
-    (followUpMode === 'queue' || params.forceQueue)
-  ) {
+    (followUpMode === 'queue' || params.forceQueue);
+
+  if (!willQueue) {
+    // Persist the user's message BEFORE any remote/long-running call. If a later
+    // step (e.g. findLastUnansweredInteractiveToolCall) times out or throws, the
+    // user's content is already saved — refresh shows the message instead of
+    // appearing to lose it silently. Downstream code (startAgent) is told the
+    // message already exists via hasDraftMessage=true.
+    if (hasDraftMessage) {
+      const { messages: draftMsgs } = await tm.getThreadMessages({
+        threadId: params.threadId,
+        limit: 1,
+      });
+      if (draftMsgs[0]) {
+        await tm.updateMessage(draftMsgs[0].id, {
+          content: augmentedContent,
+          images: params.images?.length ? JSON.stringify(params.images) : null,
+        });
+      }
+    } else {
+      await tm.insertMessage({
+        threadId: params.threadId,
+        role: 'user',
+        content: augmentedContent,
+        images: params.images?.length ? JSON.stringify(params.images) : null,
+        model: effectiveModel,
+        permissionMode: effectivePermission,
+      });
+      hasDraftMessage = true;
+    }
+
+    // Persist the user's answer in the tool call output.
+    // Always attempt this (not just when status === 'waiting') because the thread
+    // status may have already transitioned away from 'waiting' by the time the
+    // user's response arrives — e.g. due to interruption or race conditions.
+    // Without this, the tool call output stays NULL and the UI re-shows
+    // accept/reject buttons on refresh.
+    // Wrapped so a failure here doesn't lose the user's message (already persisted above).
+    try {
+      const pendingTC = await tm.findLastUnansweredInteractiveToolCall(params.threadId);
+      if (pendingTC) {
+        log.info('sendMessage: resolving unanswered interactive tool call', {
+          namespace: 'thread-service',
+          threadId: params.threadId,
+          userId: thread.userId ?? 'unknown',
+          projectId: thread.projectId,
+          threadStatus: thread.status,
+          pendingToolCallId: pendingTC.id,
+          pendingToolCallName: pendingTC.name,
+        });
+        await tm.updateToolCallOutput(pendingTC.id, params.content);
+
+        // When the user accepts a plan (ExitPlanMode), switch from plan-only mode
+        // to autoEdit so the agent can actually execute. Without this, the agent
+        // restarts in plan mode and immediately calls ExitPlanMode again — an
+        // infinite loop.
+        if (pendingTC.name === 'ExitPlanMode' && effectivePermission === 'plan') {
+          effectivePermission = 'autoEdit';
+          await tm.updateThread(params.threadId, { permissionMode: 'autoEdit' });
+          emitThreadUpdated(thread.userId, params.threadId, { permissionMode: 'autoEdit' });
+          log.info(
+            'sendMessage: upgrading permissionMode from plan to autoEdit after ExitPlanMode',
+            {
+              namespace: 'thread-service',
+              threadId: params.threadId,
+            },
+          );
+        }
+      }
+    } catch (err) {
+      log.warn('sendMessage: failed to resolve pending interactive tool call (continuing)', {
+        namespace: 'thread-service',
+        threadId: params.threadId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  if (willQueue) {
     const queued = await getServices().messageQueue.enqueue(params.threadId, {
       content: augmentedContent,
       provider: effectiveProvider,
@@ -245,15 +277,6 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
       allowedTools: params.allowedTools ? JSON.stringify(params.allowedTools) : undefined,
       disallowedTools: params.disallowedTools ? JSON.stringify(params.disallowedTools) : undefined,
       fileReferences: params.fileReferences ? JSON.stringify(params.fileReferences) : undefined,
-    });
-
-    await tm.insertMessage({
-      threadId: params.threadId,
-      role: 'user',
-      content: augmentedContent,
-      images: params.images ? JSON.stringify(params.images) : null,
-      model: effectiveModel,
-      permissionMode: effectivePermission,
     });
 
     const qCount = await getServices().messageQueue.queueCount(params.threadId);
@@ -274,17 +297,6 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     }
 
     return { ok: true, queued: true, queuedCount: qCount, queuedMessageId: queued.id };
-  }
-
-  // When sending to an idle thread that had a draft, update draft with augmented content
-  if (hasDraftMessage) {
-    const { messages: draftMsgs } = await tm.getThreadMessages({
-      threadId: params.threadId,
-      limit: 1,
-    });
-    if (draftMsgs[0]) {
-      await tm.updateMessage(draftMsgs[0].id, { content: augmentedContent });
-    }
   }
 
   // Default interrupt behavior — start agent (throws on failure)

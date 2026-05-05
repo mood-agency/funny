@@ -29,6 +29,30 @@ function decodeUnicodeEscapes(str: string): string {
 }
 
 /**
+ * Normalize a tool_result `content` field to a string. The Anthropic SDK may
+ * deliver it as a plain string or as an array of content blocks
+ * (`[{ type: 'text', text: '…' }, …]`). Image / non-text blocks are rendered
+ * as a placeholder so callers always see a non-empty string when there is
+ * any payload at all.
+ */
+function normalizeToolResultContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((b: any) => {
+        if (typeof b === 'string') return b;
+        if (b && typeof b === 'object') {
+          if (typeof b.text === 'string') return b.text;
+          if (b.type === 'image') return '[image]';
+        }
+        return '';
+      })
+      .join('');
+  }
+  return '';
+}
+
+/**
  * Serialize a tool's input to a short string for client display in the
  * permission approval card. Bash gets its raw command; other tools get
  * a truncated JSON representation.
@@ -544,8 +568,9 @@ export class AgentMessageHandler {
     for (const block of msg.message.content) {
       if (block.type === 'tool_result' && block.tool_use_id) {
         const toolCallId = seen.get(block.tool_use_id);
-        if (toolCallId && block.content) {
-          const decodedOutput = decodeUnicodeEscapes(block.content);
+        const rawContent = normalizeToolResultContent(block.content);
+        if (toolCallId && rawContent) {
+          const decodedOutput = decodeUnicodeEscapes(rawContent);
 
           log.info(`tool_result: ${toolCallId}`, {
             ...(await this.threadCtx(threadId)),

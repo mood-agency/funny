@@ -44,8 +44,12 @@ export const agentCompletedQueueHandler: EventHandler<'agent:completed'> = {
     const effectiveCwd = thread.worktreePath ?? project.path;
 
     try {
-      // skipMessageInsert: true — the user message was already inserted when
-      // the message was enqueued in thread-service.ts, avoid duplicates.
+      // skipMessageInsert: false — when sendMessage decided to queue, it
+      // intentionally did NOT persist the user message to the messages
+      // table (only to the queue). Insert it now so the message lands in
+      // the thread with a timestamp matching when the agent actually
+      // starts processing it, and with no duplicate vs. the client-side
+      // dequeue buffer.
       await ctx.startAgent(
         threadId,
         next.content,
@@ -56,7 +60,7 @@ export const agentCompletedQueueHandler: EventHandler<'agent:completed'> = {
         next.disallowedTools ? JSON.parse(next.disallowedTools) : undefined,
         next.allowedTools ? JSON.parse(next.allowedTools) : undefined,
         next.provider || thread.provider || DEFAULT_PROVIDER,
-        true, // skipMessageInsert
+        false, // skipMessageInsert
       );
 
       // Emit queue update with the dequeued message content so the client
