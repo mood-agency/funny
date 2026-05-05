@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { useBranchSwitch } from '@/hooks/use-branch-switch';
-import { useNavigationBlock } from '@/hooks/use-navigation-block';
+import { useSaveBacklogOnLeave } from '@/hooks/use-save-backlog-on-leave';
 import { api } from '@/lib/api';
 import { toastError } from '@/lib/toast-error';
 import { buildPath } from '@/lib/url';
@@ -18,7 +18,7 @@ import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
 
 import { PromptInput } from '../PromptInput';
-import { formatRemoteUrl } from '../PromptInputUI';
+import { formatRemoteUrl, remoteUrlToBrowseUrl } from '../PromptInputUI';
 import { BranchPicker } from '../SearchablePicker';
 import { SaveBacklogDialog } from './SaveBacklogDialog';
 
@@ -69,12 +69,14 @@ export function NewThreadInput() {
   const { ensureBranch, branchSwitchDialog } = useBranchSwitch();
   const handleBranchChange = useCallback(
     async (branch: string) => {
-      branchPickerSetSelected(branch);
-      // Checkout immediately so the ReviewPane can show the correct branch status.
-      // ensureBranch is a no-op if already on the target branch.
+      // Checkout first so the picker only moves once the branch is actually live.
+      // ensureBranch is a no-op if already on the target branch, and returns
+      // false if the user cancels the dirty-files dialog or the checkout fails.
       if (effectiveProjectId && branch !== branchPickerCurrentBranch) {
-        await ensureBranch(effectiveProjectId, branch);
+        const ok = await ensureBranch(effectiveProjectId, branch);
+        if (!ok) return;
       }
+      branchPickerSetSelected(branch);
     },
     [branchPickerSetSelected, effectiveProjectId, branchPickerCurrentBranch, ensureBranch],
   );
@@ -101,7 +103,6 @@ export function NewThreadInput() {
   // ── Save-to-backlog guard ──
   const hasContentRef = useRef(false);
   const latestPromptTextRef = useRef('');
-  const [savingBacklog, setSavingBacklog] = useState(false);
   // Skip blocking when the user just submitted (created a thread successfully)
   const justSubmittedRef = useRef(false);
 
@@ -121,44 +122,14 @@ export function NewThreadInput() {
     [project?.name],
   );
 
-  // Block navigation when the editor has unsaved content
-  const blocker = useNavigationBlock((currentPath, nextPath) => {
-    if (justSubmittedRef.current) return false;
-    if (currentPath === nextPath) return false;
-    return hasContentRef.current;
-  });
-
-  const handleSaveToBacklog = useCallback(async () => {
-    if (!effectiveProjectId) return;
-    const text = latestPromptTextRef.current.trim();
-    if (!text) {
-      blocker.proceed?.();
-      return;
-    }
-    setSavingBacklog(true);
-    const result = await api.createIdleThread({
-      projectId: effectiveProjectId,
-      title: text.slice(0, 200),
-      mode: defaultThreadMode,
-      prompt: text,
+  const { blocker, savingBacklog, handleSaveToBacklog, handleDiscard, handleCancel } =
+    useSaveBacklogOnLeave({
+      effectiveProjectId,
+      defaultThreadMode,
+      latestPromptTextRef,
+      hasContentRef,
+      justSubmittedRef,
     });
-    setSavingBacklog(false);
-    if (result.isErr()) {
-      toastError(result.error, 'createThread');
-      return;
-    }
-    await loadThreadsForProject(effectiveProjectId);
-    toast.success(t('toast.threadCreated', { title: text.slice(0, 200) }));
-    blocker.proceed?.();
-  }, [effectiveProjectId, defaultThreadMode, loadThreadsForProject, blocker, t]);
-
-  const handleDiscard = useCallback(() => {
-    blocker.proceed?.();
-  }, [blocker]);
-
-  const handleCancel = useCallback(() => {
-    blocker.reset?.();
-  }, [blocker]);
 
   const [creating, setCreating] = useState(false);
 
@@ -278,14 +249,30 @@ export function NewThreadInput() {
           {project && remoteUrl && (
             <>
               <span className="text-muted-foreground/40">/</span>
-              <span className="flex shrink-0 items-center gap-1.5 truncate">
-                {remoteUrl.includes('github.com') ? (
-                  <Github className="h-5 w-5 shrink-0" />
+              {(() => {
+                const browseUrl = remoteUrlToBrowseUrl(remoteUrl);
+                const Icon = remoteUrl.includes('github.com') ? Github : Globe;
+                const content = (
+                  <>
+                    <Icon className="h-5 w-5 shrink-0" />
+                    <span className="truncate font-medium">{formatRemoteUrl(remoteUrl)}</span>
+                  </>
+                );
+                return browseUrl ? (
+                  <a
+                    href={browseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex shrink-0 items-center gap-1.5 truncate rounded px-2 py-1 transition-colors hover:bg-muted hover:text-foreground"
+                    data-testid="new-thread-repo-link"
+                    title={browseUrl}
+                  >
+                    {content}
+                  </a>
                 ) : (
-                  <Globe className="h-5 w-5 shrink-0" />
-                )}
-                <span className="truncate font-medium">{formatRemoteUrl(remoteUrl)}</span>
-              </span>
+                  <span className="flex shrink-0 items-center gap-1.5 truncate">{content}</span>
+                );
+              })()}
             </>
           )}
           {(branchPickerBranches.length > 0 || branchPickerLoading) && (
