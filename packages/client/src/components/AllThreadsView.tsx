@@ -120,6 +120,16 @@ export function AllThreadsView() {
     searchInputRef.current?.focus();
   }, []);
 
+  // When archived toggle flips on, refetch threads including archived.
+  // (Initial loads happen elsewhere with includeArchived=false.)
+  useEffect(() => {
+    if (!showArchived) return;
+    const targets = projectFilter ? [projectFilter] : projects.map((p) => p.id);
+    for (const pid of targets) {
+      useThreadStore.getState().loadThreadsForProject(pid, true);
+    }
+  }, [showArchived, projectFilter, projects]);
+
   // Content search: debounced server call to find threads matching by message content
   // Stores threadId → snippet so we can display matching text on cards
   const [contentMatches, setContentMatches] = useState<Map<string, string>>(new Map());
@@ -207,12 +217,19 @@ export function AllThreadsView() {
       await Promise.all(
         relevantProjects
           .filter((pid) => (threadsByProject[pid] ?? []).length < (threadTotalByProject[pid] ?? 0))
-          .map((pid) => loadMoreThreads(pid)),
+          .map((pid) => loadMoreThreads(pid, showArchived)),
       );
     } finally {
       setLoadingMore(false);
     }
-  }, [projectFilter, projects, threadsByProject, threadTotalByProject, loadMoreThreads]);
+  }, [
+    projectFilter,
+    projects,
+    threadsByProject,
+    threadTotalByProject,
+    loadMoreThreads,
+    showArchived,
+  ]);
 
   const allThreads = useMemo(() => {
     // Board view always includes archived (they appear in the archived column)

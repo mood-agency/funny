@@ -1,14 +1,16 @@
-import type { Thread, ThreadStatus } from '@funny/shared';
+import type { Thread } from '@funny/shared';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Loader2 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { BranchBadge } from '@/components/BranchBadge';
+import { ThreadStatusPin } from '@/components/thread/ThreadStatusPin';
 import { HighlightText, normalize } from '@/components/ui/highlight-text';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
-import { statusConfig, timeAgo } from '@/lib/thread-utils';
+import { timeAgo } from '@/lib/thread-utils';
 import { cn, resolveThreadBranch } from '@/lib/utils';
+import { useThreadStore } from '@/stores/thread-store';
 
 const ROW_ESTIMATE_PX = 60;
 const LOAD_MORE_THRESHOLD = 5;
@@ -48,6 +50,7 @@ export function VirtualThreadList({
 }: VirtualThreadListProps) {
   const { t } = useTranslation();
   useMinuteTick();
+  const pinThread = useThreadStore((s) => s.pinThread);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [highlightIndex, setHighlightIndex] = useState(-1);
 
@@ -133,8 +136,6 @@ export function VirtualThreadList({
           {virtualItems.map((v) => {
             const thread = threads[v.index];
             if (!thread) return null;
-            const s = statusConfig[thread.status as ThreadStatus] ?? statusConfig.pending;
-            const Icon = s.icon;
             const Wrapper = onThreadClick ? 'button' : 'div';
             return (
               <Wrapper
@@ -145,7 +146,7 @@ export function VirtualThreadList({
                 {...(onThreadClick ? { onClick: () => onThreadClick(thread) } : {})}
                 onMouseMove={() => setHighlightIndex(v.index)}
                 className={cn(
-                  'w-full flex items-center gap-3 px-3 py-2.5 border-b border-border/50 group outline-none',
+                  'w-full flex items-center gap-3 px-3 py-2.5 border-b border-border/50 group/row outline-none',
                   onThreadClick && 'text-left hover:bg-accent/50 transition-colors',
                   v.index === highlightIndex && 'bg-accent/50',
                 )}
@@ -156,7 +157,13 @@ export function VirtualThreadList({
                   transform: `translateY(${v.start}px)`,
                 }}
               >
-                <Icon className={cn('icon-base flex-shrink-0', s.className)} />
+                <ThreadStatusPin
+                  thread={thread}
+                  onPin={(pinned) => pinThread(thread.id, thread.projectId, pinned)}
+                  hoverGroup="row"
+                  showStatusTooltip
+                />
+
                 <div className="min-w-0 flex-1">
                   <HighlightText
                     text={thread.title}

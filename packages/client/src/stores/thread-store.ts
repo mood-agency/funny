@@ -30,14 +30,18 @@
  *    handler always and a boolean `disabled` prop.
  */
 
-import type { Thread, MessageRole, WaitingReason } from '@funny/shared';
-import { toast } from 'sonner';
+import type {
+  Thread,
+  MessageRole,
+  ThreadStage,
+  WaitingReason,
+  AgentModel,
+  PermissionMode,
+} from '@funny/shared';
 import { create } from 'zustand';
 
-import i18n from '@/i18n/config';
-import { threadsApi } from '@/lib/api/threads';
-import { loadContextUsage } from '@/lib/context-usage-storage';
-import { metric } from '@/lib/telemetry';
+import { api } from '@/lib/api';
+import { metric, startSpan } from '@/lib/telemetry';
 
 import {
   expandProject,
@@ -57,100 +61,169 @@ import {
   getSelectingThreadId,
   setSelectingThreadId,
   rebuildThreadProjectIndex,
-  invalidateSelectThread as _internalInvalidate,
-  setCacheInvalidator,
-  notifyThreadSelected,
 } from './thread-store-internals';
-import type {
-  AgentInitInfo,
-  AgentResultInfo,
-  CompactionEvent,
-  ContextUsage,
-  ThreadState,
-  ThreadWithMessages,
-} from './thread-types';
 import * as wsHandlers from './thread-ws-handlers';
+import { useUIStore } from './ui-store';
 
-export { setAppNavigate, getSelectingThreadId } from './thread-store-internals';
-export type {
-  AgentInitInfo,
-  AgentResultInfo,
-  CompactionEvent,
-  ContextUsage,
-  ThreadState,
-  ThreadWithMessages,
-} from './thread-types';
+// Re-export for external consumers
+export {
+  invalidateSelectThread,
+  setAppNavigate,
+  getSelectingThreadId,
+} from './thread-store-internals';
 
-/**
- * Invalidate cached thread data so the next selectThread() refetches.
- * Wraps the internal generation bump and also clears the per-thread LRU cache.
- */
-export function invalidateSelectThread(): void {
-  _internalInvalidate();
-  cacheClear();
+// ── Types ────────────────────────────────────────────────────────
+
+export interface AgentInitInfo {
+  tools: string[];
+  cwd: string;
+  model: string;
 }
 
-/** Run `cb` when the browser is idle (or on next tick if requestIdleCallback is unavailable).
- *  Used to defer non-critical work — like extending the loaded message window —
- *  past the first paint so the user sees the most recent messages immediately. */
-function scheduleIdle(cb: () => void): void {
-  const ric = (globalThis as any).requestIdleCallback as
-    | ((cb: () => void, opts?: { timeout: number }) => number)
-    | undefined;
-  if (typeof ric === 'function') ric(cb, { timeout: 1000 });
-  else setTimeout(cb, 0);
+export interface AgentResultInfo {
+  status: 'completed' | 'failed';
+  cost: number;
+  duration: number;
+  error?: string;
 }
 
-// ── Waiting reconstruction ───────────────────────────────────────
+export interface CompactionEvent {
+  trigger: 'manual' | 'auto';
+  preTokens: number;
+  timestamp: string;
+}
 
-const PERMISSION_DENIAL_PATTERN =
-  /permission|hasn't been granted|not in the allowed tools|hook error:.*approval|denied this tool|Blocked by hook|is a sensitive file/i;
+export interface ContextUsage {
+  cumulativeInputTokens: number;
+  lastInputTokens: number;
+  lastOutputTokens: number;
+}
 
-/**
- * Walk a message list backwards looking for the trailing tool call that
- * indicates the agent is waiting on user input. Returns undefined when the
- * last tool call doesn't match a known waiting trigger.
- */
-function reconstructWaitingFromMessages(
-  messages: ThreadWithMessages['messages'],
-):
-  | { waitingReason: WaitingReason; pendingPermission?: { toolName: string; toolInput?: string } }
-  | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const tcs = messages[i].toolCalls;
-    if (!tcs?.length) continue;
-    const lastTC = tcs[tcs.length - 1];
-    if (lastTC.name === 'AskUserQuestion') {
-      return { waitingReason: 'question' };
-    }
-    if (lastTC.name === 'ExitPlanMode') {
-      return { waitingReason: 'plan' };
-    }
-    if (lastTC.output && PERMISSION_DENIAL_PATTERN.test(lastTC.output)) {
-      const ti = (lastTC as { input?: unknown }).input;
-      const serializedInput =
-        lastTC.name === 'Bash' &&
-        ti &&
-        typeof ti === 'object' &&
-        typeof (ti as { command?: unknown }).command === 'string'
-          ? ((ti as { command: string }).command as string)
-          : ti
-            ? (() => {
-                try {
-                  return JSON.stringify(ti);
-                } catch {
-                  return undefined;
-                }
-              })()
-            : undefined;
-      return {
-        waitingReason: 'permission',
-        pendingPermission: { toolName: lastTC.name, toolInput: serializedInput },
-      };
-    }
-    return undefined;
-  }
-  return undefined;
+export interface ThreadWithMessages extends Thread {
+  messages: (import('@funny/shared').Message & { toolCalls?: any[] })[];
+  threadEvents?: import('@funny/shared').ThreadEvent[];
+  initInfo?: AgentInitInfo;
+  resultInfo?: AgentResultInfo;
+  waitingReason?: WaitingReason;
+  pendingPermission?: { toolName: string };
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  contextUsage?: ContextUsage;
+  compactionEvents?: CompactionEvent[];
+  /** Setup progress steps for threads in setting_up status */
+  setupProgress?: import('@/components/GitProgressModal').GitProgressStep[];
+  /** Last user message — always available even when messages are paginated */
+  lastUserMessage?: import('@funny/shared').Message & { toolCalls?: any[] };
+  /** Number of messages currently queued for this thread */
+  queuedCount?: number;
+  /** Preview of the next queued message */
+  queuedNextMessage?: string;
+}
+
+export interface ThreadState {
+  threadsByProject: Record<string, Thread[]>;
+  /** Total thread count per project (from server pagination) */
+  threadTotalByProject: Record<string, number>;
+  selectedThreadId: string | null;
+  activeThread: ThreadWithMessages | null;
+  /** Setup progress keyed by threadId — survives thread switches */
+  setupProgressByThread: Record<string, import('@/components/GitProgressModal').GitProgressStep[]>;
+  /** Context usage keyed by threadId — survives thread switches */
+  contextUsageByThread: Record<string, ContextUsage>;
+  /** Queued message count keyed by threadId — survives thread switches */
+  queuedCountByThread: Record<string, number>;
+
+  loadThreadsForProject: (projectId: string, includeArchived?: boolean) => Promise<void>;
+  /** Load the next page of threads for a project (appends to existing list) */
+  loadMoreThreads: (projectId: string, includeArchived?: boolean) => Promise<void>;
+  selectThread: (threadId: string | null) => Promise<void>;
+  /**
+   * Warm the prefetch cache for a thread (e.g. on hover) so the subsequent
+   * selectThread call can resolve from cache instead of awaiting the network.
+   * No-op if already cached or if the thread is currently active.
+   */
+  prefetchThread: (threadId: string) => void;
+  archiveThread: (threadId: string, projectId: string) => Promise<void>;
+  unarchiveThread: (threadId: string, projectId: string, stage: ThreadStage) => Promise<void>;
+  renameThread: (threadId: string, projectId: string, title: string) => Promise<void>;
+  pinThread: (threadId: string, projectId: string, pinned: boolean) => Promise<void>;
+  updateThreadStage: (threadId: string, projectId: string, stage: ThreadStage) => Promise<void>;
+  deleteThread: (threadId: string, projectId: string) => Promise<void>;
+  appendOptimisticMessage: (
+    threadId: string,
+    content: string,
+    images?: any[],
+    model?: AgentModel,
+    permissionMode?: PermissionMode,
+    fileReferences?: { path: string; type?: 'file' | 'folder' }[],
+  ) => void;
+  rollbackOptimisticMessage: (threadId: string) => void;
+  loadOlderMessages: () => Promise<void>;
+  refreshActiveThread: () => Promise<void>;
+  refreshAllLoadedThreads: () => Promise<void>;
+  clearProjectThreads: (projectId: string) => void;
+
+  // Agent lifecycle actions — centralize API calls that components previously made directly
+  sendMessage: (
+    threadId: string,
+    content: string,
+    options?: {
+      model?: AgentModel;
+      permissionMode?: PermissionMode;
+      images?: any[];
+    },
+  ) => Promise<boolean>;
+  stopThread: (threadId: string) => Promise<void>;
+  approveTool: (
+    threadId: string,
+    toolName: string,
+    approved: boolean,
+    allowedTools?: string[],
+    disallowedTools?: string[],
+  ) => Promise<boolean>;
+  searchThreadContent: (query: string, projectId?: string) => Promise<any>;
+
+  // WebSocket event handlers
+  handleWSInit: (threadId: string, data: AgentInitInfo) => void;
+  handleWSMessage: (
+    threadId: string,
+    data: { messageId?: string; role: string; content: string },
+  ) => void;
+  handleWSToolCall: (
+    threadId: string,
+    data: { toolCallId?: string; messageId?: string; name: string; input: unknown },
+  ) => void;
+  handleWSToolOutput: (threadId: string, data: { toolCallId: string; output: string }) => void;
+  handleWSStatus: (threadId: string, data: { status: string }) => void;
+  handleWSError: (threadId: string, data: { error?: string }) => void;
+  handleWSResult: (threadId: string, data: any) => void;
+  handleWSQueueUpdate: (
+    threadId: string,
+    data: { threadId: string; queuedCount: number; nextMessage?: string },
+  ) => void;
+  handleWSCompactBoundary: (
+    threadId: string,
+    data: { trigger: 'manual' | 'auto'; preTokens: number; timestamp: string },
+  ) => void;
+  handleWSContextUsage: (
+    threadId: string,
+    data: { inputTokens: number; outputTokens: number; cumulativeInputTokens: number },
+  ) => void;
+
+  // Worktree setup progress handlers
+  handleWSWorktreeSetup: (
+    threadId: string,
+    data: {
+      step: string;
+      label: string;
+      status: 'running' | 'completed' | 'failed';
+      error?: string;
+    },
+  ) => void;
+  handleWSWorktreeSetupComplete: (
+    threadId: string,
+    data: { branch: string; worktreePath?: string },
+  ) => void;
 }
 
 // ── Buffer replay ────────────────────────────────────────────────
@@ -192,66 +265,38 @@ function flushWSBuffer(threadId: string, store: ThreadState) {
 // Parse the URL at module-load time. If we're on a thread route, start
 // fetching thread data immediately — in parallel with auth bootstrap and
 // project loading — instead of waiting for useRouteSync.
+const PREFETCH_CACHE_LIMIT = 8;
 const _prefetchCache = new Map<
   string,
   {
-    threadPromise: ReturnType<typeof threadsApi.getThread>;
-    eventsPromise: ReturnType<typeof threadsApi.getThreadEvents>;
+    threadPromise: ReturnType<typeof api.getThread>;
+    eventsPromise: ReturnType<typeof api.getThreadEvents>;
   }
 >();
+
+function setPrefetch(
+  threadId: string,
+  entry: {
+    threadPromise: ReturnType<typeof api.getThread>;
+    eventsPromise: ReturnType<typeof api.getThreadEvents>;
+  },
+) {
+  if (_prefetchCache.size >= PREFETCH_CACHE_LIMIT) {
+    const oldest = _prefetchCache.keys().next().value;
+    if (oldest) _prefetchCache.delete(oldest);
+  }
+  _prefetchCache.set(threadId, entry);
+}
+
 {
   const m = window.location.pathname.match(/\/projects\/[^/]+\/threads\/([^/]+)/);
   if (m) {
     const threadId = m[1];
-    _prefetchCache.set(threadId, {
-      threadPromise: threadsApi.getThread(threadId, 50),
-      eventsPromise: threadsApi.getThreadEvents(threadId),
+    setPrefetch(threadId, {
+      threadPromise: api.getThread(threadId, 50),
+      eventsPromise: api.getThreadEvents(threadId),
     });
   }
-}
-
-// ── Per-thread LRU cache ──────────────────────────────────────────
-// Avoids refetching messages on rapid back-and-forth thread switches.
-// Cache hit → set activeThread synchronously (no network); SWR refresh
-// in background if the entry is older than SWR_AFTER_MS but still within TTL.
-interface ThreadCacheEntry {
-  thread: ThreadWithMessages;
-  fetchedAt: number;
-}
-const THREAD_CACHE_MAX = 8;
-const THREAD_CACHE_TTL_MS = 5 * 60_000;
-const THREAD_CACHE_SWR_AFTER_MS = 30_000;
-const _threadCache = new Map<string, ThreadCacheEntry>();
-
-function cacheGet(id: string): ThreadCacheEntry | undefined {
-  const entry = _threadCache.get(id);
-  if (!entry) return undefined;
-  // Bump LRU recency
-  _threadCache.delete(id);
-  _threadCache.set(id, entry);
-  return entry;
-}
-
-function cachePut(id: string, thread: ThreadWithMessages): void {
-  if (_threadCache.has(id)) _threadCache.delete(id);
-  _threadCache.set(id, { thread, fetchedAt: Date.now() });
-  while (_threadCache.size > THREAD_CACHE_MAX) {
-    const oldest = _threadCache.keys().next().value;
-    if (!oldest) break;
-    _threadCache.delete(oldest);
-  }
-}
-
-function cacheInvalidate(id: string): void {
-  _threadCache.delete(id);
-}
-
-// Expose cache invalidation to WS handlers via the internals registry to avoid
-// a direct value import cycle (thread-store ↔ thread-ws-handlers).
-setCacheInvalidator(cacheInvalidate);
-
-function cacheClear(): void {
-  _threadCache.clear();
 }
 
 // ── Store ────────────────────────────────────────────────────────
@@ -272,14 +317,15 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   contextUsageByThread: {},
   queuedCountByThread: {},
 
-  loadThreadsForProject: async (projectId: string) => {
-    // Deduplicate concurrent loads for the same project
-    const existing = _threadLoadPromises.get(projectId);
+  loadThreadsForProject: async (projectId: string, includeArchived: boolean = false) => {
+    // Deduplicate concurrent loads for the same project + flag combo
+    const key = `${projectId}|${includeArchived ? 1 : 0}`;
+    const existing = _threadLoadPromises.get(key);
     if (existing) return existing;
 
     const promise = (async () => {
       try {
-        const result = await threadsApi.listThreads(projectId, false, 50);
+        const result = await api.listThreads(projectId, includeArchived, 50);
         if (result.isOk()) {
           set((state) => ({
             threadsByProject: { ...state.threadsByProject, [projectId]: result.value.threads },
@@ -290,19 +336,19 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           }));
         }
       } finally {
-        _threadLoadPromises.delete(projectId);
+        _threadLoadPromises.delete(key);
       }
     })();
 
-    _threadLoadPromises.set(projectId, promise);
+    _threadLoadPromises.set(key, promise);
     return promise;
   },
 
-  loadMoreThreads: async (projectId: string) => {
+  loadMoreThreads: async (projectId: string, includeArchived: boolean = false) => {
     const { threadsByProject } = get();
     const currentThreads = threadsByProject[projectId] ?? [];
     const offset = currentThreads.length;
-    const result = await threadsApi.listThreads(projectId, false, 50, offset);
+    const result = await api.listThreads(projectId, includeArchived, 50, offset);
     if (result.isOk() && result.value.threads.length > 0) {
       set((state) => ({
         threadsByProject: {
@@ -321,8 +367,6 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     // Skip if already loading this exact thread (prevents StrictMode double-fire)
     if (threadId && threadId === getSelectingThreadId()) return;
 
-    const selectStart = performance.now();
-
     // Abort any in-flight fetch from a previous selectThread call.
     // This prevents piling up stale network requests during rapid clicking.
     _selectAbortController?.abort();
@@ -339,9 +383,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       selectedThreadId: threadId,
       activeThread: keepStale ? prevActive : threadId ? prevActive : null,
     });
-    // ui-store registers a listener via setThreadSelectListener to reset
-    // its UI state when a thread is selected — keeps the dependency one-way.
-    notifyThreadSelected();
+    useUIStore.setState({ newThreadProjectId: null, allThreadsProjectId: null });
 
     if (!threadId) {
       _selectAbortController = null;
@@ -349,56 +391,22 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       return;
     }
 
-    // ── Cache hit fast path ───────────────────────────────────────
-    // Reuse the last activeThread snapshot for this thread when available.
-    // Avoids the network round trip on rapid back-and-forth switches.
-    const cached = cacheGet(threadId);
-    if (cached && Date.now() - cached.fetchedAt < THREAD_CACHE_TTL_MS) {
-      const stored = cached.thread;
-      // Re-merge per-thread state slices (these live outside the cached snapshot)
-      const storedSetupProgress =
-        stored.status === 'setting_up' ? get().setupProgressByThread[threadId] : undefined;
-      const storedContextUsage = get().contextUsageByThread[threadId] ?? loadContextUsage(threadId);
-      const storedQueuedCount = get().queuedCountByThread[threadId];
-      set({
-        activeThread: {
-          ...stored,
-          setupProgress: storedSetupProgress ?? stored.setupProgress,
-          contextUsage: storedContextUsage ?? stored.contextUsage,
-          queuedCount: storedQueuedCount ?? stored.queuedCount,
-        },
-      });
-      useThreadReadStore.getState().markRead(threadId, stored.completedAt);
-      bridgeSelectProject(stored.projectId);
-      flushWSBuffer(threadId, get());
-      metric('thread.select.duration', Math.round(performance.now() - selectStart), {
-        attributes: { cacheHit: 'true' },
-      });
-      // Stale-while-revalidate: kick off background refresh if entry is aging.
-      const isStale = Date.now() - cached.fetchedAt > THREAD_CACHE_SWR_AFTER_MS;
-      if (isStale) {
-        // Fire-and-forget; the existing fetch path below will write through.
-        // Drop down to the network path but skip the keepStale visual bridge.
-      } else {
-        if (getSelectingThreadId() === threadId) setSelectingThreadId(null);
-        if (_selectAbortController === abortController) _selectAbortController = null;
-        return;
-      }
-    }
-
+    const span = startSpan('thread.select', {
+      attributes: { 'thread.id': threadId },
+    });
+    const startMs = Date.now();
     try {
-      // Use prefetched data if available (fired at module load time), otherwise fetch now.
-      // Progressive paint: don't wait on /events to render — `getThread` carries
-      // messages (the critical render dep); `getThreadEvents` is patched in
-      // when it resolves so the activeThread becomes visible ~1 RTT sooner.
+      // Use prefetched data if available (fired on hover/module-load), otherwise fetch now
       const prefetched = _prefetchCache.get(threadId);
       _prefetchCache.delete(threadId);
-      const threadPromise =
-        prefetched?.threadPromise ?? threadsApi.getThread(threadId, 50, abortController.signal);
-      const eventsPromise =
-        prefetched?.eventsPromise ?? threadsApi.getThreadEvents(threadId, abortController.signal);
-
-      const result = await threadPromise;
+      const fromCache = !!prefetched;
+      const [result, eventsResult] = await Promise.all([
+        prefetched?.threadPromise ?? api.getThread(threadId, 50, abortController.signal),
+        prefetched?.eventsPromise ?? api.getThreadEvents(threadId, abortController.signal),
+      ]);
+      metric('thread.select.network_ms', Date.now() - startMs, {
+        attributes: { 'thread.from_cache': fromCache ? '1' : '0' },
+      });
 
       if (result.isErr()) {
         // If aborted (superseded by a newer selectThread), silently bail out
@@ -431,43 +439,57 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           ? {
               status: thread.status as 'completed' | 'failed',
               cost: thread.cost,
-              duration:
-                thread.completedAt && thread.createdAt
-                  ? Math.max(
-                      0,
-                      new Date(thread.completedAt).getTime() - new Date(thread.createdAt).getTime(),
-                    )
-                  : 0,
+              duration: 0,
               error: (thread as any).error,
             }
           : undefined;
 
-      // Derive waitingReason / pendingPermission from the last tool call so a
-      // refreshed page can re-render the approval card. Reconstruct also for
-      // 'running' threads — sometimes the persisted status lags behind the
-      // last tool result (e.g. when the SDK denied a sensitive path and the
-      // agent gracefully exited but the WAIT row commit hadn't landed yet).
+      // Derive waitingReason and pendingPermission from the last tool call when reloading a waiting thread
       let waitingReason: WaitingReason | undefined;
-      let pendingPermission: { toolName: string; toolInput?: string } | undefined;
-      const isTerminalStatus =
-        thread.status === 'completed' ||
-        thread.status === 'failed' ||
-        thread.status === 'stopped' ||
-        thread.status === 'interrupted';
-      if (!isTerminalStatus && thread.messages?.length) {
-        const reconstructed = reconstructWaitingFromMessages(thread.messages);
-        if (reconstructed) {
-          waitingReason = reconstructed.waitingReason;
-          pendingPermission = reconstructed.pendingPermission;
+      let pendingPermission: { toolName: string } | undefined;
+      if (thread.status === 'waiting' && thread.messages?.length) {
+        for (let i = thread.messages.length - 1; i >= 0; i--) {
+          const tcs = thread.messages[i].toolCalls;
+          if (tcs?.length) {
+            const lastTC = tcs[tcs.length - 1];
+            if (lastTC.name === 'AskUserQuestion') {
+              waitingReason = 'question';
+            } else if (lastTC.name === 'ExitPlanMode') {
+              waitingReason = 'plan';
+            } else if (
+              lastTC.output &&
+              /permission|hasn't been granted|not in the allowed tools|hook error:.*approval|denied this tool|Blocked by hook/i.test(
+                lastTC.output,
+              )
+            ) {
+              waitingReason = 'permission';
+              pendingPermission = { toolName: lastTC.name };
+            }
+            break;
+          }
         }
       }
+
+      const threadEvents = eventsResult.isOk() ? eventsResult.value.events : [];
+
+      // Reconstruct compactionEvents from persisted thread events so they survive refreshes
+      const compactionEvents: CompactionEvent[] = threadEvents
+        .filter((e) => e.type === 'compact_boundary')
+        .map((e) => {
+          const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+          return {
+            trigger: data.trigger ?? 'auto',
+            preTokens: data.preTokens ?? 0,
+            timestamp: data.timestamp ?? e.createdAt,
+          };
+        });
 
       // Merge stored setup progress for setting_up threads
       const storedSetupProgress =
         thread.status === 'setting_up' ? get().setupProgressByThread[threadId] : undefined;
 
-      // Restore cached context usage so the bar survives thread switches and reloads
-      const storedContextUsage = get().contextUsageByThread[threadId] ?? loadContextUsage(threadId);
+      // Restore cached context usage so the bar survives thread switches
+      const storedContextUsage = get().contextUsageByThread[threadId];
 
       // Restore cached queued count so the queue widget survives thread switches
       const storedQueuedCount = get().queuedCountByThread[threadId];
@@ -476,73 +498,29 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         activeThread: {
           ...thread,
           hasMore: thread.hasMore ?? false,
-          threadEvents: [],
+          threadEvents,
           initInfo: thread.initInfo || buffered || undefined,
           resultInfo,
           waitingReason,
           pendingPermission,
           setupProgress: storedSetupProgress,
           contextUsage: storedContextUsage,
-          queuedCount: storedQueuedCount ?? thread.queuedCount,
+          queuedCount: storedQueuedCount,
+          compactionEvents: compactionEvents.length > 0 ? compactionEvents : undefined,
         },
       });
-      useThreadReadStore.getState().markRead(threadId, thread.completedAt);
       bridgeSelectProject(projectId);
+
+      // Mark the thread as read so the unread blue dot in the sidebar clears.
+      if (thread.completedAt) {
+        useThreadReadStore.getState().markRead(threadId, thread.completedAt);
+      }
 
       // Replay any WS events that arrived while activeThread was loading
       flushWSBuffer(threadId, get());
-      metric('thread.select.duration', Math.round(performance.now() - selectStart), {
-        attributes: { cacheHit: 'false' },
-      });
-
-      // Patch threadEvents/compactionEvents in once /events resolves. Doesn't
-      // block the first paint and survives a superseding selectThread (gen check).
-      void eventsPromise.then((eventsResult) => {
-        if (abortController.signal.aborted) return;
-        if (getSelectGeneration() !== gen) return;
-        const current = get().activeThread;
-        if (!current || current.id !== threadId) return;
-        const threadEvents = eventsResult.isOk() ? eventsResult.value.events : [];
-        const compactionEvents: CompactionEvent[] = threadEvents
-          .filter((e) => e.type === 'compact_boundary')
-          .map((e) => {
-            const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-            return {
-              trigger: data.trigger ?? 'auto',
-              preTokens: data.preTokens ?? 0,
-              timestamp: data.timestamp ?? e.createdAt,
-            };
-          });
-        set({
-          activeThread: {
-            ...current,
-            threadEvents,
-            compactionEvents: compactionEvents.length > 0 ? compactionEvents : undefined,
-          },
-        });
-      });
-
-      // If the initial window doesn't start on a user-message boundary, extend
-      // it in idle time so the first paint isn't blocked by another fetch +
-      // JSON parse round. The sticky section header reads from
-      // `lastUserMessage` (sent in the initial response) until the older
-      // batch lands.
-      const seeded = get().activeThread;
-      if (
-        seeded?.id === threadId &&
-        seeded.hasMore &&
-        seeded.messages.length > 0 &&
-        seeded.messages[0].role !== 'user'
-      ) {
-        scheduleIdle(() => {
-          if (abortController.signal.aborted) return;
-          if (getSelectGeneration() !== gen) return;
-          const current = get().activeThread;
-          if (!current || current.id !== threadId) return;
-          void get().loadOlderMessages();
-        });
-      }
+      metric('thread.select.total_ms', Date.now() - startMs);
     } finally {
+      span.end();
       // Clear in-flight tracker so future selectThread calls for this thread can proceed
       if (getSelectingThreadId() === threadId) {
         setSelectingThreadId(null);
@@ -552,6 +530,17 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         _selectAbortController = null;
       }
     }
+  },
+
+  prefetchThread: (threadId: string) => {
+    if (!threadId) return;
+    if (_prefetchCache.has(threadId)) return;
+    if (get().activeThread?.id === threadId) return;
+    if (getSelectingThreadId() === threadId) return;
+    setPrefetch(threadId, {
+      threadPromise: api.getThread(threadId, 50),
+      eventsPromise: api.getThreadEvents(threadId),
+    });
   },
 
   archiveThread: async (threadId, projectId) => {
@@ -569,7 +558,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
 
     // Make API call in background
-    const result = await threadsApi.archiveThread(threadId, true);
+    const result = await api.archiveThread(threadId, true);
     if (result.isErr()) {
       // Revert on error
       const currentState = get();
@@ -610,7 +599,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
 
     // Make API calls in background
-    const archiveResult = await threadsApi.archiveThread(threadId, false);
+    const archiveResult = await api.archiveThread(threadId, false);
     if (archiveResult.isErr()) {
       // Revert on error
       const currentState = get();
@@ -630,7 +619,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       return;
     }
 
-    const stageResult = await threadsApi.updateThreadStage(threadId, stage);
+    const stageResult = await api.updateThreadStage(threadId, stage);
     if (stageResult.isErr()) {
       // If stage update fails, keep unarchived but revert stage
       const currentState = get();
@@ -664,7 +653,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       activeThread: activeThread?.id === threadId ? { ...activeThread, title } : activeThread,
     });
 
-    const result = await threadsApi.renameThread(threadId, title);
+    const result = await api.renameThread(threadId, title);
     if (result.isErr()) {
       const currentState = get();
       const currentProjectThreads = currentState.threadsByProject[projectId] ?? [];
@@ -699,7 +688,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
 
     // Make API call in background
-    const result = await threadsApi.pinThread(threadId, pinned);
+    const result = await api.pinThread(threadId, pinned);
     if (result.isErr()) {
       // Revert on error
       const currentState = get();
@@ -716,10 +705,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
             ? { ...currentState.activeThread, pinned: oldPinned }
             : currentState.activeThread,
       });
-      toast.error(i18n.t(pinned ? 'sidebar.pinFailed' : 'sidebar.unpinFailed'));
-      return;
     }
-    toast.success(i18n.t(pinned ? 'sidebar.threadPinned' : 'sidebar.threadUnpinned'));
   },
 
   updateThreadStage: async (threadId, projectId, stage) => {
@@ -738,7 +724,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     });
 
     // Make API call in background
-    const result = await threadsApi.updateThreadStage(threadId, stage);
+    const result = await api.updateThreadStage(threadId, stage);
     if (result.isErr()) {
       // Revert on error
       const currentState = get();
@@ -765,11 +751,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const projectThreads = threadsByProject[projectId] ?? [];
     const thread = projectThreads.find((t) => t.id === threadId);
     if (thread && (thread.status === 'running' || thread.status === 'waiting')) {
-      await threadsApi.stopThread(threadId);
+      await api.stopThread(threadId);
     }
     // Optimistic: update UI immediately, then fire API in background
     cleanupThreadActor(threadId);
-    cacheInvalidate(threadId);
     set({
       threadsByProject: {
         ...get().threadsByProject,
@@ -780,7 +765,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       set({ selectedThreadId: null, activeThread: null });
     }
     // Fire-and-forget: server cleanup (worktree removal, etc.) runs in background
-    threadsApi.deleteThread(threadId);
+    api.deleteThread(threadId);
   },
 
   appendOptimisticMessage: (threadId, content, images, model, permissionMode, fileReferences) => {
@@ -902,54 +887,29 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const oldestMessage = activeThread.messages[0];
     if (!oldestMessage) return;
 
-    // Older messages are about to merge in — drop the snapshot so the next
-    // selectThread refetches the unified window instead of the cached tail.
-    cacheInvalidate(activeThread.id);
     set({ activeThread: { ...activeThread, loadingMore: true } });
 
-    // Keep paginating until the oldest loaded message is a user message OR
-    // the server says there's nothing older. Sections are anchored on user
-    // messages, and the sticky section header reads from the topmost loaded
-    // user item — so every loaded window must end on a section boundary,
-    // otherwise scrolling near the top shows assistant/tool content with no
-    // sticky owner.
-    const MAX_BATCHES = 10;
-    let cursor = oldestMessage.timestamp;
-    let aggregated: typeof activeThread.messages = [];
-    let hasMoreFlag: boolean = activeThread.hasMore;
-
-    for (let i = 0; i < MAX_BATCHES; i++) {
-      const result = await threadsApi.getThreadMessages(activeThread.id, cursor, 50);
-
-      const inflight = get().activeThread;
-      if (!inflight || inflight.id !== activeThread.id) return;
-
-      if (result.isErr()) {
-        set({ activeThread: { ...inflight, loadingMore: false } });
-        return;
-      }
-
-      const { messages: olderMessages, hasMore } = result.value;
-      hasMoreFlag = hasMore;
-      if (olderMessages.length === 0) break;
-
-      aggregated = [...olderMessages, ...aggregated];
-
-      if (aggregated[0].role === 'user' || !hasMore) break;
-      cursor = olderMessages[0].timestamp;
-    }
+    const result = await api.getThreadMessages(activeThread.id, oldestMessage.timestamp, 50);
 
     const current = get().activeThread;
     if (!current || current.id !== activeThread.id) return;
 
+    if (result.isErr()) {
+      set({ activeThread: { ...current, loadingMore: false } });
+      return;
+    }
+
+    const { messages: olderMessages, hasMore } = result.value;
+
+    // Deduplicate in case of overlapping timestamps
     const existingIds = new Set(current.messages.map((m) => m.id));
-    const newMessages = aggregated.filter((m) => !existingIds.has(m.id));
+    const newMessages = olderMessages.filter((m) => !existingIds.has(m.id));
 
     set({
       activeThread: {
         ...current,
         messages: [...newMessages, ...current.messages],
-        hasMore: hasMoreFlag,
+        hasMore,
         loadingMore: false,
       },
     });
@@ -959,8 +919,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const { activeThread } = get();
     if (!activeThread) return;
     const [result, eventsResult] = await Promise.all([
-      threadsApi.getThread(activeThread.id, 50),
-      threadsApi.getThreadEvents(activeThread.id),
+      api.getThread(activeThread.id, 50),
+      api.getThreadEvents(activeThread.id),
     ]);
     if (result.isErr()) return; // silently ignore
     const thread = result.value;
@@ -970,13 +930,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         ? {
             status: thread.status as 'completed' | 'failed',
             cost: thread.cost,
-            duration:
-              thread.completedAt && thread.createdAt
-                ? Math.max(
-                    0,
-                    new Date(thread.completedAt).getTime() - new Date(thread.createdAt).getTime(),
-                  )
-                : 0,
+            duration: 0,
             error: (thread as any).error,
           }
         : undefined);
@@ -995,28 +949,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
           timestamp: data.timestamp ?? e.createdAt,
         };
       });
-    // Only clear pendingPermission when the server reports a terminal status
-    // (completed/failed/stopped/interrupted). Tab-switch can race with persisted
-    // status (e.g. server is still 'running' while WS already pushed waiting),
-    // and clobbering the WS-derived approval card on every refresh would make
-    // it disappear. Reconstruct from messages when local state has nothing yet.
-    const isTerminal =
-      thread.status === 'completed' ||
-      thread.status === 'failed' ||
-      thread.status === 'stopped' ||
-      thread.status === 'interrupted';
-
-    let nextWaitingReason = isTerminal ? undefined : activeThread.waitingReason;
-    let nextPendingPermission = isTerminal ? undefined : activeThread.pendingPermission;
-
-    if (!isTerminal && !nextPendingPermission && activeThread.messages?.length) {
-      const reconstructed = reconstructWaitingFromMessages(activeThread.messages);
-      if (reconstructed) {
-        nextWaitingReason = reconstructed.waitingReason;
-        nextPendingPermission = reconstructed.pendingPermission;
-      }
-    }
-
+    // Clear waitingReason/pendingPermission if server status is no longer waiting
+    // (handles case where agent:result WS event was lost during disconnect)
+    const isServerWaiting = thread.status === 'waiting';
     set({
       activeThread: {
         ...activeThread,
@@ -1037,8 +972,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         compactionEvents:
           persistedCompaction.length > 0 ? persistedCompaction : activeThread.compactionEvents,
         contextUsage: activeThread.contextUsage,
-        waitingReason: nextWaitingReason,
-        pendingPermission: nextPendingPermission,
+        waitingReason: isServerWaiting ? activeThread.waitingReason : undefined,
+        pendingPermission: isServerWaiting ? activeThread.pendingPermission : undefined,
       },
     });
   },
@@ -1052,7 +987,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     // re-renders.
     const results = await Promise.all(
       projectIds.map(async (pid) => {
-        const result = await threadsApi.listThreads(pid, false, 50);
+        const result = await api.listThreads(pid, false, 50);
         return {
           pid,
           threads: result.isOk() ? result.value.threads : null,
@@ -1177,7 +1112,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   // ── Agent lifecycle actions ──────────────────────────────────
 
   sendMessage: async (threadId, content, options) => {
-    const result = await threadsApi.sendMessage(
+    const result = await api.sendMessage(
       threadId,
       content,
       options ? { model: options.model, permissionMode: options.permissionMode } : undefined,
@@ -1188,23 +1123,22 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   },
 
   stopThread: async (threadId) => {
-    await threadsApi.stopThread(threadId);
+    await api.stopThread(threadId);
   },
 
-  approveTool: async (threadId, toolName, approved, allowedTools, disallowedTools, options) => {
-    const result = await threadsApi.approveTool(
+  approveTool: async (threadId, toolName, approved, allowedTools, disallowedTools) => {
+    const result = await api.approveTool(
       threadId,
       toolName,
       approved,
       allowedTools,
       disallowedTools,
-      options,
     );
     return result.isOk();
   },
 
   searchThreadContent: async (query, projectId) => {
-    const result = await threadsApi.searchThreadContent(query, projectId);
+    const result = await api.searchThreadContent(query, projectId);
     return result.isOk() ? result.value : null;
   },
 
@@ -1248,17 +1182,4 @@ useThreadStore.subscribe((state) => {
     _prevThreadsByProject = state.threadsByProject;
     rebuildThreadProjectIndex(state.threadsByProject);
   }
-});
-
-// ── Active thread cache subscriber ────────────────────────────
-// Mirror the latest activeThread reference into the LRU cache so that
-// switching back to it later avoids the network round trip. WS handlers
-// already produce fresh references on every meaningful update — by piping
-// through this subscriber we keep the cache patched without touching them.
-let _prevActiveThread: ThreadWithMessages | null = null;
-useThreadStore.subscribe((state) => {
-  const current = state.activeThread;
-  if (current === _prevActiveThread) return;
-  _prevActiveThread = current;
-  if (current) cachePut(current.id, current);
 });

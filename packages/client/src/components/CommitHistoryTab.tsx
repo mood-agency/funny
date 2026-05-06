@@ -151,7 +151,7 @@ export function CommitHistoryTab({ visible }: CommitHistoryTabProps) {
         } else if (!append) {
           setUnpushedHashes(new Set());
         }
-      } else {
+      } else if (!signal?.aborted && result.error.message !== 'Request aborted') {
         toast.error(
           t('review.logFailed', {
             message: result.error.message,

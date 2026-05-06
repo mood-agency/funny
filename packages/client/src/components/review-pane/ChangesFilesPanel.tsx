@@ -395,16 +395,52 @@ export function ChangesFilesPanel({
                               {t('sidebar.openDirectory')}
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleIgnore(row.path);
-                            }}
-                            data-testid={`review-folder-ignore-${row.path}`}
-                          >
-                            <FolderX />
-                            {t('review.ignoreFolder')}
-                          </DropdownMenuItem>
+                          {(() => {
+                            const folderOptions = ['/' + row.path, ...getParentFolders(row.path)];
+                            if (folderOptions.length === 1) {
+                              return (
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleIgnore(folderOptions[0]);
+                                  }}
+                                  data-testid={`review-folder-ignore-${row.path}`}
+                                >
+                                  <FolderX />
+                                  {t('review.ignoreFolder')}
+                                </DropdownMenuItem>
+                              );
+                            }
+                            return (
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger
+                                  onClick={(e) => e.stopPropagation()}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  data-testid={`review-folder-ignore-${row.path}`}
+                                >
+                                  <FolderX />
+                                  {t('review.ignoreFolder')}
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent
+                                  onClick={(e) => e.stopPropagation()}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                >
+                                  {folderOptions.map((folder) => (
+                                    <DropdownMenuItem
+                                      key={folder}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleIgnore(folder);
+                                      }}
+                                      data-testid={`review-folder-ignore-${row.path}-option-${folder}`}
+                                    >
+                                      {folder}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                            );
+                          })()}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

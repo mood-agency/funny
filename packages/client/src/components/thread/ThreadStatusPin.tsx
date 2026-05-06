@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { statusConfig } from '@/lib/thread-utils';
 import { cn } from '@/lib/utils';
+import { isThreadUnread, useThreadReadStore } from '@/stores/thread-read-store';
 
 export type ThreadStatusPinHoverGroup = 'thread' | 'card' | 'row';
 
@@ -45,6 +46,10 @@ export function ThreadStatusPin({
   const showPinRest = canPin && thread.pinned && !isBusy;
   const hideOnHover = canPin ? HIDE_ON_HOVER[hoverGroup] : '';
   const showOnHover = SHOW_ON_HOVER[hoverGroup];
+  const isUnread = useThreadReadStore((s) =>
+    isThreadUnread(s.readAt, thread.id, thread.completedAt),
+  );
+  const showUnreadDot = isUnread && !isBusy && !showPinRest;
 
   const statusIcon = showStatusTooltip ? (
     <Tooltip>
@@ -69,6 +74,13 @@ export function ThreadStatusPin({
           )}
         >
           <Pin className="icon-sm" />
+        </span>
+      ) : showUnreadDot ? (
+        <span
+          className={cn('absolute inset-0 flex items-center justify-center', hideOnHover)}
+          data-testid={`thread-unread-dot-${thread.id}`}
+        >
+          <span className="block h-2 w-2 rounded-full bg-blue-500" />
         </span>
       ) : (
         <span className={cn('absolute inset-0 flex items-center justify-center', hideOnHover)}>
