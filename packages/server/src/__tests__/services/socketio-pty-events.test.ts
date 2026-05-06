@@ -20,9 +20,12 @@ const SOCKETIO_PATH = resolve(import.meta.dir, '../../services/socketio.ts');
  * All PTY events that the runtime (app.ts) handles in its
  * central:browser_ws switch. If the server doesn't forward
  * one of these, the runtime never receives it.
+ *
+ * Note: `pty:list` is intentionally NOT in this list — it is handled
+ * out-of-band as an ack-based RPC (see `setupBrowserPtyListRpc` in
+ * socketio.ts and `central:pty_list` in team-client.ts).
  */
 const REQUIRED_PTY_EVENTS = [
-  'pty:list',
   'pty:spawn',
   'pty:write',
   'pty:resize',

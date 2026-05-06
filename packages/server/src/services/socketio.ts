@@ -166,8 +166,20 @@ function setupBrowserNamespace(): void {
       transport: socket.conn.transport.name,
     });
 
+    // Runner-readiness channel: tell this newly-connected browser whether a
+    // runner is currently online for its user. Clients gate `pty:list` (and
+    // other runner-bound work) on `runner:status: online`, which eliminates
+    // the previous race where a refresh would emit `pty:list` before the
+    // runner had finished re-handshaking and the response would be lost.
+    import('./ws-relay.js').then((wsRelay) => {
+      socket.emit('runner:status', {
+        status: wsRelay.userHasConnectedRunner(userId) ? 'online' : 'offline',
+      });
+    });
+
     // Handle PTY commands from browser
     setupBrowserPtyHandlers(socket, userId);
+    setupBrowserPtyListRpc(socket, userId);
 
     socket.on('disconnect', (reason) => {
       clearSocketRate(socket.id);
@@ -185,8 +197,10 @@ function setupBrowserNamespace(): void {
  * Forwards PTY commands to the appropriate runner.
  */
 function setupBrowserPtyHandlers(socket: Socket, userId: string): void {
+  // pty:list has its own ack-based RPC handler (see setupBrowserPtyListRpc)
+  // — keep it OUT of this fire-and-forget forwarder so we get a deterministic
+  // single response per request instead of an event that may or may not arrive.
   const ptyEvents = [
-    'pty:list',
     'pty:spawn',
     'pty:write',
     'pty:resize',
@@ -325,24 +339,87 @@ function setupBrowserPtyHandlers(socket: Socket, userId: string): void {
         }
       } else {
         // No projectId — route to any runner owned by this user.
+        // Clients gate runner-bound commands on the `runner:status` channel,
+        // so reaching this branch with no runner means the client raced ahead
+        // of its readiness signal — drop silently rather than emit phantom
+        // empty responses that would mark sessions as checked.
         const runnerId = await rm.findAnyRunnerForUser(userId);
-        if (!runnerId && eventName === 'pty:list') {
-          // Runner not connected yet (e.g. browser refresh racing the runner's
-          // re-handshake). Respond with an empty pending sessions list so the
-          // client does not lock `sessionsChecked` and orphan live PTYs by
-          // spawning new ones. The runner-connect handler below pushes a fresh
-          // pty:list once a runner shows up, which delivers the real list.
-          log.info('pty:list received with no runner connected — responding pending', {
-            namespace: 'socketio',
-            userId,
-          });
-          socket.emit('pty:sessions', { sessions: [], pending: true });
-          return;
-        }
         await forwardToRunner(runnerId);
       }
     });
   }
+}
+
+/**
+ * Ack-based RPC for `pty:list`. Replaces the previous fire-and-forget pattern
+ * (browser emits `pty:list`, runner replies with a separate `pty:sessions`
+ * event) with a single correlated request/response so the client always gets
+ * exactly one deterministic answer per request — eliminating the race where
+ * the response could be lost if the runner wasn't ready yet.
+ *
+ * Response shape: `{ status, sessions }`
+ *  - 'ok'         — sessions enumerated successfully
+ *  - 'no-runner'  — no runner is currently online for this user
+ *  - 'timeout'    — runner didn't ack within the timeout window
+ *  - 'error'      — internal error while routing the request
+ */
+function setupBrowserPtyListRpc(socket: Socket, userId: string): void {
+  const PTY_LIST_TIMEOUT_MS = 5_000;
+
+  socket.on('pty:list', async (_data: unknown, ack?: (response: unknown) => void) => {
+    if (typeof ack !== 'function') return;
+    if (isRateLimited(socket.id)) {
+      ack({ status: 'error', sessions: [], error: 'rate-limited' });
+      return;
+    }
+
+    try {
+      const rm = await import('./runner-manager.js');
+      const runnerId = await rm.findAnyRunnerForUser(userId);
+      if (!runnerId) {
+        ack({ status: 'no-runner', sessions: [] });
+        return;
+      }
+
+      const wsRelay = await import('./ws-relay.js');
+      const socketId = wsRelay.getRunnerSocketId(runnerId);
+      if (!socketId) {
+        ack({ status: 'no-runner', sessions: [] });
+        return;
+      }
+
+      const runnerSocket = getIO().of('/runner').sockets.get(socketId);
+      if (!runnerSocket) {
+        ack({ status: 'no-runner', sessions: [] });
+        return;
+      }
+
+      try {
+        const response = (await runnerSocket
+          .timeout(PTY_LIST_TIMEOUT_MS)
+          .emitWithAck('central:pty_list', { userId })) as {
+          sessions?: unknown[];
+        };
+        ack({ status: 'ok', sessions: Array.isArray(response?.sessions) ? response.sessions : [] });
+      } catch (err) {
+        log.warn('pty:list RPC timed out', {
+          namespace: 'socketio',
+          userId,
+          runnerId,
+          timeoutMs: PTY_LIST_TIMEOUT_MS,
+          error: (err as Error).message,
+        });
+        ack({ status: 'timeout', sessions: [] });
+      }
+    } catch (err) {
+      log.error('pty:list RPC failed', {
+        namespace: 'socketio',
+        userId,
+        error: (err as Error).message,
+      });
+      ack({ status: 'error', sessions: [], error: (err as Error).message });
+    }
+  });
 }
 
 // ── Runner Namespace (/runner) ───────────────────────────
@@ -429,7 +506,7 @@ function setupRunnerNamespace(): void {
     // as soon as the map is swapped, even if it is still in the room for a
     // few milliseconds while its disconnect propagates.
     const wsRelay = await import('./ws-relay.js');
-    const replacedSocketId = wsRelay.addRunnerClient(runnerId, socket.id);
+    const replacedSocketId = wsRelay.addRunnerClient(runnerId, socket.id, runnerUserId);
 
     // Disconnect any stale socket now that new traffic is guaranteed to
     // land on the fresh socket. We look the old socket up by id rather
@@ -461,11 +538,13 @@ function setupRunnerNamespace(): void {
       transport: socket.conn.transport.name,
     });
 
-    // Push PTY sessions to browser clients on runner connect
-    for (const userId of wsRelay.getConnectedBrowserUserIds()) {
-      socket.emit('central:browser_ws', {
-        userId,
-        data: { type: 'pty:list', data: {} },
+    // Runner-readiness channel: notify the owning user's browser sockets that
+    // a runner is now online. Clients gate `pty:list` (and other runner-bound
+    // commands) on this signal instead of guessing or relying on timeouts.
+    if (runnerUserId) {
+      getIO().of('/').to(`user:${runnerUserId}`).emit('runner:status', {
+        status: 'online',
+        runnerId,
       });
     }
 
@@ -570,6 +649,17 @@ function setupRunnerNamespace(): void {
       // and offline timing — our delayed disconnect must not schedule a
       // cleanup that would tear down the replacement.
       if (!wasActive) return;
+
+      // Runner-readiness channel: if this was the user's last connected runner,
+      // tell their browser sockets to stop expecting runner-bound responses.
+      // Clients flip back to an "awaiting runner" UI instead of showing a
+      // hung loading state.
+      if (runnerUserId && !wsRelay.userHasConnectedRunner(runnerUserId)) {
+        getIO().of('/').to(`user:${runnerUserId}`).emit('runner:status', {
+          status: 'offline',
+          runnerId,
+        });
+      }
 
       // Security M4: evict the thread→runner cache now. Without this, a
       // resolver lookup during the 15s grace window can return the just-

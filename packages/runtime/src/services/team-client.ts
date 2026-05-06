@@ -613,6 +613,36 @@ function connectSocket(): void {
     }
   });
 
+  // Ack-based RPC for pty:list. The browser asks the server for the list of
+  // active PTY sessions; the server forwards via this event and waits for the
+  // ack so the browser receives a single deterministic response (no orphaned
+  // pty:sessions events that may or may not arrive).
+  socket.on('central:pty_list', async (data: any, ack?: (response: unknown) => void) => {
+    if (typeof ack !== 'function') return;
+    try {
+      const userId = data?.userId;
+      if (typeof userId !== 'string' || !userId) {
+        ack({ sessions: [] });
+        return;
+      }
+      const ptyManager = await import('./pty-manager.js');
+      const sessions = ptyManager.listActiveSessions(userId).map((s) => ({
+        ptyId: s.ptyId,
+        cwd: s.cwd,
+        projectId: s.projectId,
+        label: s.label,
+        shell: s.shell,
+      }));
+      ack({ sessions });
+    } catch (err) {
+      log.error('central:pty_list handler failed', {
+        namespace: 'runner',
+        error: (err as Error).message,
+      });
+      ack({ sessions: [], error: (err as Error).message });
+    }
+  });
+
   // Handle task commands from central
   socket.on('central:command', (data: any) => {
     if (data.task) {

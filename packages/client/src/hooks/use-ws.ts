@@ -4,6 +4,7 @@ import { io, type Socket } from 'socket.io-client';
 import { createClientLogger } from '@/lib/client-logger';
 import { useCircuitBreakerStore } from '@/stores/circuit-breaker-store';
 import { useGitStatusStore } from '@/stores/git-status-store';
+import { useRunnerStatusStore } from '@/stores/runner-status-store';
 import { useTerminalStore } from '@/stores/terminal-store';
 import { useThreadStore } from '@/stores/thread-store';
 
@@ -59,19 +60,59 @@ function connect() {
     }
 
     useTerminalStore.getState().resetSessionsChecked();
+    // Reset runner readiness so we re-evaluate on this fresh connection — the
+    // server emits the current `runner:status` to every browser-connect.
+    useRunnerStatusStore.getState().reset();
 
-    socket.emit('pty:list', {});
-    const sessionsTimeout = setTimeout(() => {
-      const termStore = useTerminalStore.getState();
-      if (!termStore.sessionsChecked) {
-        termStore.markSessionsChecked();
+    // Ack-based RPC: ask the server for the active PTY sessions and get a
+    // single deterministic response — `{ status, sessions }`. Re-issued each
+    // time the runner transitions to online so reconnects refresh tabs.
+    const PTY_LIST_TIMEOUT_MS = 7_000;
+    let inflight = false;
+    const requestPtyList = async () => {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const response = await socket.timeout(PTY_LIST_TIMEOUT_MS).emitWithAck('pty:list', {});
+        const result = response as
+          | { status: 'ok' | 'no-runner' | 'timeout' | 'error'; sessions?: unknown[] }
+          | undefined;
+        const sessions = Array.isArray(result?.sessions) ? result!.sessions : [];
+        if (result?.status === 'ok' && sessions.length > 0) {
+          const { useProjectStore } = await import('@/stores/project-store');
+          const projects = useProjectStore.getState().projects;
+          useTerminalStore.getState().restoreTabs(
+            sessions as any,
+            projects.map((p: any) => ({ id: p.id, path: p.path })),
+          );
+        } else {
+          useTerminalStore.getState().markSessionsChecked();
+        }
+        wsLog.info('pty:list RPC completed', {
+          status: result?.status ?? 'unknown',
+          count: sessions.length,
+        });
+      } catch (err) {
+        wsLog.warn('pty:list RPC failed', { error: (err as Error).message });
+        useTerminalStore.getState().markSessionsChecked();
+      } finally {
+        inflight = false;
       }
-    }, 15_000);
-    socket.once('disconnect', () => clearTimeout(sessionsTimeout));
+    };
+
+    const unsubRunnerStatus = useRunnerStatusStore.subscribe((state, prev) => {
+      if (state.status === 'online' && prev.status !== 'online') void requestPtyList();
+    });
+    if (useRunnerStatusStore.getState().status === 'online') void requestPtyList();
+
+    socket.once('disconnect', () => {
+      unsubRunnerStatus();
+    });
   });
 
   socket.on('disconnect', (reason) => {
     wsLog.info('Socket.IO disconnected', { reason });
+    useRunnerStatusStore.getState().reset();
     if (reason === 'io server disconnect') {
       import('@/stores/auth-store').then(({ useAuthStore }) => {
         useAuthStore.getState().logout();

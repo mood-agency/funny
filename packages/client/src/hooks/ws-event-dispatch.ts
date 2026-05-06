@@ -321,8 +321,8 @@ function dispatchEvent(type: string, threadId: string, data: any): void {
       toast.error(data.error ?? 'Failed to create terminal');
       break;
     }
-    case 'pty:sessions':
-      handlePtySessions(data);
+    case 'runner:status':
+      handleRunnerStatus(data);
       break;
     case 'pty:env_activated': {
       const lines = (data.activations as Array<{ kind: string; detail: string }>).map(
@@ -489,43 +489,12 @@ function handleThreadEvent(threadId: string, data: any) {
   });
 }
 
-function handlePtySessions(data: any) {
-  if (data.sessions && data.sessions.length > 0) {
-    import('@/stores/project-store').then(({ useProjectStore }) => {
-      const tryRestore = () => {
-        const projects = useProjectStore.getState().projects;
-        useTerminalStore.getState().restoreTabs(
-          data.sessions,
-          projects.map((p: any) => ({ id: p.id, path: p.path })),
-        );
-      };
-
-      const projects = useProjectStore.getState().projects;
-      if (projects.length > 0) {
-        tryRestore();
-      } else {
-        const unsub = useProjectStore.subscribe((state) => {
-          if (state.projects.length > 0) {
-            unsub();
-            tryRestore();
-          }
-        });
-        setTimeout(() => {
-          unsub();
-          tryRestore();
-        }, 10000);
-      }
-    });
-  } else if (data.pending) {
-    // Server is signalling that no runner is connected yet (e.g. refresh racing
-    // the runner's re-handshake). Do NOT mark sessions as checked — the
-    // runner-connect handler on the server will push a fresh pty:list once a
-    // runner is online, which will deliver the real session list. If no runner
-    // ever connects, the safety timeout in `use-ws.ts` still unblocks new
-    // spawns after 15s.
-  } else {
-    useTerminalStore.getState().markSessionsChecked();
-  }
+function handleRunnerStatus(data: any) {
+  const status = data?.status;
+  if (status !== 'online' && status !== 'offline') return;
+  import('@/stores/runner-status-store').then(({ useRunnerStatusStore }) => {
+    useRunnerStatusStore.getState().setStatus(status);
+  });
 }
 
 // ── Raw WS message handler (for remote containers) ──────────────
@@ -568,7 +537,6 @@ const ALL_EVENT_TYPES = [
   'pty:data',
   'pty:exit',
   'pty:error',
-  'pty:sessions',
   'pty:env_activated',
   'thread:queue_update',
   'test:frame',
@@ -583,6 +551,7 @@ const ALL_EVENT_TYPES = [
   'worktree:setup_complete',
   'native-git:build_output',
   'native-git:build_status',
+  'runner:status',
 ];
 
 export function registerSocketIOHandlers(socket: Socket): void {

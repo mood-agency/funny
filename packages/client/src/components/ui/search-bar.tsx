@@ -1,4 +1,13 @@
-import { ArrowDown, ArrowUp, CaseSensitive, Loader2, Search, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  CaseSensitive,
+  Loader2,
+  Regex,
+  Search,
+  WholeWord,
+  X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -36,6 +45,14 @@ export interface SearchBarProps {
   caseSensitive?: boolean;
   /** Called when the user toggles case sensitivity. Pass to enable the toggle button. */
   onCaseSensitiveChange?: (value: boolean) => void;
+  /** Current whole-word state. When `onWholeWordChange` is provided, a toggle is shown. */
+  wholeWord?: boolean;
+  /** Called when the user toggles whole-word matching. Pass to enable the toggle button. */
+  onWholeWordChange?: (value: boolean) => void;
+  /** Current regex state. When `onRegexChange` is provided, a toggle is shown. */
+  regex?: boolean;
+  /** Called when the user toggles regex matching. Pass to enable the toggle button. */
+  onRegexChange?: (value: boolean) => void;
   /**
    * Override the result label (e.g. "12 / 50" for list filters).
    * If omitted, the label is computed from `currentIndex`/`totalMatches`.
@@ -63,6 +80,10 @@ export function SearchBar({
   autoFocus = true,
   caseSensitive = false,
   onCaseSensitiveChange,
+  wholeWord = false,
+  onWholeWordChange,
+  regex = false,
+  onRegexChange,
   resultLabel,
   onInputKeyDown,
   inputRef: externalInputRef,
@@ -113,21 +134,41 @@ export function SearchBar({
         onCaseSensitiveChange(!caseSensitive);
         return;
       }
+      if (e.altKey && (e.key === 'w' || e.key === 'W') && onWholeWordChange) {
+        e.preventDefault();
+        onWholeWordChange(!wholeWord);
+        return;
+      }
+      if (e.altKey && (e.key === 'r' || e.key === 'R') && onRegexChange) {
+        e.preventDefault();
+        onRegexChange(!regex);
+        return;
+      }
       onInputKeyDown?.(e);
     },
-    [startClose, onPrev, onNext, onClose, onInputKeyDown, onCaseSensitiveChange, caseSensitive],
+    [
+      startClose,
+      onPrev,
+      onNext,
+      onClose,
+      onInputKeyDown,
+      onCaseSensitiveChange,
+      caseSensitive,
+      onWholeWordChange,
+      wholeWord,
+      onRegexChange,
+      regex,
+    ],
   );
 
-  const computedLabel = query
-    ? totalMatches > 0
-      ? currentIndex != null
-        ? `${currentIndex + 1}/${totalMatches}`
-        : `${totalMatches}`
-      : `0`
-    : `0`;
-  const label = resultLabel ?? computedLabel;
-
   const showNav = !!(onPrev || onNext);
+
+  const computedLabel = showNav
+    ? `${totalMatches > 0 && currentIndex != null && currentIndex >= 0 ? currentIndex + 1 : 0}/${totalMatches}`
+    : query && totalMatches > 0
+      ? `${totalMatches}`
+      : `0`;
+  const label = resultLabel ?? computedLabel;
 
   return (
     <div
@@ -174,6 +215,32 @@ export function SearchBar({
           data-testid={`${testIdPrefix}-case-sensitive`}
         >
           <CaseSensitive className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      {onWholeWordChange && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => onWholeWordChange(!wholeWord)}
+          aria-pressed={wholeWord}
+          title={`Match whole word (${wholeWord ? 'on' : 'off'}) — Alt+W`}
+          className={cn(wholeWord && 'bg-accent text-accent-foreground')}
+          data-testid={`${testIdPrefix}-whole-word`}
+        >
+          <WholeWord className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      {onRegexChange && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => onRegexChange(!regex)}
+          aria-pressed={regex}
+          title={`Use regular expression (${regex ? 'on' : 'off'}) — Alt+R`}
+          className={cn(regex && 'bg-accent text-accent-foreground')}
+          data-testid={`${testIdPrefix}-regex`}
+        >
+          <Regex className="h-3.5 w-3.5" />
         </Button>
       )}
       {showNav && (

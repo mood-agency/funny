@@ -444,16 +444,6 @@ export interface WSPtyErrorData {
   error: string;
 }
 
-export interface WSPtySessionData {
-  ptyId: string;
-  cwd: string;
-  shell?: string;
-}
-
-export interface WSPtySessionsData {
-  sessions: WSPtySessionData[];
-}
-
 export interface WSPtyEnvActivatedData {
   ptyId: string;
   activations: Array<{ kind: 'python-venv' | 'node-version'; detail: string }>;
@@ -566,7 +556,6 @@ export type WSEvent =
   | { type: 'pty:data'; threadId: string; data: WSPtyDataData }
   | { type: 'pty:exit'; threadId: string; data: WSPtyExitData }
   | { type: 'pty:error'; threadId: string; data: WSPtyErrorData }
-  | { type: 'pty:sessions'; threadId: ''; data: WSPtySessionsData }
   | { type: 'pty:env_activated'; threadId: string; data: WSPtyEnvActivatedData }
   | { type: 'thread:created'; threadId: string; data: WSThreadCreatedData }
   | { type: 'thread:deleted'; threadId: string; data: WSThreadDeletedData }

@@ -22,8 +22,28 @@ export function setIO(io: SocketIOServer): void {
 
 // ── Connection tracking (lightweight index) ──────────────
 
-/** runnerId → socketId (for quick isRunnerConnected check) */
-const runnerSockets = new Map<string, string>();
+/** runnerId → {socketId, userId} (for quick lookups + per-user readiness) */
+const runnerSockets = new Map<string, { socketId: string; userId: string | null }>();
+/** userId → Set<runnerId> — reverse index for `userHasConnectedRunner`. */
+const runnersByUser = new Map<string, Set<string>>();
+
+function addToUserIndex(runnerId: string, userId: string | null): void {
+  if (!userId) return;
+  let set = runnersByUser.get(userId);
+  if (!set) {
+    set = new Set();
+    runnersByUser.set(userId, set);
+  }
+  set.add(runnerId);
+}
+
+function removeFromUserIndex(runnerId: string, userId: string | null): void {
+  if (!userId) return;
+  const set = runnersByUser.get(userId);
+  if (!set) return;
+  set.delete(runnerId);
+  if (set.size === 0) runnersByUser.delete(userId);
+}
 
 // ── Runner client management ────────────────────────────
 
@@ -32,16 +52,25 @@ const runnerSockets = new Map<string, string>();
  * previously registered (or null). The caller is expected to disconnect
  * the returned socket, which prevents the room from briefly holding two
  * sockets during a reconnect — the race that caused duplicate emits.
+ *
+ * `userId` is cached so we can answer `userHasConnectedRunner(userId)`
+ * without a DB hit (used by the runner-readiness channel).
  */
-export function addRunnerClient(runnerId: string, socketId: string): string | null {
+export function addRunnerClient(
+  runnerId: string,
+  socketId: string,
+  userId: string | null,
+): string | null {
   const previous = runnerSockets.get(runnerId) ?? null;
-  runnerSockets.set(runnerId, socketId);
+  if (previous) removeFromUserIndex(runnerId, previous.userId);
+  runnerSockets.set(runnerId, { socketId, userId });
+  addToUserIndex(runnerId, userId);
   log.info('Runner connected', {
     namespace: 'ws-relay',
     runnerId,
-    replaced: previous ?? undefined,
+    replaced: previous?.socketId ?? undefined,
   });
-  return previous;
+  return previous?.socketId ?? null;
 }
 
 /**
@@ -50,19 +79,19 @@ export function addRunnerClient(runnerId: string, socketId: string): string | nu
  * cannot unregister a freshly-connected replacement socket.
  */
 export function removeRunnerClient(runnerId: string, socketId?: string): void {
-  if (socketId !== undefined) {
-    const current = runnerSockets.get(runnerId);
-    if (current !== socketId) {
-      log.info('Skipping stale runner disconnect — replaced by newer socket', {
-        namespace: 'ws-relay',
-        runnerId,
-        disconnectingSocket: socketId,
-        currentSocket: current,
-      });
-      return;
-    }
+  const current = runnerSockets.get(runnerId);
+  if (!current) return;
+  if (socketId !== undefined && current.socketId !== socketId) {
+    log.info('Skipping stale runner disconnect — replaced by newer socket', {
+      namespace: 'ws-relay',
+      runnerId,
+      disconnectingSocket: socketId,
+      currentSocket: current.socketId,
+    });
+    return;
   }
   runnerSockets.delete(runnerId);
+  removeFromUserIndex(runnerId, current.userId);
   log.info('Runner disconnected', { namespace: 'ws-relay', runnerId });
 }
 
@@ -73,7 +102,16 @@ export function isRunnerConnected(runnerId: string): boolean {
 
 /** Return the currently-registered socketId for a runner, or null. */
 export function getRunnerSocketId(runnerId: string): string | null {
-  return runnerSockets.get(runnerId) ?? null;
+  return runnerSockets.get(runnerId)?.socketId ?? null;
+}
+
+/**
+ * True when the given user has at least one connected runner.
+ * O(1) lookup — backs the `runner:status` readiness channel without a DB hit.
+ */
+export function userHasConnectedRunner(userId: string): boolean {
+  const set = runnersByUser.get(userId);
+  return !!set && set.size > 0;
 }
 
 // ── Event relay ─────────────────────────────────────────
@@ -107,10 +145,10 @@ export function broadcast(event: Record<string, unknown>): void {
  */
 export function sendToRunner(runnerId: string, command: Record<string, unknown>): boolean {
   if (!_io) return false;
-  const socketId = runnerSockets.get(runnerId);
-  if (!socketId) return false;
+  const entry = runnerSockets.get(runnerId);
+  if (!entry) return false;
   const eventType = (command.type as string) || 'command';
-  _io.of('/runner').to(socketId).emit(eventType, command);
+  _io.of('/runner').to(entry.socketId).emit(eventType, command);
   return true;
 }
 

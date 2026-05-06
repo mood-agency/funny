@@ -8,9 +8,13 @@ import { getServices } from '../services/service-registry.js';
 
 /**
  * Routes incoming PTY-related WS messages (spawn / write / resize / kill /
- * signal / restore / list) to the PTY manager. Pulled out of app.ts so the
+ * signal / restore) to the PTY manager. Pulled out of app.ts so the
  * bootstrap file doesn't import path utilities, WORKTREE_DIR_NAME, or
  * pty-manager directly.
+ *
+ * Note: `pty:list` is handled out-of-band as an ack-based RPC on the runner
+ * socket (see `central:pty_list` in `team-client.ts`) — not through this
+ * generic forward channel.
  */
 export function handlePtyMessage(
   type: string,
@@ -36,9 +40,6 @@ export function handlePtyMessage(
       break;
     case 'pty:restore':
       handlePtyRestore(data, send);
-      break;
-    case 'pty:list':
-      handlePtyList(userId, send);
       break;
     default:
       log.warn(`Unknown message type: ${type}`, { namespace: 'ws' });
@@ -153,22 +154,5 @@ function handlePtyRestore(data: any, send: (msg: any) => void): void {
       threadId: '',
       data: { ptyId: data.id, data: captured ?? '' },
     });
-  });
-}
-
-function handlePtyList(userId: string, send: (msg: any) => void): void {
-  const sessions = ptyManager.listActiveSessions(userId);
-  send({
-    type: 'pty:sessions',
-    threadId: '',
-    data: {
-      sessions: sessions.map((s) => ({
-        ptyId: s.ptyId,
-        cwd: s.cwd,
-        projectId: s.projectId,
-        label: s.label,
-        shell: s.shell,
-      })),
-    },
   });
 }

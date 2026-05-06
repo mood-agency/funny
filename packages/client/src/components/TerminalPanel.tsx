@@ -10,20 +10,8 @@ import {
   dropTargetForElements,
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import {
-  Plus,
-  X,
-  Square,
-  Loader2,
-  AlertCircle,
-  RotateCcw,
-  Zap,
-  ChevronUp,
-  ChevronDown,
-  CaseSensitive,
-  WholeWord,
-  Regex,
-} from 'lucide-react';
+import { useMachine } from '@xstate/react';
+import { Plus, X, Square, Loader2, AlertCircle, RotateCcw, Zap } from 'lucide-react';
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -44,13 +32,20 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
+import { SearchBar } from '@/components/ui/search-bar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTooltipMenu } from '@/hooks/use-tooltip-menu';
 import { getActiveWS } from '@/hooks/use-ws';
 import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import {
+  renderPhaseFromState,
+  terminalSpawnMachine,
+  type TerminalRenderPhase,
+} from '@/machines/terminal-spawn-machine';
 import { useProjectStore } from '@/stores/project-store';
+import { useRunnerStatusStore } from '@/stores/runner-status-store';
 import { type TerminalShell, useSettingsStore, EDITOR_FONT_SIZE_PX } from '@/stores/settings-store';
 import { useTerminalStore, type TerminalTab } from '@/stores/terminal-store';
 import { useThreadStore } from '@/stores/thread-store';
@@ -193,6 +188,7 @@ function TauriTerminalTabContent({
         fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
         theme: getTerminalTheme(),
         scrollback: 5000,
+        allowProposedApi: true,
       });
 
       const fitAddon = new FitAddon();
@@ -318,12 +314,7 @@ function WebTerminalTabContent({
   const tabError = useTerminalStore((s) => s.tabs.find((t) => t.id === id)?.error);
   const tabAlive = useTerminalStore((s) => s.tabs.find((t) => t.id === id)?.alive ?? false);
   const sessionsChecked = useTerminalStore((s) => s.sessionsChecked);
-  const [loading, setLoading] = useState(true);
-  const [termReady, setTermReady] = useState(false);
-  // Track whether we already sent a spawn/restore for this tab to avoid duplicates
-  const spawnedRef = useRef(false);
-  // Incremented to re-trigger the spawn effect after a failed attempt
-  const [spawnAttempt, setSpawnAttempt] = useState(0);
+  const runnerStatus = useRunnerStatusStore((s) => s.status);
   // Capture whether this tab was freshly created (alive on mount) vs loaded from persistence.
   // Uses getState() to avoid subscribing to alive changes (we only need the initial value).
   const [wasAliveOnMount] = useState(
@@ -335,6 +326,93 @@ function WebTerminalTabContent({
   const prevPanelVisibleRef = useRef(panelVisible);
   const codeFontSizePx = EDITOR_FONT_SIZE_PX[useSettingsStore((s) => s.fontSize)];
   useThemeSync(termRef);
+
+  // Live-callback refs let the machine's pure actions reach into the latest
+  // closure values (id/cwd/label/etc.) without re-instantiating the actor on
+  // every render. The machine only knows the action *name*; the body is wired
+  // here once via .provide() inside useMemo.
+  const emitSpawnRef = useRef<() => void>(() => {});
+  const emitRestoreRef = useRef<() => void>(() => {});
+  emitSpawnRef.current = () => {
+    const ws = getActiveWS();
+    if (!ws || !ws.connected || !termRef.current) return;
+    const { fitAddon } = termRef.current;
+    fitAddon.fit();
+    const dims = fitAddon.proposeDimensions();
+    const cols = Math.max(dims?.cols ?? 80, 20);
+    const rows = Math.max(dims?.rows ?? 24, 4);
+    ws.emit('pty:spawn', {
+      id,
+      cwd,
+      projectId,
+      label,
+      rows,
+      cols,
+      ...(shell !== 'default' && { shell }),
+    });
+  };
+  emitRestoreRef.current = () => {
+    const ws = getActiveWS();
+    if (!ws || !ws.connected) return;
+    ws.emit('pty:restore', { id });
+  };
+
+  const machineWithActions = useMemo(
+    () =>
+      terminalSpawnMachine.provide({
+        actions: {
+          emitSpawn: () => emitSpawnRef.current(),
+          emitRestore: () => emitRestoreRef.current(),
+        },
+      }),
+    [],
+  );
+
+  const [snapshot, send] = useMachine(machineWithActions, {
+    input: { restored: !!restored, wasAliveOnMount },
+  });
+
+  // Track when the PTY was alive at least once, so a later alive=false flip
+  // (server told us the session exited) translates to a single TAB_EXITED
+  // event instead of firing on every initial-render with alive=false.
+  const everAliveRef = useRef(false);
+  useEffect(() => {
+    if (tabAlive) {
+      everAliveRef.current = true;
+    } else if (everAliveRef.current) {
+      send({ type: 'TAB_EXITED' });
+      everAliveRef.current = false;
+    }
+  }, [tabAlive, send]);
+
+  useEffect(() => {
+    if (sessionsChecked) send({ type: 'SESSIONS_CHECKED' });
+  }, [sessionsChecked, send]);
+
+  useEffect(() => {
+    send({ type: 'PANEL_VISIBLE', visible: panelVisible });
+  }, [panelVisible, send]);
+
+  useEffect(() => {
+    if (tabError) send({ type: 'TAB_ERROR', error: tabError });
+  }, [tabError, send]);
+
+  // Bridge socket connection state. Re-fires every time the underlying
+  // socket reconnects, so retries during a runner reconnect storm pick up
+  // automatically without needing a manual restart.
+  useEffect(() => {
+    const ws = getActiveWS();
+    if (!ws) return;
+    const onConnect = () => send({ type: 'SOCKET_CONNECTED', connected: true });
+    const onDisconnect = () => send({ type: 'SOCKET_CONNECTED', connected: false });
+    ws.on('connect', onConnect);
+    ws.on('disconnect', onDisconnect);
+    if (ws.connected) send({ type: 'SOCKET_CONNECTED', connected: true });
+    return () => {
+      ws.off('connect', onConnect);
+      ws.off('disconnect', onDisconnect);
+    };
+  }, [send]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -352,6 +430,7 @@ function WebTerminalTabContent({
         fontFamily: '"JetBrains Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
         theme: getTerminalTheme(),
         scrollback: 5000,
+        allowProposedApi: true,
       });
 
       const fitAddon = new FitAddon();
@@ -417,7 +496,7 @@ function WebTerminalTabContent({
       // immediately via the store's pending buffer.
       registerPtyCallback(id, (data: string) => {
         if (!cancelled) {
-          setLoading(false);
+          send({ type: 'DATA_RECEIVED' });
           useTerminalStore.getState().markAlive(id);
         }
         terminal.write(data);
@@ -480,7 +559,7 @@ function WebTerminalTabContent({
       });
       resizeObserver.observe(containerRef.current!);
 
-      if (!cancelled) setTermReady(true);
+      if (!cancelled) send({ type: 'TERM_READY' });
 
       cleanup = () => {
         if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -501,122 +580,10 @@ function WebTerminalTabContent({
 
     return () => {
       cancelled = true;
-      spawnedRef.current = false;
-      setTermReady(false);
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- label/initialCommand/codeFontSizePx are intentional one-shot reads at mount; rerunning on change would reset the live xterm
   }, [id, cwd, registerPtyCallback, unregisterPtyCallback]);
-
-  // Separate effect for spawn/restore decision — waits for sessionsChecked
-  // so that tabs loaded from localStorage don't prematurely spawn a new PTY
-  // before the server confirms whether the session still exists.
-  // New spawns wait for panelVisible (need real dimensions); restored tabs
-  // fire pty:restore immediately (no dimensions needed for history capture).
-  useEffect(() => {
-    if (spawnedRef.current) return;
-    if (!termReady || !termRef.current) return;
-
-    const ws = getActiveWS();
-
-    // Helper: send the spawn/restore message once Socket.IO is connected.
-    // If not yet connected, listen for the 'connect' event and retry.
-    const sendWhenReady = (send: (ws: any) => void) => {
-      if (ws && ws.connected) {
-        spawnedRef.current = true;
-        send(ws);
-      } else if (ws) {
-        const onConnect = () => {
-          if (spawnedRef.current) return;
-          spawnedRef.current = true;
-          send(ws);
-        };
-        ws.once('connect', onConnect);
-        return () => ws.off('connect', onConnect);
-      }
-    };
-
-    if (restored) {
-      // Restored tab: server confirmed the session exists.
-      // Send pty:restore immediately — no need to wait for panel visibility
-      // since we only need the server to capture and send back terminal state.
-      // Don't send resize here — dimensions may be wrong if panel is collapsed.
-      // The correct resize happens when the user switches to this tab (see
-      // the active+panelVisible effect below).
-      const cleanup = sendWhenReady((ws: any) => {
-        ws.emit('pty:restore', { id });
-      });
-      // Don't setLoading(false) here — wait for pty:data callback to clear it
-      // so the user sees a loading spinner until history actually arrives.
-      // Safety timeout: if no data arrives within 3s, clear loading anyway
-      // (the session may have no output yet or the capture returned empty).
-      const restoreTimeout = setTimeout(() => setLoading(false), 3000);
-      return () => {
-        cleanup?.();
-        clearTimeout(restoreTimeout);
-      };
-    }
-
-    // For new spawns, wait for panelVisible to get correct dimensions
-    if (!panelVisible) return;
-
-    const { fitAddon } = termRef.current;
-    // Re-fit now that the panel is visible, then read correct dimensions
-    fitAddon.fit();
-    const dims = fitAddon.proposeDimensions();
-
-    // Use proposed dimensions with sensible fallbacks
-    const cols = dims?.cols ?? 80;
-    const rows = dims?.rows ?? 24;
-    const MIN_COLS = 20;
-    const MIN_ROWS = 4;
-
-    if (wasAliveOnMount || sessionsChecked) {
-      // Guard against unreasonably small dimensions (container still animating)
-      // Only applies to new PTY spawns where correct initial size matters.
-      if (cols < MIN_COLS || rows < MIN_ROWS) return;
-      // Either a freshly created tab (alive on mount) or the session list
-      // was checked and this tab was NOT found — spawn a new PTY.
-      let spawnTimer: ReturnType<typeof setTimeout> | null = null;
-      const cleanup = sendWhenReady((ws: any) => {
-        ws.emit('pty:spawn', {
-          id,
-          cwd,
-          projectId,
-          label,
-          rows,
-          cols,
-          ...(shell !== 'default' && { shell }),
-        });
-        // If no pty:data arrives within 5s, reset spawnedRef and bump
-        // spawnAttempt to re-trigger the effect (runner may not have been
-        // connected yet). Give up after 3 attempts.
-        spawnTimer = setTimeout(() => {
-          const tab = useTerminalStore.getState().tabs.find((t) => t.id === id);
-          if (tab && !tab.alive && !tab.error) {
-            spawnedRef.current = false;
-            setSpawnAttempt((a) => (a < 3 ? a + 1 : a));
-          }
-        }, 5000);
-      });
-      return () => {
-        cleanup?.();
-        if (spawnTimer) clearTimeout(spawnTimer);
-      };
-    }
-  }, [
-    termReady,
-    panelVisible,
-    restored,
-    sessionsChecked,
-    wasAliveOnMount,
-    spawnAttempt,
-    id,
-    cwd,
-    projectId,
-    label,
-    shell,
-  ]);
 
   // Sync font size when the setting changes
   useEffect(() => {
@@ -672,56 +639,97 @@ function WebTerminalTabContent({
   const { t } = useTranslation();
 
   const handleRestart = useCallback(() => {
-    // Clear terminal screen
     if (termRef.current?.terminal) {
       termRef.current.terminal.clear();
     }
-    // Reset spawn tracking so the spawn effect re-triggers
-    spawnedRef.current = false;
-    setLoading(true);
-    // Mark tab as respawnable (clears error, restored flag)
+    // Mark tab as respawnable (clears error, restored flag) so the store
+    // and machine stay aligned.
     useTerminalStore.getState().respawnTab(id);
-    // Force the spawn effect to re-run by changing its dependency
-    setSpawnAttempt((a) => a + 1);
-  }, [id]);
+    everAliveRef.current = false;
+    send({ type: 'RESTART' });
+  }, [id, send]);
 
-  // Determine if we should show the exited overlay — process died and we're not
-  // in initial loading state (which would mean we haven't connected yet)
-  const showExited = !tabAlive && !loading && !tabError && sessionsChecked;
+  const phase: TerminalRenderPhase = renderPhaseFromState(snapshot.value as string, runnerStatus);
 
   return (
     <div className={cn('absolute inset-0', active ? 'z-10' : 'z-0 invisible pointer-events-none')}>
       <div ref={containerRef} className="h-full w-full bg-background" />
-      {tabError ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-background">
-          <div className="flex items-center gap-2 text-xs text-destructive">
-            <AlertCircle className="icon-base flex-shrink-0" />
-            <span>{tabError}</span>
-          </div>
-        </div>
-      ) : showExited ? (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-center p-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRestart}
-            className="gap-1.5 text-xs"
-            data-testid="terminal-restart"
-          >
-            <RotateCcw className="icon-xs" />
-            {t('terminal.restart', 'Restart')}
-          </Button>
-        </div>
-      ) : loading ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-background">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="icon-base animate-spin" />
-            <span>{t('terminal.loading')}</span>
-          </div>
-        </div>
-      ) : null}
+      <TerminalPhaseOverlay phase={phase} error={tabError} onRestart={handleRestart} />
     </div>
   );
+}
+
+function TerminalPhaseOverlay({
+  phase,
+  error,
+  onRestart,
+}: {
+  phase: TerminalRenderPhase;
+  error: string | undefined;
+  onRestart: () => void;
+}) {
+  const { t } = useTranslation();
+
+  if (phase === 'error') {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-background">
+        <div className="flex items-center gap-2 text-xs text-destructive">
+          <AlertCircle className="icon-base flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'exited') {
+    return (
+      <div className="absolute inset-x-0 bottom-0 flex items-center justify-center p-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRestart}
+          className="gap-1.5 text-xs"
+          data-testid="terminal-restart"
+        >
+          <RotateCcw className="icon-xs" />
+          {t('terminal.restart', 'Restart')}
+        </Button>
+      </div>
+    );
+  }
+
+  if (phase === 'awaiting-runner') {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center bg-background"
+        data-testid="terminal-awaiting-runner"
+      >
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="icon-base animate-spin" />
+          <span>{t('terminal.awaitingRunner', 'Waiting for runner to come online…')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    phase === 'initializing' ||
+    phase === 'awaiting-sessions' ||
+    phase === 'spawning' ||
+    phase === 'restoring'
+  ) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-background">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="icon-base animate-spin" />
+          <span>{t('terminal.loading')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 'connected' — no overlay
+  return null;
 }
 
 /** Format milliseconds as human-readable uptime */
@@ -845,22 +853,16 @@ function TerminalSearchOverlay({
   const [wholeWord, setWholeWord] = useState(false);
   const [regex, setRegex] = useState(false);
   const [result, setResult] = useState<{ resultIndex: number; resultCount: number } | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const decorations = useMemo(
     () => ({
-      matchBackground: '#5f3a6b',
-      activeMatchBackground: '#a06ba8',
-      matchOverviewRuler: '#5f3a6b',
-      activeMatchColorOverviewRuler: '#a06ba8',
+      matchBackground: '#ffd900',
+      activeMatchBackground: '#ff9900',
+      matchOverviewRuler: '#ffd900',
+      activeMatchColorOverviewRuler: '#ff9900',
     }),
     [],
   );
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [activeTabId]);
 
   useEffect(() => {
     const addon = searchAddonRegistry.get(activeTabId);
@@ -899,123 +901,35 @@ function TerminalSearchOverlay({
     addon.findPrevious(query, { caseSensitive, wholeWord, regex, decorations });
   }, [activeTabId, query, caseSensitive, wholeWord, regex, decorations]);
 
-  const counter = !query
-    ? ''
-    : result && result.resultCount > 0
-      ? `${result.resultIndex + 1}/${result.resultCount}`
-      : t('terminal.searchNoResults', 'No results');
+  const totalMatches = result?.resultCount ?? 0;
+  const currentIndex = result && result.resultCount > 0 ? result.resultIndex : undefined;
 
   return (
     <div
-      className="absolute right-3 top-2 z-20 flex items-center gap-1 rounded-md border bg-popover p-1 shadow-md"
+      className="absolute right-3 top-2 z-20 rounded-md border bg-popover px-1.5 py-1 shadow-md"
       data-testid="terminal-search"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          onClose();
-        }
-        e.stopPropagation();
-      }}
+      onKeyDown={(e) => e.stopPropagation()}
     >
-      <Input
-        ref={inputRef}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            onClose();
-          } else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (e.shiftKey) findPrev();
-            else findNext();
-          }
-        }}
+      <SearchBar
+        key={activeTabId}
+        query={query}
+        onQueryChange={setQuery}
+        totalMatches={totalMatches}
+        currentIndex={currentIndex}
+        onPrev={findPrev}
+        onNext={findNext}
+        onClose={onClose}
         placeholder={t('terminal.searchPlaceholder', 'Find')}
-        className="h-7 w-48 text-xs"
-        data-testid="terminal-search-input"
+        showIcon={false}
+        testIdPrefix="terminal-search"
+        caseSensitive={caseSensitive}
+        onCaseSensitiveChange={setCaseSensitive}
+        wholeWord={wholeWord}
+        onWholeWordChange={setWholeWord}
+        regex={regex}
+        onRegexChange={setRegex}
+        className="w-[26rem]"
       />
-      <span className="min-w-[3rem] px-1 text-center text-[10px] tabular-nums text-muted-foreground">
-        {counter}
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant={caseSensitive ? 'secondary' : 'ghost'}
-            onClick={() => setCaseSensitive((v) => !v)}
-            data-testid="terminal-search-case"
-          >
-            <CaseSensitive className="icon-xs" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('terminal.searchCaseSensitive', 'Match case')}</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant={wholeWord ? 'secondary' : 'ghost'}
-            onClick={() => setWholeWord((v) => !v)}
-            data-testid="terminal-search-word"
-          >
-            <WholeWord className="icon-xs" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('terminal.searchWholeWord', 'Match whole word')}</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant={regex ? 'secondary' : 'ghost'}
-            onClick={() => setRegex((v) => !v)}
-            data-testid="terminal-search-regex"
-          >
-            <Regex className="icon-xs" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('terminal.searchRegex', 'Use regular expression')}</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            onClick={findPrev}
-            data-testid="terminal-search-prev"
-          >
-            <ChevronUp className="icon-xs" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('terminal.searchPrevious', 'Previous (Shift+Enter)')}</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            onClick={findNext}
-            data-testid="terminal-search-next"
-          >
-            <ChevronDown className="icon-xs" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('terminal.searchNext', 'Next (Enter)')}</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            onClick={onClose}
-            data-testid="terminal-search-close"
-          >
-            <X className="icon-xs" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('terminal.searchClose', 'Close (Esc)')}</TooltipContent>
-      </Tooltip>
     </div>
   );
 }
