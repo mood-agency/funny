@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { createClientLogger } from '@/lib/client-logger';
 import { useSettingsStore } from '@/stores/settings-store';
+import { useThreadStore } from '@/stores/thread-store';
 
 const log = createClientLogger('notifications');
 
@@ -15,6 +16,11 @@ function readPermission(): NotificationPermissionState {
 /** True if browser supports the Notification API. */
 export function isNotificationsSupported(): boolean {
   return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+/** True if the user is currently viewing the given thread (active thread in store). */
+function isViewingThread(threadId: string): boolean {
+  return useThreadStore.getState().activeThread?.id === threadId;
 }
 
 /**
@@ -62,14 +68,19 @@ export type NotificationResult =
   | { ok: true }
   | {
       ok: false;
-      reason: 'unsupported' | 'not-granted' | 'disabled' | 'tab-visible' | 'error';
+      reason: 'unsupported' | 'not-granted' | 'disabled' | 'viewing-thread' | 'error';
       error?: string;
     };
 
 export function showAgentNotification(
   title: string,
   body: string,
-  opts: { tag?: string; onClick?: () => void; force?: boolean } = {},
+  opts: {
+    tag?: string;
+    onClick?: () => void;
+    force?: boolean;
+    skipIfViewingThreadId?: string;
+  } = {},
 ): NotificationResult {
   if (!isNotificationsSupported()) {
     log.warn('notification skipped: unsupported');
@@ -84,8 +95,14 @@ export function showAgentNotification(
   if (!opts.force && !useSettingsStore.getState().notificationsEnabled) {
     return { ok: false, reason: 'disabled' };
   }
-  if (!opts.force && typeof document !== 'undefined' && !document.hidden) {
-    return { ok: false, reason: 'tab-visible' };
+  if (
+    !opts.force &&
+    opts.skipIfViewingThreadId &&
+    typeof document !== 'undefined' &&
+    !document.hidden &&
+    isViewingThread(opts.skipIfViewingThreadId)
+  ) {
+    return { ok: false, reason: 'viewing-thread' };
   }
 
   try {

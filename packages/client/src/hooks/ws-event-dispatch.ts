@@ -370,11 +370,15 @@ function maybeNotifyAgentResult(threadId: string, data: any): void {
   const status = data.status as string | undefined;
   const title = findThreadTitle(threadId) ?? 'Agent';
   if (status === 'completed') {
-    showAgentNotification('Agent finished', title, { tag: `agent-result-${threadId}` });
+    showAgentNotification('Agent finished', title, {
+      tag: `agent-result-${threadId}`,
+      skipIfViewingThreadId: threadId,
+    });
   } else if (status === 'failed' || status === 'error') {
     const reason = data.errorReason ? ` — ${data.errorReason}` : '';
     showAgentNotification('Agent failed', `${title}${reason}`, {
       tag: `agent-result-${threadId}`,
+      skipIfViewingThreadId: threadId,
     });
   }
 }
