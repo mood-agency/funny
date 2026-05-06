@@ -11,12 +11,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { collectAllFolderPaths, FileTree } from '@/components/FileTree';
+import { isMediaFile } from '@/components/MediaPreview';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from '@/components/ui/search-bar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { createClientLogger } from '@/lib/client-logger';
 import { useInternalEditorStore } from '@/stores/internal-editor-store';
+import { useMediaPreviewStore } from '@/stores/media-preview-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -163,6 +165,11 @@ export function ProjectFilesPane() {
     (relativePath: string) => {
       if (!basePath) return;
       const absolutePath = `${basePath}/${relativePath}`;
+      const fileName = relativePath.split('/').pop() ?? relativePath;
+      if (isMediaFile(fileName)) {
+        useMediaPreviewStore.getState().open(absolutePath);
+        return;
+      }
       void useInternalEditorStore.getState().openFile(absolutePath);
     },
     [basePath],

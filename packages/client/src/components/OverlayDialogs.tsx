@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { WorkflowErrorModal } from '@/components/WorkflowErrorModal';
 import { TOAST_DURATION } from '@/lib/utils';
 import { useInternalEditorStore } from '@/stores/internal-editor-store';
+import { useMediaPreviewStore } from '@/stores/media-preview-store';
 import { useUIStore } from '@/stores/ui-store';
 
 const commandPaletteImport = () =>
@@ -18,6 +19,9 @@ const CircuitBreakerDialog = lazy(() =>
 );
 const MonacoEditorDialog = lazy(() =>
   import('@/components/MonacoEditorDialog').then((m) => ({ default: m.MonacoEditorDialog })),
+);
+const MediaPreviewDialog = lazy(() =>
+  import('@/components/MediaPreviewDialog').then((m) => ({ default: m.MediaPreviewDialog })),
 );
 
 // Prefetch the CommandPalette and FileSearchDialog chunks on idle so they
@@ -61,6 +65,8 @@ export function OverlayDialogs({ branchSyncDialog }: OverlayDialogsProps) {
   const internalEditorOpen = useInternalEditorStore((s) => s.isOpen);
   const internalEditorFilePath = useInternalEditorStore((s) => s.filePath);
   const internalEditorContent = useInternalEditorStore((s) => s.initialContent);
+  const mediaPreviewOpen = useMediaPreviewStore((s) => s.isOpen);
+  const mediaPreviewPath = useMediaPreviewStore((s) => s.filePath);
 
   return (
     <>
@@ -89,6 +95,17 @@ export function OverlayDialogs({ branchSyncDialog }: OverlayDialogsProps) {
           }}
           filePath={internalEditorFilePath || ''}
           initialContent={internalEditorContent}
+        />
+      </Suspense>
+
+      {/* Media preview dialog (image/audio/video/pdf — global, lazy-loaded) */}
+      <Suspense>
+        <MediaPreviewDialog
+          open={mediaPreviewOpen}
+          onOpenChange={(open) => {
+            if (!open) useMediaPreviewStore.getState().close();
+          }}
+          filePath={mediaPreviewPath}
         />
       </Suspense>
     </>

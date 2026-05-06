@@ -198,4 +198,101 @@ app.post('/write', async (c) => {
   return c.json({ ok: true });
 });
 
+/** Map common extensions to MIME types for the /raw endpoint. */
+const EXT_TO_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+  ico: 'image/x-icon',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  mkv: 'video/x-matroska',
+  pdf: 'application/pdf',
+  md: 'text/markdown; charset=utf-8',
+  markdown: 'text/markdown; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  log: 'text/plain; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  yaml: 'application/yaml; charset=utf-8',
+  yml: 'application/yaml; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+};
+
+const RAW_MAX_SIZE = 100 * 1024 * 1024; // 100MB
+
+/**
+ * Stream raw file contents (binary or text) for media preview.
+ * GET /api/files/raw?path=/absolute/path/to/file.png
+ *
+ * Same project-scope/symlink-escape protections as /read, but serves the
+ * file as a stream with an inferred Content-Type so the browser can render
+ * images, audio, video, PDFs, etc.
+ */
+app.get('/raw', async (c) => {
+  const filePath = c.req.query('path');
+  if (!filePath) {
+    return c.json({ error: 'path is required' }, 400);
+  }
+
+  const userId = c.get('userId') as string;
+  const scope = await resolveProjectScope(filePath, userId);
+  if (!scope) return deny();
+
+  const linkStatResult = await ResultAsync.fromPromise(lstat(filePath), (e: any) =>
+    e.code === 'ENOENT' ? notFound('File not found') : internal('File access error'),
+  );
+  if (linkStatResult.isErr()) return resultToResponse(c, linkStatResult);
+  if (linkStatResult.value.isSymbolicLink()) {
+    const realPathResult = await ResultAsync.fromPromise(realpath(filePath), (e: any) =>
+      e.code === 'ENOENT' ? notFound('File not found') : internal('File access error'),
+    );
+    if (realPathResult.isErr()) return resultToResponse(c, realPathResult);
+    if (!isInScope(realPathResult.value, scope)) return deny();
+  }
+
+  const statsResult = await ResultAsync.fromPromise(stat(filePath), (e: any) =>
+    e.code === 'ENOENT' ? notFound('File not found') : internal('File access error'),
+  );
+  if (statsResult.isErr()) return resultToResponse(c, statsResult);
+  if (!statsResult.value.isFile()) {
+    return resultToResponse(c, err(badRequest('Not a regular file')));
+  }
+  if (statsResult.value.size > RAW_MAX_SIZE) {
+    return resultToResponse(
+      c,
+      err(badRequest(`File too large for preview (max ${RAW_MAX_SIZE} bytes)`)),
+    );
+  }
+
+  const ext = filePath.includes('.')
+    ? filePath.substring(filePath.lastIndexOf('.') + 1).toLowerCase()
+    : '';
+  const contentType = EXT_TO_MIME[ext] ?? 'application/octet-stream';
+
+  // Bun.file returns a BunFile with a Web ReadableStream — passes straight
+  // through Hono/Bun's Response without a Node-stream → Web-stream cast.
+  const file = Bun.file(filePath);
+  return new Response(file, {
+    status: 200,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Length': String(statsResult.value.size),
+      'Cache-Control': 'private, max-age=60',
+      'Content-Disposition': `inline; filename="${encodeURIComponent(basename(filePath))}"`,
+    },
+  });
+});
+
 export default app;
