@@ -777,5 +777,6 @@ module.exports.getStatusSummary = nativeBinding.getStatusSummary;
 module.exports.getUnpushedHashes = nativeBinding.getUnpushedHashes;
 module.exports.listBranches = nativeBinding.listBranches;
 module.exports.listBranchesDetailed = nativeBinding.listBranchesDetailed;
+module.exports.listFiles = nativeBinding.listFiles;
 module.exports.ping = nativeBinding.ping;
 module.exports.resetSoft = nativeBinding.resetSoft;

@@ -95,6 +95,22 @@ export declare function listBranches(cwd: string): Promise<Array<string>>;
 
 export declare function listBranchesDetailed(cwd: string): Promise<Array<BranchDetailedInfo>>;
 
+/**
+ * List every file in the repo: tracked from the index, plus untracked and
+ * (optionally) `.gitignore`-ignored files from a worktree walk. Heavy build
+ * directories (`node_modules`, `dist`, `.next`, …) are pruned regardless.
+ *
+ * Returns repository-relative paths with unix separators, deduplicated.
+ */
+export declare function listFiles(
+  cwd: string,
+  options?: ListFilesOptions | undefined | null,
+): Promise<Array<string>>;
+
+export interface ListFilesOptions {
+  includeIgnored?: boolean;
+}
+
 /** Simple ping function to verify the native module loads correctly. */
 export declare function ping(): string;
 

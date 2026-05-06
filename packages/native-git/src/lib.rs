@@ -9,6 +9,7 @@ mod log;
 mod file_diff;
 mod commit_info;
 mod reset;
+mod list_files;
 
 pub use status_summary::*;
 pub use diff_summary::*;
@@ -17,6 +18,7 @@ pub use log::*;
 pub use file_diff::*;
 pub use commit_info::*;
 pub use reset::*;
+pub use list_files::*;
 
 /// Simple ping function to verify the native module loads correctly.
 #[napi]

@@ -1,8 +1,9 @@
 import { join } from 'path';
 
-import { gitRead } from '@funny/core/git';
+import { getNativeGit, gitRead } from '@funny/core/git';
 
 import { log } from '../lib/logger.js';
+import { startSpan } from '../lib/telemetry.js';
 
 // ─── Cache for resolveGitFiles ──────────────────────────────
 const GIT_FILES_CACHE_TTL = 5_000; // 5 seconds
@@ -11,10 +12,15 @@ const GIT_FILES_CACHE_TTL = 5_000; // 5 seconds
  * Heavy build/dependency directories we never want to surface in the file
  * picker, even when they're not in `.gitignore`. Keeps `.env`-style ignored
  * files visible without exploding the index with `node_modules` contents.
+ *
+ * MUST stay in sync with `HEAVY_DIRS` in
+ * `packages/native-git/src/list_files.rs` — the native path prunes during
+ * traversal (cheap), the watcher path here filters fs events (cheap), and
+ * the CLI fallback path post-filters (the historical reason this existed).
  */
 export const HEAVY_IGNORED_DIRS = new Set([
+  // JS / web
   'node_modules',
-  '.git',
   'dist',
   'build',
   '.next',
@@ -23,6 +29,24 @@ export const HEAVY_IGNORED_DIRS = new Set([
   'coverage',
   '.vite',
   '.parcel-cache',
+  // git internals
+  '.git',
+  // Unity
+  'Library',
+  'Temp',
+  'Logs',
+  // Rust
+  'target',
+  // .NET / Java
+  'bin',
+  'obj',
+  '.gradle',
+  // Python
+  '__pycache__',
+  '.venv',
+  'venv',
+  // Misc vendored deps
+  'vendor',
 ]);
 
 function isHeavyIgnored(rel: string): boolean {
@@ -89,7 +113,10 @@ export async function gitLsFiles(cwd: string): Promise<string[]> {
   const out = new Set<string>();
   for (const line of tracked.stdout.split('\n')) {
     const f = line.trim();
-    if (f) out.add(f);
+    // Tracked files inside heavy dirs (e.g. someone committed `dist/`) are
+    // dropped too — matches the native backend, which prunes by path
+    // segments regardless of tracked/ignored state.
+    if (f && !isHeavyIgnored(f)) out.add(f);
   }
 
   if (ignored.exitCode === 0) {
@@ -125,7 +152,7 @@ export async function resolveGitFiles(cwd: string, prefix = ''): Promise<string[
     const inflight = inflightRequests.get(cwd);
     if (inflight) return inflight;
 
-    const promise = _resolveGitFilesInner(cwd, prefix)
+    const promise = _resolveTopLevel(cwd)
       .then((files) => {
         fileCache.set(cwd, { files, ts: Date.now() });
         inflightRequests.delete(cwd);
@@ -141,6 +168,47 @@ export async function resolveGitFiles(cwd: string, prefix = ''): Promise<string[
   }
 
   return _resolveGitFilesInner(cwd, prefix);
+}
+
+/**
+ * Top-level file listing. Tries the native gitoxide-backed implementation
+ * first (10–50× faster on big monorepos because it walks the worktree without
+ * shelling out and prunes heavy build dirs in `can_recurse`). Falls back to
+ * the CLI pipeline on any error.
+ */
+async function _resolveTopLevel(cwd: string): Promise<string[]> {
+  const native = getNativeGit();
+  if (native?.listFiles) {
+    const span = startSpan('file-index.list-files', {
+      attributes: { backend: 'native', cwd },
+    });
+    try {
+      const files = await native.listFiles(cwd, { includeIgnored: true });
+      span.attributes['file.count'] = files.length;
+      span.end('ok');
+      return files;
+    } catch (err) {
+      span.end('error', String(err));
+      log.warn('git-files: native listFiles failed, falling back to CLI', {
+        namespace: 'git-files',
+        cwd,
+        error: String(err),
+      });
+    }
+  }
+
+  const span = startSpan('file-index.list-files', {
+    attributes: { backend: 'cli', cwd },
+  });
+  try {
+    const files = await _resolveGitFilesInner(cwd, '');
+    span.attributes['file.count'] = files.length;
+    span.end('ok');
+    return files;
+  } catch (err) {
+    span.end('error', String(err));
+    throw err;
+  }
 }
 
 /** Inner implementation without caching (handles recursion). */

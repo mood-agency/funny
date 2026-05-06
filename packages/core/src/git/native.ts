@@ -48,6 +48,10 @@ export interface NativeBranchDetailedInfo {
   isRemote: boolean;
 }
 
+export interface NativeListFilesOptions {
+  includeIgnored?: boolean;
+}
+
 export interface NativeGitModule {
   ping(): string;
   getStatusSummary(
@@ -73,6 +77,7 @@ export interface NativeGitModule {
   getCommitFiles(cwd: string, hash: string): Promise<NativeCommitFileEntry[]>;
   getUnpushedHashes(cwd: string): Promise<string[]>;
   resetSoft(cwd: string): Promise<void>;
+  listFiles(cwd: string, options?: NativeListFilesOptions | null): Promise<string[]>;
 }
 
 // Heavy I/O ops (status scan, diff scan) — limit concurrent disk reads
@@ -109,6 +114,7 @@ export interface PooledNativeGitModule {
   getCommitFiles(cwd: string, hash: string): Promise<NativeCommitFileEntry[]>;
   getUnpushedHashes(cwd: string): Promise<string[]>;
   resetSoft(cwd: string): Promise<void>;
+  listFiles(cwd: string, options?: NativeListFilesOptions | null): Promise<string[]>;
 }
 
 function createPooledModule(mod: NativeGitModule): PooledNativeGitModule {
@@ -128,6 +134,7 @@ function createPooledModule(mod: NativeGitModule): PooledNativeGitModule {
     getCommitFiles: (...args) => heavyPool(() => mod.getCommitFiles(...args)),
     getUnpushedHashes: (...args) => lightPool(() => mod.getUnpushedHashes(...args)),
     resetSoft: (...args) => heavyPool(() => mod.resetSoft(...args)),
+    listFiles: (...args) => heavyPool(() => mod.listFiles(...args)),
   };
 }
 
