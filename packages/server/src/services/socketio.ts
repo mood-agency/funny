@@ -702,7 +702,6 @@ function setupRunnerDataHandlers(
     'data:get_github_token',
     'data:get_minimax_api_key',
     'data:update_profile',
-    'data:get_arc',
     'data:mark_and_list_stale_threads',
     'data:get_agent_template',
     'data:create_permission_rule',
