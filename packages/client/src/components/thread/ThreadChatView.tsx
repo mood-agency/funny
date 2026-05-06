@@ -38,6 +38,10 @@ function useThreadSearch(
     if (!activeThreadId) return;
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.shiftKey && e.key === 'f') {
+        // Don't hijack Ctrl+F when focus is inside a terminal — the
+        // terminal owns this shortcut and shows its own search overlay.
+        const target = e.target as Element | null;
+        if (target && target.closest('.xterm')) return;
         e.preventDefault();
         e.stopPropagation();
         setSearchOpen(true);
@@ -107,7 +111,12 @@ function useThreadSearch(
   }, []);
 
   const handleSearchNavigate = useCallback(
-    (messageId: string, query: string, withinIdx: number) => {
+    (
+      messageId: string,
+      query: string,
+      withinIdx: number,
+      reportMarkCount?: (messageId: string, count: number) => void,
+    ) => {
       const needsRehighlight =
         highlightedMsgRef.current !== messageId || highlightedQueryRef.current !== query;
       if (needsRehighlight) {
@@ -126,6 +135,8 @@ function useThreadSearch(
         if (needsRehighlight) highlightTextInElement(el, query);
 
         const marks = el.querySelectorAll('mark[data-search-hl]');
+        reportMarkCount?.(messageId, marks.length);
+
         if (marks.length === 0) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
           return true;
@@ -136,13 +147,13 @@ function useThreadSearch(
           const mEl = m as HTMLElement;
           mEl.removeAttribute('data-search-current');
           mEl.style.backgroundColor = '#FFE500';
-          mEl.style.outline = '';
+          mEl.style.boxShadow = '';
         });
-        const target = marks[Math.min(withinIdx, marks.length - 1)] as HTMLElement | undefined;
+        const clampedIdx = Math.max(0, Math.min(withinIdx, marks.length - 1));
+        const target = marks[clampedIdx] as HTMLElement | undefined;
         if (target) {
           target.setAttribute('data-search-current', '');
           target.style.backgroundColor = '#FF8A00';
-          target.style.outline = '2px solid #FF8A00';
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
         return true;
