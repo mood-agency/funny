@@ -13,6 +13,20 @@
 
 import type { AgentModel, AgentProvider, PermissionMode, WSEvent } from './types.js';
 
+// ─── Tunnel Limits ──────────────────────────────────────
+
+/**
+ * Hard cap on the response body size that fits through the Socket.IO tunnel
+ * ack. Must stay ≤ the server's `maxHttpBufferSize` (see
+ * `packages/server/src/services/socketio.ts`). When exceeded, Socket.IO drops
+ * the ack silently and the request appears to hang until the 30s tunnel
+ * timeout fires — so the runner short-circuits with a 413 instead.
+ *
+ * 32 MB matches the server config; we keep a 1 MB headroom for envelope
+ * overhead (status, headers, JSON framing).
+ */
+export const TUNNEL_MAX_RESPONSE_BODY_BYTES = 31 * 1024 * 1024;
+
 // ─── Runner Identity ────────────────────────────────────
 
 export type RunnerStatus = 'online' | 'busy' | 'offline';

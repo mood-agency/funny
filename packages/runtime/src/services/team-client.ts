@@ -23,11 +23,12 @@
 import { hostname } from 'os';
 
 import type { Project, WSEvent } from '@funny/shared';
-import type {
-  DataInsertMessage,
-  DataInsertToolCall,
-  RunnerRegisterResponse,
-  RunnerTask,
+import {
+  TUNNEL_MAX_RESPONSE_BODY_BYTES,
+  type DataInsertMessage,
+  type DataInsertToolCall,
+  type RunnerRegisterResponse,
+  type RunnerTask,
 } from '@funny/shared/runner-protocol';
 import { nanoid } from 'nanoid';
 import { io, type Socket } from 'socket.io-client';
@@ -741,6 +742,30 @@ async function handleTunnelRequest(data: {
     response.headers.forEach((value, key) => {
       responseHeaders[key] = value;
     });
+
+    // Short-circuit oversized responses with a structured 413. If we let it
+    // through, Socket.IO would silently drop the ack (over `maxHttpBufferSize`)
+    // and the request would appear to hang until the 30s tunnel timeout —
+    // making this look like the runner crashed.
+    const bodyBytes = Buffer.byteLength(responseBody, 'utf8');
+    if (bodyBytes > TUNNEL_MAX_RESPONSE_BODY_BYTES) {
+      log.warn('Tunnel response too large — short-circuiting with 413', {
+        namespace: 'runner',
+        path: data.path,
+        bodyBytes,
+        limitBytes: TUNNEL_MAX_RESPONSE_BODY_BYTES,
+      });
+      return {
+        status: 413,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          error: 'Tunnel response exceeds size limit',
+          bodyBytes,
+          limitBytes: TUNNEL_MAX_RESPONSE_BODY_BYTES,
+          hint: 'Increase maxHttpBufferSize in server socketio config or paginate the response.',
+        }),
+      };
+    }
 
     return { status: response.status, headers: responseHeaders, body: responseBody };
   } catch (err) {

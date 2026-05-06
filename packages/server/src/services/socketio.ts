@@ -68,7 +68,13 @@ export function createSocketIOServer(
     path: '/socket.io/',
     pingInterval: 25_000,
     pingTimeout: 20_000,
-    maxHttpBufferSize: 5e6,
+    // 32 MB. The biggest single payload through the tunnel today is the
+    // file index for huge repos (~8 MB for a 100k-file Unity project). Going
+    // over the limit silently drops the ack and the runner appears to hang
+    // until the 30 s tunnel timeout fires — so the runner short-circuits
+    // with a 413 above `TUNNEL_MAX_RESPONSE_BODY_BYTES`. Keep the buffer
+    // strictly larger than that limit so well-formed responses always fit.
+    maxHttpBufferSize: 32 * 1024 * 1024,
     cors: {
       origin: corsOrigins,
       credentials: true,
