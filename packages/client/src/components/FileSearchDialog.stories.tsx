@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { useFileIndexStore } from '@/stores/file-index-store';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 
@@ -14,16 +15,16 @@ import { FileSearchDialog } from './FileSearchDialog';
 /* ------------------------------------------------------------------ */
 
 const MOCK_FILES = [
-  { path: 'src/index.ts', type: 'file' as const },
-  { path: 'src/components/Sidebar.tsx', type: 'file' as const },
-  { path: 'src/components/ThreadView.tsx', type: 'file' as const },
-  { path: 'src/hooks/use-ws.ts', type: 'file' as const },
-  { path: 'src/stores/app-store.ts', type: 'file' as const },
-  { path: 'src/lib/utils.ts', type: 'file' as const },
-  { path: 'package.json', type: 'file' as const },
-  { path: 'tsconfig.json', type: 'file' as const },
-  { path: 'vite.config.ts', type: 'file' as const },
-  { path: 'README.md', type: 'file' as const },
+  'src/index.ts',
+  'src/components/Sidebar.tsx',
+  'src/components/ThreadView.tsx',
+  'src/hooks/use-ws.ts',
+  'src/stores/app-store.ts',
+  'src/lib/utils.ts',
+  'package.json',
+  'tsconfig.json',
+  'vite.config.ts',
+  'README.md',
 ];
 
 /* ------------------------------------------------------------------ */
@@ -87,6 +88,13 @@ type Story = StoryObj;
 /*  Stories                                                            */
 /* ------------------------------------------------------------------ */
 
+function seedIndex(basePath: string, files: string[]) {
+  useFileIndexStore.setState({
+    byPath: { [basePath]: { files, version: 1, stale: false } },
+    inflight: {},
+  });
+}
+
 /** Default — file list loaded. */
 export const Default: Story = {
   render: () => (
@@ -94,7 +102,8 @@ export const Default: Story = {
       label="Search files"
       setupMocks={() => {
         setupStores();
-        api.browseFiles = () => okAsync({ files: MOCK_FILES, truncated: false });
+        seedIndex('/home/user/project', MOCK_FILES);
+        api.getFileIndex = () => okAsync({ files: MOCK_FILES, version: 1 });
       }}
     />
   ),
@@ -103,16 +112,14 @@ export const Default: Story = {
 /** Truncated results — shows "refine your search" hint. */
 export const Truncated: Story = {
   render: () => {
-    const manyFiles = Array.from({ length: 100 }, (_, i) => ({
-      path: `src/components/Component${i}.tsx`,
-      type: 'file' as const,
-    }));
+    const manyFiles = Array.from({ length: 500 }, (_, i) => `src/components/Component${i}.tsx`);
     return (
       <FileSearchTrigger
         label="Search (truncated)"
         setupMocks={() => {
           setupStores();
-          api.browseFiles = () => okAsync({ files: manyFiles, truncated: true });
+          seedIndex('/home/user/project', manyFiles);
+          api.getFileIndex = () => okAsync({ files: manyFiles, version: 1 });
         }}
       />
     );
@@ -126,20 +133,22 @@ export const NoResults: Story = {
       label="Search (no results)"
       setupMocks={() => {
         setupStores();
-        api.browseFiles = () => okAsync({ files: [], truncated: false });
+        seedIndex('/home/user/project', []);
+        api.getFileIndex = () => okAsync({ files: [], version: 1 });
       }}
     />
   ),
 };
 
-/** Loading state — API never resolves. */
+/** Loading state — index fetch never resolves. */
 export const Loading: Story = {
   render: () => (
     <FileSearchTrigger
       label="Search (loading)"
       setupMocks={() => {
         setupStores();
-        api.browseFiles = () => new Promise(() => {}) as any;
+        useFileIndexStore.setState({ byPath: {}, inflight: {} });
+        api.getFileIndex = () => new Promise(() => {}) as any;
       }}
     />
   ),

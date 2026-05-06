@@ -47,6 +47,18 @@ export const browseApi = {
       truncated: boolean;
     }>(`/browse/files?${params.toString()}`);
   },
+  /**
+   * Fetch the full file index for a project. Returns the entire list of
+   * tracked files and a monotonic `version`. Pass `since` to get a no-op
+   * `{ unchanged: true }` response when the server-side index is unchanged.
+   */
+  getFileIndex: (path: string, since?: number) => {
+    const params = new URLSearchParams({ path });
+    if (since && since > 0) params.set('since', String(since));
+    return request<{ files: string[]; version: number } | { unchanged: true; version: number }>(
+      `/browse/files/index?${params.toString()}`,
+    );
+  },
   searchSymbols: (path: string, query?: string, file?: string) => {
     const params = new URLSearchParams({ path });
     if (query) params.set('query', query);

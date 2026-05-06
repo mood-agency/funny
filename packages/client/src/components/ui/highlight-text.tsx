@@ -10,12 +10,34 @@ function normalize(str: string) {
 interface HighlightTextProps {
   text: string;
   query: string;
+  /**
+   * Pre-computed character indices to highlight (0-based, into `text`).
+   * When provided, takes precedence over `query`-based substring matching.
+   * Used by fuzzy-search results where matching characters aren't contiguous.
+   */
+  indices?: number[];
   className?: string;
 }
 
-export function HighlightText({ text, query, className }: HighlightTextProps) {
+export function HighlightText({ text, query, indices, className }: HighlightTextProps) {
   const parts = useMemo(() => {
     if (!query.trim()) return [{ text, highlight: false }];
+
+    // Index-based highlighting (from fuzzy scorer)
+    if (indices && indices.length > 0) {
+      const set = new Set(indices.filter((i) => i >= 0 && i < text.length));
+      if (set.size === 0) return [{ text, highlight: false }];
+      const out: { text: string; highlight: boolean }[] = [];
+      let i = 0;
+      while (i < text.length) {
+        const isHi = set.has(i);
+        let j = i + 1;
+        while (j < text.length && set.has(j) === isHi) j++;
+        out.push({ text: text.slice(i, j), highlight: isHi });
+        i = j;
+      }
+      return out;
+    }
 
     const q = normalize(query);
     // NFKC ensures fullwidth/compatibility chars map to standard forms
@@ -41,7 +63,7 @@ export function HighlightText({ text, query, className }: HighlightTextProps) {
     }
 
     return result;
-  }, [text, query]);
+  }, [text, query, indices]);
 
   if (!query.trim()) {
     return <span className={className}>{text}</span>;

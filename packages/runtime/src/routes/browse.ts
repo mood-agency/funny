@@ -12,6 +12,7 @@ import { join, parse as parsePath, resolve, normalize } from 'path';
 import { getRemoteUrl, extractRepoName, initRepo } from '@funny/core/git';
 import { Hono } from 'hono';
 
+import { getFileIndex, getFileIndexDelta } from '../services/file-index-service.js';
 import type { HonoEnv } from '../types/hono-env.js';
 import { resolveGitFiles } from '../utils/git-files.js';
 import { requirePickerPath, requireProjectPath } from '../utils/path-scope.js';
@@ -341,6 +342,35 @@ function getFileName(filePath: string): string {
 
 const FILE_SEARCH_LIMIT = 100;
 const FILE_BROWSE_MAX_LIMIT = 20000;
+
+/**
+ * Return the full file index for a project. Used by the client-side fuzzy
+ * search (Ctrl+P) — clients fetch once, then score locally on every keystroke.
+ * Supports `?since=<version>` for cheap no-op responses when the index hasn't
+ * changed since the client's last fetch.
+ */
+app.get('/files/index', async (c) => {
+  const dirPathOrRes = checkRequired(c.req.query('path'), 'path query parameter');
+  if (dirPathOrRes instanceof Response) return dirPathOrRes;
+  const dirPath = dirPathOrRes;
+  const userId = c.get('userId') as string;
+
+  const denied = await requireProjectPath(dirPath, userId);
+  if (denied) return denied;
+
+  const sinceParam = c.req.query('since');
+  const since = sinceParam ? Number(sinceParam) : NaN;
+
+  if (Number.isFinite(since) && since > 0) {
+    const delta = getFileIndexDelta(dirPath, since);
+    if (delta && delta.unchanged) {
+      return c.json({ unchanged: true, version: delta.version });
+    }
+  }
+
+  const snapshot = await getFileIndex(dirPath);
+  return c.json({ files: snapshot.files, version: snapshot.version });
+});
 
 // List files and folders in a git repository (respects .gitignore)
 app.get('/files', async (c) => {
