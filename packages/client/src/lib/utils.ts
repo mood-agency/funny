@@ -48,3 +48,42 @@ export function resolveThreadBranch(thread: {
   if (thread.worktreePath) return deriveBranchFromWorktreePath(thread.worktreePath);
   return undefined;
 }
+
+/**
+ * Top inset used when scrolling sidebar items into view, so the row doesn't
+ * end up tucked under the fade gradient (h-8 = 32px) at the top of the
+ * scroll container. Includes a few pixels of breathing room.
+ */
+export const SIDEBAR_SCROLL_TOP_OFFSET = 36;
+
+/**
+ * Scroll a sidebar row into view inside its scroll container, keeping it
+ * clear of the sticky top-fade gradient. Mimics native `scrollIntoView`
+ * `block: 'start' | 'nearest'` semantics but applies a top offset so the
+ * row is never hidden behind the gradient.
+ */
+export function scrollSidebarItemIntoView(
+  root: HTMLElement,
+  el: Element,
+  block: 'start' | 'nearest' = 'nearest',
+  offset = SIDEBAR_SCROLL_TOP_OFFSET,
+): void {
+  const elRect = el.getBoundingClientRect();
+  const rootRect = root.getBoundingClientRect();
+  const elTopRel = elRect.top - rootRect.top;
+  const elBottomRel = elRect.bottom - rootRect.top;
+
+  if (block === 'start') {
+    const targetTop = root.scrollTop + elTopRel - offset;
+    root.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    return;
+  }
+
+  if (elTopRel < offset) {
+    const targetTop = root.scrollTop + elTopRel - offset;
+    root.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+  } else if (elBottomRel > root.clientHeight) {
+    const targetTop = root.scrollTop + (elBottomRel - root.clientHeight);
+    root.scrollTo({ top: targetTop, behavior: 'smooth' });
+  }
+}

@@ -1,5 +1,6 @@
 import { useEffect, type RefObject } from 'react';
 
+import { scrollSidebarItemIntoView } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 
@@ -64,7 +65,7 @@ export function useSidebarScrollSync({
 
       if (!el) return false;
 
-      el.scrollIntoView({ block: revealIntent, behavior: 'smooth' });
+      scrollSidebarItemIntoView(root, el, revealIntent);
       scrolled = true;
       return true;
     };

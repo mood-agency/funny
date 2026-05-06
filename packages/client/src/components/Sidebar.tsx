@@ -6,6 +6,7 @@ import { useSidebarDragDrop } from '@/hooks/use-sidebar-drag-drop';
 import { useSidebarScrollSync } from '@/hooks/use-sidebar-scroll-sync';
 import { useStableNavigate } from '@/hooks/use-stable-navigate';
 import { buildPath } from '@/lib/url';
+import { scrollSidebarItemIntoView } from '@/lib/utils';
 import { useProjectStore } from '@/stores/project-store';
 import { useThreadStore } from '@/stores/thread-store';
 import { useUIStore } from '@/stores/ui-store';
@@ -94,8 +95,9 @@ export function AppSidebar({ singleProjectId }: { singleProjectId?: string | nul
         navigate(buildPath(`/projects/${projectId}`));
       });
       requestAnimationFrame(() => {
-        const el = projectsScrollRef.current?.querySelector(`[data-project-id="${projectId}"]`);
-        el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        const root = projectsScrollRef.current;
+        const el = root?.querySelector(`[data-project-id="${projectId}"]`);
+        if (root && el) scrollSidebarItemIntoView(root, el, 'nearest');
         const ta = document.querySelector<HTMLElement>('[data-testid="prompt-editor"]');
         ta?.focus();
       });
