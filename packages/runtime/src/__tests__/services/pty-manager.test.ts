@@ -125,6 +125,31 @@ class SessionTracker {
   }
 }
 
+// ── Venv activation command builder (extracted from pty-manager.ts) ──
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildVenvActivateCommand(venvPath: string, shellName: string): string | null {
+  const quoted = shellSingleQuote(venvPath);
+  switch (shellName) {
+    case 'fish':
+      return `source ${quoted}/bin/activate.fish && clear\r`;
+    case 'csh':
+    case 'tcsh':
+      return `source ${quoted}/bin/activate.csh && clear\r`;
+    case 'nu':
+    case 'nushell':
+    case 'powershell':
+    case 'pwsh':
+    case 'cmd':
+      return null;
+    default:
+      return `source ${quoted}/bin/activate && clear\r`;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -524,5 +549,55 @@ describe('Runner-mode session adoption', () => {
     // pty-other: belongs to user-2, excluded
     expect(sessions).toHaveLength(2);
     expect(sessions.map((s) => s.ptyId).sort()).toEqual(['pty-orphan', 'pty-owned']);
+  });
+});
+
+describe('buildVenvActivateCommand', () => {
+  test('bash uses POSIX activate script', () => {
+    expect(buildVenvActivateCommand('/proj/.venv', 'bash')).toBe(
+      `source '/proj/.venv'/bin/activate && clear\r`,
+    );
+  });
+
+  test('zsh uses POSIX activate script', () => {
+    expect(buildVenvActivateCommand('/proj/.venv', 'zsh')).toBe(
+      `source '/proj/.venv'/bin/activate && clear\r`,
+    );
+  });
+
+  test('fish uses activate.fish', () => {
+    expect(buildVenvActivateCommand('/proj/.venv', 'fish')).toBe(
+      `source '/proj/.venv'/bin/activate.fish && clear\r`,
+    );
+  });
+
+  test('tcsh uses activate.csh', () => {
+    expect(buildVenvActivateCommand('/proj/.venv', 'tcsh')).toBe(
+      `source '/proj/.venv'/bin/activate.csh && clear\r`,
+    );
+  });
+
+  test('nushell skips activation (incompatible syntax)', () => {
+    expect(buildVenvActivateCommand('/proj/.venv', 'nu')).toBeNull();
+    expect(buildVenvActivateCommand('/proj/.venv', 'nushell')).toBeNull();
+  });
+
+  test('powershell skips activation', () => {
+    expect(buildVenvActivateCommand('/proj/.venv', 'powershell')).toBeNull();
+    expect(buildVenvActivateCommand('/proj/.venv', 'pwsh')).toBeNull();
+  });
+
+  test('paths with single quotes are shell-escaped', () => {
+    // A path containing a single quote must be escaped so the shell sources
+    // the right file rather than breaking out of the quoted string.
+    expect(buildVenvActivateCommand(`/weird/it's/.venv`, 'bash')).toBe(
+      `source '/weird/it'\\''s/.venv'/bin/activate && clear\r`,
+    );
+  });
+
+  test('paths with spaces are quoted', () => {
+    expect(buildVenvActivateCommand('/path with spaces/.venv', 'bash')).toBe(
+      `source '/path with spaces/.venv'/bin/activate && clear\r`,
+    );
   });
 });

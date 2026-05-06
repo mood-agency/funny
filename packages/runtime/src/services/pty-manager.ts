@@ -13,6 +13,8 @@
  *   4. Null fallback (reports error to client)
  */
 
+import { basename } from 'path';
+
 import { detectEnv } from '@funny/core';
 import { sql } from 'drizzle-orm';
 
@@ -309,6 +311,42 @@ function loadPtySessionsForUser(userId: string): PtySessionRow[] {
   return db.all<PtySessionRow>(sql`SELECT * FROM pty_sessions WHERE user_id = ${userId}`);
 }
 
+// ── Venv activation ──────────────────────────────────────────────────
+// detectEnv() prepends the venv's bin to PATH so binaries resolve, but the
+// shell prompt only shows `(.venv)` if the shell-specific `activate` script
+// is sourced (it's what mutates PS1). We inject the source command into the
+// fresh PTY so the user sees the same prompt cosmetics as a manual activation.
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveShellName(safeShell: string | undefined): string {
+  if (safeShell && safeShell !== 'default') return safeShell;
+  const sysShell = process.env.SHELL;
+  return sysShell ? basename(sysShell) : 'sh';
+}
+
+function buildVenvActivateCommand(venvPath: string, safeShell: string | undefined): string | null {
+  const shellName = resolveShellName(safeShell);
+  const quoted = shellSingleQuote(venvPath);
+  switch (shellName) {
+    case 'fish':
+      return `source ${quoted}/bin/activate.fish && clear\r`;
+    case 'csh':
+    case 'tcsh':
+      return `source ${quoted}/bin/activate.csh && clear\r`;
+    case 'nu':
+    case 'nushell':
+    case 'powershell':
+    case 'pwsh':
+    case 'cmd':
+      return null;
+    default:
+      return `source ${quoted}/bin/activate && clear\r`;
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────
 
 export function spawnPty(
@@ -382,6 +420,30 @@ export function spawnPty(
   }
 
   backend.spawn(id, cwd, cols, rows, spawnEnv as Record<string, string>, safeShell);
+
+  // Source the venv activate script so the prompt picks up the (.venv) marker.
+  // detectEnv() already set VIRTUAL_ENV/PATH; the activate script just adds the
+  // PS1 mutation that bash/zsh need to render the prefix.
+  const venvNote = detected.notes.find((n) => n.kind === 'python-venv');
+  if (venvNote && process.platform !== 'win32') {
+    const activateCmd = buildVenvActivateCommand(venvNote.detail, safeShell);
+    if (activateCmd) {
+      // Small delay so the shell finishes printing its initial prompt before
+      // our command lands — without this the source line interleaves with the
+      // prompt draw and `clear` may run before .bashrc finishes.
+      setTimeout(() => {
+        try {
+          backend.write(id, activateCmd);
+        } catch (err: any) {
+          log.warn('Failed to write venv activation to PTY', {
+            namespace: 'pty-manager',
+            ptyId: id,
+            error: err?.message,
+          });
+        }
+      }, 150);
+    }
+  }
 
   // Persist to DB for restart recovery
   if (backend.persistent && tmuxSession) {
