@@ -10,7 +10,20 @@ import {
   dropTargetForElements,
   monitorForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
-import { Plus, X, Square, Loader2, AlertCircle, RotateCcw, Zap } from 'lucide-react';
+import {
+  Plus,
+  X,
+  Square,
+  Loader2,
+  AlertCircle,
+  RotateCcw,
+  Zap,
+  ChevronUp,
+  ChevronDown,
+  CaseSensitive,
+  WholeWord,
+  Regex,
+} from 'lucide-react';
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -51,6 +64,7 @@ let xtermModulesPromise: Promise<{
   Terminal: typeof import('@xterm/xterm').Terminal;
   FitAddon: typeof import('@xterm/addon-fit').FitAddon;
   WebLinksAddon: typeof import('@xterm/addon-web-links').WebLinksAddon;
+  SearchAddon: typeof import('@xterm/addon-search').SearchAddon;
 }> | null = null;
 
 function getXtermModules() {
@@ -59,16 +73,24 @@ function getXtermModules() {
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
       import('@xterm/addon-web-links'),
+      import('@xterm/addon-search'),
       // @ts-ignore - CSS import handled by Vite bundler
       import('@xterm/xterm/css/xterm.css'),
-    ]).then(([xterm, fit, webLinks]) => ({
+    ]).then(([xterm, fit, webLinks, search]) => ({
       Terminal: xterm.Terminal,
       FitAddon: fit.FitAddon,
       WebLinksAddon: webLinks.WebLinksAddon,
+      SearchAddon: search.SearchAddon,
     }));
   }
   return xtermModulesPromise;
 }
+
+// Registry mapping tabId -> SearchAddon instance, populated by terminal tab
+// components on mount and cleared on unmount. The search overlay reads from
+// this map to drive findNext/findPrevious on the active terminal.
+const searchAddonRegistry = new Map<string, import('@xterm/addon-search').SearchAddon>();
+const terminalRegistry = new Map<string, import('@xterm/xterm').Terminal>();
 
 // Eagerly start loading xterm modules
 if (!isTauri) getXtermModules();
@@ -154,10 +176,11 @@ function TauriTerminalTabContent({
     let isMounted = true;
 
     (async () => {
-      const [{ Terminal }, { FitAddon }, { WebLinksAddon }] = await Promise.all([
+      const [{ Terminal }, { FitAddon }, { WebLinksAddon }, { SearchAddon }] = await Promise.all([
         import('@xterm/xterm'),
         import('@xterm/addon-fit'),
         import('@xterm/addon-web-links'),
+        import('@xterm/addon-search'),
       ]);
       // @ts-ignore - CSS import handled by Vite bundler
       await import('@xterm/xterm/css/xterm.css');
@@ -174,9 +197,23 @@ function TauriTerminalTabContent({
 
       const fitAddon = new FitAddon();
       const webLinksAddon = new WebLinksAddon();
+      const searchAddon = new SearchAddon();
       terminal.loadAddon(fitAddon);
       terminal.loadAddon(webLinksAddon);
+      terminal.loadAddon(searchAddon);
       terminal.open(containerRef.current);
+      searchAddonRegistry.set(id, searchAddon);
+      terminalRegistry.set(id, terminal);
+      terminal.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown') return true;
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent('terminal:search-open', { detail: { id } }));
+          return false;
+        }
+        return true;
+      });
       termRef.current = { terminal, fitAddon };
       // Re-apply theme after terminal is attached to DOM
       terminal.options.theme = getTerminalTheme();
@@ -215,6 +252,8 @@ function TauriTerminalTabContent({
         unlistenExit();
         onDataDisposable.dispose();
         onResizeDisposable.dispose();
+        searchAddonRegistry.delete(id);
+        terminalRegistry.delete(id);
         termRef.current = null;
         terminal.dispose();
         invoke('pty_kill', { id }).catch(console.error);
@@ -304,7 +343,7 @@ function WebTerminalTabContent({
     let cleanup: (() => void) | null = null;
 
     (async () => {
-      const { Terminal, FitAddon, WebLinksAddon } = await getXtermModules();
+      const { Terminal, FitAddon, WebLinksAddon, SearchAddon } = await getXtermModules();
       if (cancelled || !containerRef.current) return;
 
       const terminal = new Terminal({
@@ -317,9 +356,23 @@ function WebTerminalTabContent({
 
       const fitAddon = new FitAddon();
       const webLinksAddon = new WebLinksAddon();
+      const searchAddon = new SearchAddon();
       terminal.loadAddon(fitAddon);
       terminal.loadAddon(webLinksAddon);
+      terminal.loadAddon(searchAddon);
       terminal.open(containerRef.current);
+      searchAddonRegistry.set(id, searchAddon);
+      terminalRegistry.set(id, terminal);
+      terminal.attachCustomKeyEventHandler((e) => {
+        if (e.type !== 'keydown') return true;
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+          e.preventDefault();
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent('terminal:search-open', { detail: { id } }));
+          return false;
+        }
+        return true;
+      });
       termRef.current = { terminal, fitAddon };
 
       // Re-apply theme after terminal is attached to DOM, in case CSS vars
@@ -436,6 +489,8 @@ function WebTerminalTabContent({
         onDataDisposable.dispose();
         onResizeDisposable.dispose();
         onBellDisposable.dispose();
+        searchAddonRegistry.delete(id);
+        terminalRegistry.delete(id);
         termRef.current = null;
         terminal.dispose();
         // NOTE: Do NOT send pty:kill here. Component unmount happens on page
@@ -450,6 +505,7 @@ function WebTerminalTabContent({
       setTermReady(false);
       cleanup?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- label/initialCommand/codeFontSizePx are intentional one-shot reads at mount; rerunning on change would reset the live xterm
   }, [id, cwd, registerPtyCallback, unregisterPtyCallback]);
 
   // Separate effect for spawn/restore decision — waits for sessionsChecked
@@ -775,6 +831,195 @@ function CommandTabContent({
   );
 }
 
+/** Search overlay shown over the active terminal when the user presses Ctrl+F. */
+function TerminalSearchOverlay({
+  activeTabId,
+  onClose,
+}: {
+  activeTabId: string;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [regex, setRegex] = useState(false);
+  const [result, setResult] = useState<{ resultIndex: number; resultCount: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const decorations = useMemo(
+    () => ({
+      matchBackground: '#5f3a6b',
+      activeMatchBackground: '#a06ba8',
+      matchOverviewRuler: '#5f3a6b',
+      activeMatchColorOverviewRuler: '#a06ba8',
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [activeTabId]);
+
+  useEffect(() => {
+    const addon = searchAddonRegistry.get(activeTabId);
+    if (!addon) return;
+    const dispose = addon.onDidChangeResults((res) => setResult(res));
+    return () => dispose.dispose();
+  }, [activeTabId]);
+
+  // Re-run search incrementally on query/option changes
+  useEffect(() => {
+    const addon = searchAddonRegistry.get(activeTabId);
+    if (!addon) return;
+    if (!query) {
+      addon.clearDecorations();
+      setResult(null);
+      return;
+    }
+    addon.findNext(query, {
+      caseSensitive,
+      wholeWord,
+      regex,
+      decorations,
+      incremental: true,
+    });
+  }, [query, caseSensitive, wholeWord, regex, activeTabId, decorations]);
+
+  const findNext = useCallback(() => {
+    const addon = searchAddonRegistry.get(activeTabId);
+    if (!addon || !query) return;
+    addon.findNext(query, { caseSensitive, wholeWord, regex, decorations });
+  }, [activeTabId, query, caseSensitive, wholeWord, regex, decorations]);
+
+  const findPrev = useCallback(() => {
+    const addon = searchAddonRegistry.get(activeTabId);
+    if (!addon || !query) return;
+    addon.findPrevious(query, { caseSensitive, wholeWord, regex, decorations });
+  }, [activeTabId, query, caseSensitive, wholeWord, regex, decorations]);
+
+  const counter = !query
+    ? ''
+    : result && result.resultCount > 0
+      ? `${result.resultIndex + 1}/${result.resultCount}`
+      : t('terminal.searchNoResults', 'No results');
+
+  return (
+    <div
+      className="absolute right-3 top-2 z-20 flex items-center gap-1 rounded-md border bg-popover p-1 shadow-md"
+      data-testid="terminal-search"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+        e.stopPropagation();
+      }}
+    >
+      <Input
+        ref={inputRef}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onClose();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (e.shiftKey) findPrev();
+            else findNext();
+          }
+        }}
+        placeholder={t('terminal.searchPlaceholder', 'Find')}
+        className="h-7 w-48 text-xs"
+        data-testid="terminal-search-input"
+      />
+      <span className="min-w-[3rem] px-1 text-center text-[10px] tabular-nums text-muted-foreground">
+        {counter}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant={caseSensitive ? 'secondary' : 'ghost'}
+            onClick={() => setCaseSensitive((v) => !v)}
+            data-testid="terminal-search-case"
+          >
+            <CaseSensitive className="icon-xs" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('terminal.searchCaseSensitive', 'Match case')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant={wholeWord ? 'secondary' : 'ghost'}
+            onClick={() => setWholeWord((v) => !v)}
+            data-testid="terminal-search-word"
+          >
+            <WholeWord className="icon-xs" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('terminal.searchWholeWord', 'Match whole word')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant={regex ? 'secondary' : 'ghost'}
+            onClick={() => setRegex((v) => !v)}
+            data-testid="terminal-search-regex"
+          >
+            <Regex className="icon-xs" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('terminal.searchRegex', 'Use regular expression')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            onClick={findPrev}
+            data-testid="terminal-search-prev"
+          >
+            <ChevronUp className="icon-xs" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('terminal.searchPrevious', 'Previous (Shift+Enter)')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            onClick={findNext}
+            data-testid="terminal-search-next"
+          >
+            <ChevronDown className="icon-xs" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('terminal.searchNext', 'Next (Enter)')}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            onClick={onClose}
+            data-testid="terminal-search-close"
+          >
+            <X className="icon-xs" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t('terminal.searchClose', 'Close (Esc)')}</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 const PANEL_HEIGHT = 300;
 
 const TAB_DRAG_TYPE = 'terminal-tab';
@@ -959,6 +1204,7 @@ function DraggableTerminalTab({
   );
 }
 
+// eslint-disable-next-line max-lines-per-function -- top-level panel; further extraction tracked separately
 export function TerminalPanel() {
   const { t } = useTranslation();
   const {
@@ -1000,6 +1246,7 @@ export function TerminalPanel() {
   }, [fetchAvailableShells]);
 
   const [panelHeight, setPanelHeight] = useState(PANEL_HEIGHT);
+  const [searchVisible, setSearchVisible] = useState(false);
   const newTermMenu = useTooltipMenu();
   const signalMenu = useTooltipMenu();
   const startHeight = useRef(panelHeight);
@@ -1074,6 +1321,27 @@ export function TerminalPanel() {
       ws.emit('pty:signal', { id: ptyId, signal });
     }
   }, []);
+
+  // Open the search overlay when a terminal forwards Ctrl+F via custom event
+  useEffect(() => {
+    const handler = () => setSearchVisible(true);
+    window.addEventListener('terminal:search-open', handler);
+    return () => window.removeEventListener('terminal:search-open', handler);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchVisible(false);
+    if (effectiveActiveTabId) {
+      const addon = searchAddonRegistry.get(effectiveActiveTabId);
+      addon?.clearDecorations();
+      terminalRegistry.get(effectiveActiveTabId)?.focus();
+    }
+  }, [effectiveActiveTabId]);
+
+  // Close search when the active tab changes
+  useEffect(() => {
+    setSearchVisible(false);
+  }, [effectiveActiveTabId]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -1262,6 +1530,9 @@ export function TerminalPanel() {
 
         {/* Terminal content area */}
         <div className="relative m-2 min-h-0 flex-1 overflow-hidden bg-background">
+          {searchVisible && effectiveActiveTabId && (
+            <TerminalSearchOverlay activeTabId={effectiveActiveTabId} onClose={closeSearch} />
+          )}
           {visibleTabs.length === 0 ? (
             <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
               {t('terminal.noProcesses')}

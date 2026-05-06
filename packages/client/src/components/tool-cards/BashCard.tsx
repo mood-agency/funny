@@ -7,6 +7,31 @@ import { ensureLanguage, highlightCode } from '@/hooks/use-highlight';
 import { createAnsiConverter } from '@/lib/ansi-to-html';
 import { cn } from '@/lib/utils';
 
+// eslint-disable-next-line no-control-regex -- ESC is the literal ANSI CSI marker we're detecting
+const ANSI_ESC_RE = /\x1b\[/;
+
+/**
+ * Pick a syntax-highlighting language for command output based on the command
+ * itself. Conservative: returns null when we can't be confident, so we don't
+ * mis-tokenize plain text.
+ */
+function detectOutputLang(command: string): string | null {
+  const cmd = command.trim();
+  if (/(^|[\s;&|])(bunx\s+)?tsc(\s|$)/.test(cmd)) return 'typescript';
+  if (/(^|[\s;&|])bun\s+--check(\s|$)/.test(cmd)) return 'typescript';
+  if (/(^|[\s;&|])git\s+(diff|show|log\s+-p|format-patch)(\s|$)/.test(cmd)) return 'diff';
+  if (/(^|[\s;&|])(diff|patch)(\s|$)/.test(cmd)) return 'diff';
+  if (/(^|[\s;&|])jq(\s|$)/.test(cmd)) return 'json';
+  const catMatch = cmd.match(
+    /(?:^|[\s;&|])(?:cat|head|tail|less|more|bat)\s+[^|;&]*?\.([a-zA-Z0-9]+)(?:\s|$|[|;&])/,
+  );
+  if (catMatch) {
+    const ext = catMatch[1].toLowerCase();
+    return ext;
+  }
+  return null;
+}
+
 export function BashCard({
   parsed,
   output,
@@ -26,11 +51,17 @@ export function BashCard({
     () => createAnsiConverter({ fg: '#a1a1aa', bg: 'transparent', newline: false }),
     [],
   );
+  const hasAnsi = useMemo(() => (output ? ANSI_ESC_RE.test(output) : false), [output]);
   const htmlOutput = useMemo(
-    () => (output ? ansiConverter.toHtml(output) : null),
-    [ansiConverter, output],
+    () => (output && hasAnsi ? ansiConverter.toHtml(output) : null),
+    [ansiConverter, output, hasAnsi],
+  );
+  const outputLang = useMemo(
+    () => (command && output && !hasAnsi ? detectOutputLang(command) : null),
+    [command, output, hasAnsi],
   );
   const [highlightedCommand, setHighlightedCommand] = useState<string | null>(null);
+  const [highlightedOutput, setHighlightedOutput] = useState<string | null>(null);
 
   useEffect(() => {
     if (expanded && command) {
@@ -39,6 +70,21 @@ export function BashCard({
       });
     }
   }, [expanded, command]);
+
+  useEffect(() => {
+    if (!expanded || !output || !outputLang) {
+      setHighlightedOutput(null);
+      return;
+    }
+    let cancelled = false;
+    ensureLanguage(outputLang).then((ok) => {
+      if (cancelled || !ok) return;
+      setHighlightedOutput(highlightCode(output, outputLang));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, output, outputLang]);
 
   return (
     <div className="max-w-full overflow-hidden rounded-lg border border-border text-sm">
@@ -70,7 +116,10 @@ export function BashCard({
         )}
       </button>
       {expanded && command && (
-        <ScrollArea className="max-h-[50vh] border-t border-border/40">
+        <ScrollArea
+          className="border-t border-border/40"
+          viewportProps={{ className: 'max-h-[50vh]' }}
+        >
           <div className="space-y-2 py-2">
             <div className="px-3">
               <div className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
@@ -96,10 +145,21 @@ export function BashCard({
               </div>
               {output ? (
                 <div className="rounded border border-border/40 bg-background/80 px-2.5 py-1.5">
-                  <pre
-                    className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground"
-                    dangerouslySetInnerHTML={{ __html: htmlOutput! }}
-                  />
+                  {highlightedOutput ? (
+                    <pre
+                      className="hljs whitespace-pre-wrap break-all font-mono text-xs leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: highlightedOutput }}
+                    />
+                  ) : htmlOutput ? (
+                    <pre
+                      className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground"
+                      dangerouslySetInnerHTML={{ __html: htmlOutput }}
+                    />
+                  ) : (
+                    <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-muted-foreground">
+                      {output}
+                    </pre>
+                  )}
                 </div>
               ) : (
                 <div className="py-1 text-sm italic text-muted-foreground/50">

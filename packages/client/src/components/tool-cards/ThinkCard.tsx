@@ -74,7 +74,10 @@ export function ThinkCard({
         </div>
       </button>
       {expanded && (
-        <ScrollArea className="max-h-[50vh] border-t border-border/40">
+        <ScrollArea
+          className="border-t border-border/40"
+          viewportProps={{ className: 'max-h-[50vh]' }}
+        >
           <div className="px-4 py-3">
             <div className="prose prose-xs prose-invert prose-p:text-xs prose-p:text-muted-foreground prose-p:leading-relaxed prose-p:my-0.5 prose-li:text-sm prose-li:text-muted-foreground prose-code:text-xs prose-code:bg-background/80 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-foreground prose-pre:bg-background/80 prose-pre:rounded prose-pre:p-2 prose-strong:text-foreground max-w-none">
               <Suspense

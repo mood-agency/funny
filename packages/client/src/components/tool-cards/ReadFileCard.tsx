@@ -1,5 +1,5 @@
 import { Check, ChevronRight, Copy, Eye, FileCode2, FileSearch } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MessageContent } from '@/components/thread/MessageContent';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { ensureLanguage, filePathToHljsLang, highlightLine } from '@/hooks/use-highlight';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings-store';
 
@@ -22,6 +23,21 @@ import {
 
 const MARKDOWN_EXTS = new Set(['md', 'mdx', 'markdown']);
 
+const LINE_PREFIX_RE = /^(\s*)(\d+)([→\t])(.*)$/;
+
+interface ParsedLine {
+  num: string;
+  content: string;
+}
+
+function parseLines(raw: string): ParsedLine[] {
+  return raw.split('\n').map((line) => {
+    const m = line.match(LINE_PREFIX_RE);
+    if (m) return { num: m[2], content: m[4] };
+    return { num: '', content: line };
+  });
+}
+
 /**
  * Strip the "   12→" line-number prefix that the Read tool prepends to each line.
  */
@@ -29,6 +45,58 @@ function stripLinePrefix(raw: string): string {
   return raw.replace(/^\s*\d+[→\t]/gm, '');
 }
 
+function HighlightedFileContent({ content, filePath }: { content: string; filePath?: string }) {
+  const lang = useMemo(() => (filePath ? filePathToHljsLang(filePath) : 'plaintext'), [filePath]);
+  const [langReady, setLangReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLangReady(false);
+    ensureLanguage(lang).then((ok) => {
+      if (!cancelled) setLangReady(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lang]);
+
+  const lines = useMemo(() => parseLines(content), [content]);
+  const numWidth = useMemo(() => {
+    const max = lines.reduce((m, l) => Math.max(m, l.num.length), 0);
+    return `${max}ch`;
+  }, [lines]);
+
+  return (
+    <pre className="hljs code-viewer m-0 whitespace-pre px-3 py-2 font-mono text-sm leading-relaxed">
+      {lines.map((line, i) => (
+        <div key={i} className="flex">
+          {line.num ? (
+            <span
+              className="mr-3 flex-shrink-0 select-none text-right text-muted-foreground/60"
+              style={{ width: numWidth }}
+            >
+              {line.num}
+            </span>
+          ) : null}
+          <span
+            className="min-w-0 flex-1"
+            dangerouslySetInnerHTML={{
+              __html: langReady
+                ? highlightLine(line.content, lang) || '\u00A0'
+                : escapeHtml(line.content) || '\u00A0',
+            }}
+          />
+        </div>
+      ))}
+    </pre>
+  );
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// eslint-disable-next-line max-lines-per-function -- collapsible card composes header + body + per-language async highlight; further extraction tracked separately
 export function ReadFileCard({
   parsed,
   output,
@@ -59,13 +127,32 @@ export function ReadFileCard({
     [hasOutput, output],
   );
 
+  const editorUri = filePath ? toEditorUri(filePath, defaultEditor) : null;
+  const editorTitle = filePath
+    ? t('tools.openInEditor', {
+        editor: getEditorLabel(defaultEditor),
+        path: filePath,
+      })
+    : '';
+
+  const toggle = () => {
+    if (hasOutput) setExpanded((v) => !v);
+  };
+
   return (
     <div className="max-w-full overflow-hidden rounded-lg border border-border text-sm">
-      <button
-        type="button"
-        onClick={() => hasOutput && setExpanded(!expanded)}
-        disabled={!hasOutput}
-        aria-expanded={expanded}
+      <div
+        role={hasOutput ? 'button' : undefined}
+        tabIndex={hasOutput ? 0 : undefined}
+        aria-expanded={hasOutput ? expanded : undefined}
+        onClick={toggle}
+        onKeyDown={(e) => {
+          if (!hasOutput) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggle();
+          }
+        }}
         className={cn(
           'flex w-full items-center gap-2 overflow-hidden rounded-md px-3 py-1.5 text-left text-xs',
           hasOutput && 'cursor-pointer transition-colors hover:bg-accent/30',
@@ -88,56 +175,54 @@ export function ReadFileCard({
             {t('tools.readFile')}
           </span>
         )}
-        {filePath &&
-          (() => {
-            const editorUri = toEditorUri(filePath, defaultEditor);
-            const editorTitle = t('tools.openInEditor', {
-              editor: getEditorLabel(defaultEditor),
-              path: filePath,
-            });
-            return (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {editorUri ? (
-                    <a
-                      href={editorUri}
-                      onClick={(e) => e.stopPropagation()}
-                      className="min-w-0 truncate font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
-                    >
-                      {displayPath}
-                    </a>
-                  ) : (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openFileInEditor(filePath, defaultEditor);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.stopPropagation();
-                          openFileInEditor(filePath, defaultEditor);
-                        }
-                      }}
-                      className="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
-                    >
-                      {displayPath}
-                    </span>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent>{editorTitle}</TooltipContent>
-              </Tooltip>
-            );
-          })()}
+        {filePath && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {editorUri ? (
+                <a
+                  href={editorUri}
+                  onClick={(e) => e.stopPropagation()}
+                  className="min-w-0 truncate font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
+                  data-testid="read-file-open-link"
+                >
+                  {displayPath}
+                </a>
+              ) : (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openFileInEditor(filePath, defaultEditor);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      openFileInEditor(filePath, defaultEditor);
+                    }
+                  }}
+                  className="min-w-0 cursor-pointer truncate text-left font-mono text-xs text-muted-foreground hover:text-primary hover:underline"
+                  data-testid="read-file-open-link"
+                >
+                  {displayPath}
+                </span>
+              )}
+            </TooltipTrigger>
+            <TooltipContent>{editorTitle}</TooltipContent>
+          </Tooltip>
+        )}
         {displayTime && (
           <span className="ml-auto flex-shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
             {displayTime}
           </span>
         )}
-      </button>
+      </div>
       {expanded && hasOutput && (
-        <ScrollArea className="max-h-[50vh] border-t border-border/40">
+        <ScrollArea
+          className="border-t border-border/40"
+          viewportProps={{ className: 'max-h-[50vh]' }}
+        >
           <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border/30 bg-background px-3 py-1 backdrop-blur-sm">
             <span className="truncate text-xs font-medium text-muted-foreground">{fileName}</span>
             <div className="flex flex-shrink-0 items-center gap-1">
@@ -152,7 +237,10 @@ export function ReadFileCard({
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() => setRenderMarkdown((v) => !v)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenderMarkdown((v) => !v);
+                      }}
                       data-testid="read-file-toggle-markdown"
                       aria-pressed={renderMarkdown}
                       className="text-muted-foreground hover:text-foreground"
@@ -176,7 +264,10 @@ export function ReadFileCard({
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    onClick={() => copy(cleanContent)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copy(cleanContent);
+                    }}
                     data-testid="read-file-copy"
                     aria-label={t('tools.copy', 'Copy')}
                     className="text-muted-foreground hover:text-foreground"
@@ -194,9 +285,7 @@ export function ReadFileCard({
                 <MessageContent content={cleanContent} />
               </div>
             ) : (
-              <pre className="whitespace-pre-wrap break-all px-3 py-2 font-mono text-sm leading-relaxed text-foreground/80">
-                {output}
-              </pre>
+              <HighlightedFileContent content={output!} filePath={filePath} />
             )}
           </div>
         </ScrollArea>

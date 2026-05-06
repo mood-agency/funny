@@ -111,7 +111,10 @@ export function WriteFileCard({
         )}
       </button>
       {expanded && content != null && (
-        <ScrollArea className="max-h-[50vh] border-t border-border/40">
+        <ScrollArea
+          className="border-t border-border/40"
+          viewportProps={{ className: 'max-h-[50vh]' }}
+        >
           <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-border/30 bg-background px-3 py-1 backdrop-blur-sm">
             <span className="truncate text-xs font-medium text-muted-foreground">{fileName}</span>
             <div className="flex flex-shrink-0 items-center gap-1">

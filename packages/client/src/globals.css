@@ -521,24 +521,26 @@
     --diff-added: 142 50% 55%;
     --diff-removed: 0 55% 60%;
 
-    /* Terminal ANSI — Monochrome Dark (colorful terminal for readability) */
-    --terminal-black: #1a1a1a;
-    --terminal-red: #ef4444;
-    --terminal-green: #22c55e;
-    --terminal-yellow: #eab308;
-    --terminal-blue: #3b82f6;
-    --terminal-magenta: #a855f7;
-    --terminal-cyan: #06b6d4;
-    --terminal-white: #e8e8e8;
-    --terminal-bright-black: #6a6a6a;
-    --terminal-bright-red: #f87171;
-    --terminal-bright-green: #4ade80;
-    --terminal-bright-yellow: #facc15;
-    --terminal-bright-blue: #60a5fa;
-    --terminal-bright-magenta: #c084fc;
-    --terminal-bright-cyan: #22d3ee;
+    /* Terminal ANSI — Monochrome Dark (Tokyo Night-inspired vivid palette
+       for clear distinction between prompt, errors, paths, and info on a
+       near-black background) */
+    --terminal-black: #15161e;
+    --terminal-red: #f7768e;
+    --terminal-green: #9ece6a;
+    --terminal-yellow: #e0af68;
+    --terminal-blue: #7aa2f7;
+    --terminal-magenta: #bb9af7;
+    --terminal-cyan: #7dcfff;
+    --terminal-white: #c0caf5;
+    --terminal-bright-black: #545c7e;
+    --terminal-bright-red: #ff7a93;
+    --terminal-bright-green: #b9f27c;
+    --terminal-bright-yellow: #ff9e64;
+    --terminal-bright-blue: #7da6ff;
+    --terminal-bright-magenta: #c099ff;
+    --terminal-bright-cyan: #b4f9f8;
     --terminal-bright-white: #ffffff;
-    --terminal-selection: #444444;
+    --terminal-selection: #2e3c64;
   }
 
   /* ── Sunrise (Warm Light) ──────────────────────────────────── */

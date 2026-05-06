@@ -123,7 +123,10 @@ export const TaskCard = memo(function TaskCard({
       </button>
 
       {expanded && (
-        <ScrollArea className="max-h-[60vh] border-t border-border/40">
+        <ScrollArea
+          className="border-t border-border/40"
+          viewportProps={{ className: 'max-h-[60vh]' }}
+        >
           {/* Child tool calls from the subagent (grouped like main thread) */}
           {hasChildren && renderChild && (
             <div className="space-y-1 px-3 py-2">
