@@ -385,6 +385,14 @@ function WebTerminalTabContent({
     }
   }, [tabAlive, send]);
 
+  // Bridge restored + sessionsChecked together. Order matters: SET_RESTORED
+  // must reach the machine *before* SESSIONS_CHECKED, otherwise the
+  // awaitingSessionsCheck `always` re-evaluates with restored=false and we
+  // take the spawn path while the server already has a live PTY (=> double
+  // spawn => black terminal).
+  useEffect(() => {
+    if (restored) send({ type: 'SET_RESTORED' });
+  }, [restored, send]);
   useEffect(() => {
     if (sessionsChecked) send({ type: 'SESSIONS_CHECKED' });
   }, [sessionsChecked, send]);
@@ -853,11 +861,36 @@ function TerminalSearchOverlay({
   const [wholeWord, setWholeWord] = useState(false);
   const [regex, setRegex] = useState(false);
   const [result, setResult] = useState<{ resultIndex: number; resultCount: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Refocus the input when Ctrl+F is pressed again while the overlay is open
+  // (e.g. focus was lost to the terminal or another element).
+  useEffect(() => {
+    const focus = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    };
+    window.addEventListener('terminal:search-focus', focus);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        focus();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('terminal:search-focus', focus);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, []);
 
   const decorations = useMemo(
     () => ({
-      matchBackground: '#ffd900',
-      activeMatchBackground: '#ff9900',
+      matchBorder: '#ffd900',
+      activeMatchBorder: '#ff9900',
       matchOverviewRuler: '#ffd900',
       activeMatchColorOverviewRuler: '#ff9900',
     }),
@@ -905,32 +938,27 @@ function TerminalSearchOverlay({
   const currentIndex = result && result.resultCount > 0 ? result.resultIndex : undefined;
 
   return (
-    <div
-      className="absolute right-3 top-2 z-20 rounded-md border bg-popover px-1.5 py-1 shadow-md"
-      data-testid="terminal-search"
-      onKeyDown={(e) => e.stopPropagation()}
-    >
-      <SearchBar
-        key={activeTabId}
-        query={query}
-        onQueryChange={setQuery}
-        totalMatches={totalMatches}
-        currentIndex={currentIndex}
-        onPrev={findPrev}
-        onNext={findNext}
-        onClose={onClose}
-        placeholder={t('terminal.searchPlaceholder', 'Find')}
-        showIcon={false}
-        testIdPrefix="terminal-search"
-        caseSensitive={caseSensitive}
-        onCaseSensitiveChange={setCaseSensitive}
-        wholeWord={wholeWord}
-        onWholeWordChange={setWholeWord}
-        regex={regex}
-        onRegexChange={setRegex}
-        className="w-[26rem]"
-      />
-    </div>
+    <SearchBar
+      key={activeTabId}
+      inputRef={inputRef}
+      query={query}
+      onQueryChange={setQuery}
+      totalMatches={totalMatches}
+      currentIndex={currentIndex}
+      onPrev={findPrev}
+      onNext={findNext}
+      onClose={onClose}
+      placeholder={t('terminal.searchPlaceholder', 'Find')}
+      showIcon={false}
+      testIdPrefix="terminal-search"
+      caseSensitive={caseSensitive}
+      onCaseSensitiveChange={setCaseSensitive}
+      wholeWord={wholeWord}
+      onWholeWordChange={setWholeWord}
+      regex={regex}
+      onRegexChange={setRegex}
+      className="absolute right-3 top-2 z-20 w-[26rem] rounded-md border bg-popover px-1.5 py-1 shadow-md"
+    />
   );
 }
 
@@ -961,6 +989,7 @@ function DraggableTerminalTab({
 }: DraggableTerminalTabProps) {
   const { t } = useTranslation();
   const ref = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [closestEdge, setClosestEdge] = useState<Edge | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -981,6 +1010,18 @@ function DraggableTerminalTab({
     setDraftLabel(tab.label);
     setIsEditing(false);
   }, [tab.label]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const input = inputRef.current;
+      if (!input) return;
+      if (event.target instanceof Node && input.contains(event.target)) return;
+      cancelRename();
+    };
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [isEditing, cancelRename]);
 
   useEffect(() => {
     const el = ref.current;
@@ -1049,10 +1090,10 @@ function DraggableTerminalTab({
           )}
           {isEditing ? (
             <Input
+              ref={inputRef}
               autoFocus
               value={draftLabel}
               onChange={(e) => setDraftLabel(e.target.value)}
-              onBlur={cancelRename}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();

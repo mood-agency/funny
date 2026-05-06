@@ -190,6 +190,31 @@ describe('terminalSpawnMachine', () => {
       expect(actor.getSnapshot().value).toBe('connected');
       actor.stop();
     });
+
+    // Regression: tab persisted from a previous session mounts with
+    // restored=false, then pty:list arrives and atomically flips both
+    // tab.restored=true AND sessionsChecked=true. SET_RESTORED must reach
+    // the machine before SESSIONS_CHECKED, otherwise the awaitingSessionsCheck
+    // `always` re-evaluates with restored=false and emits pty:spawn against
+    // a live PTY → server creates a duplicate, original session keeps writing
+    // into the void → black terminal until remount. See user report
+    // "cargo algun proyecto y el terminal queda negro".
+    test('SET_RESTORED arriving alongside SESSIONS_CHECKED takes restore path, not spawn', () => {
+      const { actor, emitSpawn, emitRestore } = makeActor({});
+      actor.send({ type: 'TERM_READY' });
+      expect(actor.getSnapshot().value).toBe('awaitingSessionsCheck');
+
+      // pty:list response: bridge fires SET_RESTORED first, then SESSIONS_CHECKED.
+      actor.send({ type: 'SET_RESTORED' });
+      actor.send({ type: 'SESSIONS_CHECKED' });
+      expect(actor.getSnapshot().value).toBe('awaitingSocketRestore');
+
+      actor.send({ type: 'SOCKET_CONNECTED', connected: true });
+      expect(actor.getSnapshot().value).toBe('restoring');
+      expect(emitRestore).toHaveBeenCalledTimes(1);
+      expect(emitSpawn).not.toHaveBeenCalled();
+      actor.stop();
+    });
   });
 
   describe('post-connection transitions', () => {

@@ -45,6 +45,7 @@ export interface TerminalSpawnContext {
 export type TerminalSpawnEvent =
   | { type: 'TERM_READY' }
   | { type: 'SESSIONS_CHECKED' }
+  | { type: 'SET_RESTORED' }
   | { type: 'PANEL_VISIBLE'; visible: boolean }
   | { type: 'SOCKET_CONNECTED'; connected: boolean }
   | { type: 'DATA_RECEIVED' }
@@ -63,6 +64,7 @@ export const terminalSpawnMachine = setup({
     emitSpawn: () => {},
     emitRestore: () => {},
     setSessionsChecked: assign({ sessionsChecked: true }),
+    setRestored: assign({ restored: true }),
     setPanelVisible: assign({
       panelVisible: ({ event }) => (event.type === 'PANEL_VISIBLE' ? event.visible : false),
     }),
@@ -111,6 +113,7 @@ export const terminalSpawnMachine = setup({
     SOCKET_CONNECTED: { actions: 'setSocketConnected' },
     PANEL_VISIBLE: { actions: 'setPanelVisible' },
     SESSIONS_CHECKED: { actions: 'setSessionsChecked' },
+    SET_RESTORED: { actions: 'setRestored' },
   },
   states: {
     initializing: {
@@ -128,9 +131,15 @@ export const terminalSpawnMachine = setup({
     },
 
     awaitingSessionsCheck: {
-      // SESSIONS_CHECKED is handled at the top level (sets context); we
-      // re-evaluate via `always`.
-      always: [{ target: 'awaitingPanelVisible', guard: 'canSpawnImmediately' }],
+      // SESSIONS_CHECKED / SET_RESTORED are handled at the top level (set
+      // context); we re-evaluate via `always`. The restore branch wins —
+      // sessionsChecked + restored fire together when pty:list finds a live
+      // session for this tab; we must NOT take the spawn path in that case
+      // or we'd duplicate the PTY.
+      always: [
+        { target: 'awaitingSocketRestore', guard: 'isRestored' },
+        { target: 'awaitingPanelVisible', guard: 'canSpawnImmediately' },
+      ],
     },
 
     awaitingPanelVisible: {
