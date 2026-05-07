@@ -272,6 +272,9 @@ export const PROVIDER_LABELS: Record<string, string> = {
 };
 
 // ── Permission mode mapping (Claude SDK specific) ─────────────
+// See PermissionMode in shared/primitives.ts for the canonical mapping table
+// and the naming-trap note (funny.autoEdit ≠ claude.acceptEdits).
+// `autoEdit` deliberately maps to `bypassPermissions`, not `acceptEdits`.
 
 const CLAUDE_PERMISSION_MAP: Record<PermissionMode, string> = {
   plan: 'plan',
