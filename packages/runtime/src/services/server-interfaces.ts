@@ -149,7 +149,11 @@ export interface IThreadRepository extends IThreadQuery {
   markStaleThreadsInterrupted(): Promise<void>;
   markStaleExternalThreadsStopped(): Promise<void>;
   markAndListStaleThreads(runnerId: string): Promise<any[]>;
-  getThreadMessages(threadId: string): Promise<any[]>;
+  getThreadMessages(opts: {
+    threadId: string;
+    cursor?: string;
+    limit: number;
+  }): Promise<{ messages: any[]; hasMore: boolean }>;
   insertComment(data: {
     threadId: string;
     userId: string;

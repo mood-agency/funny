@@ -23,12 +23,26 @@ import {
   getProjectIdForThread,
   invalidateThreadCache,
 } from './thread-store-internals';
-import type { AgentInitInfo, ThreadState } from './thread-types';
+import type { AgentInitInfo, ThreadState, ThreadWithMessages } from './thread-types';
 
 const wsLog = createClientLogger('ws-handlers');
 
 type Get = () => ThreadState;
 type Set = (partial: Partial<ThreadState> | ((state: ThreadState) => Partial<ThreadState>)) => void;
+
+// ── Live thread update helper ──────────────────────────────────
+// Applies a mutation to a live-column thread if it's registered.
+function updateLiveThread(
+  get: Get,
+  set: Set,
+  threadId: string,
+  updater: (thread: ThreadWithMessages) => ThreadWithMessages,
+): void {
+  const { liveThreads } = get();
+  const live = liveThreads[threadId];
+  if (!live) return;
+  set({ liveThreads: { ...liveThreads, [threadId]: updater(live) } } as any);
+}
 
 // ── Debounced "refresh all projects" for unknown threads ─────────
 // When a WS event arrives for a thread not in any loaded project, we need to
@@ -78,6 +92,8 @@ export function handleWSInit(get: Get, set: Set, threadId: string, data: AgentIn
   }
   // If not active, thread-store-internals will buffer it via setBufferedInitInfo
   // (caller handles this since it needs the initInfoBuffer from internals)
+
+  updateLiveThread(get, set, threadId, (live) => ({ ...live, initInfo: data }));
 }
 
 // ── Message ─────────────────────────────────────────────────────
@@ -191,6 +207,36 @@ export function handleWSMessage(
     bufferWSEvent(threadId, 'message', data);
   }
 
+  // Update live thread for live-column real-time streaming
+  updateLiveThread(get, set, threadId, (live) => {
+    const messageId = data.messageId;
+    if (messageId) {
+      const idx = live.messages.findIndex((m) => m.id === messageId);
+      if (idx >= 0) {
+        const updated = [...live.messages];
+        updated[idx] = {
+          ...updated[idx],
+          content: data.content,
+          ...(data.author ? { author: data.author } : {}),
+        };
+        return { ...live, messages: updated };
+      }
+    }
+    const newMsg = {
+      id: messageId || crypto.randomUUID(),
+      threadId,
+      role: data.role as MessageRole,
+      content: data.content,
+      timestamp: new Date().toISOString(),
+      ...(data.author ? { author: data.author } : {}),
+    };
+    return {
+      ...live,
+      messages: [...live.messages, newMsg],
+      ...(data.role === 'user' ? { lastUserMessage: newMsg } : {}),
+    };
+  });
+
   // Drop the cached snapshot for non-active threads so the next selectThread()
   // refetches and shows the new message instead of the frozen pre-switch view.
   if (activeThread?.id !== threadId) {
@@ -278,6 +324,41 @@ export function handleWSToolCall(
     bufferWSEvent(threadId, 'tool_call', data);
   }
 
+  // Update live thread for live-column real-time streaming
+  updateLiveThread(get, set, threadId, (live) => {
+    const tcId = data.toolCallId || crypto.randomUUID();
+    const tcEntry = {
+      id: tcId,
+      messageId: data.messageId || '',
+      name: data.name,
+      input: JSON.stringify(data.input),
+      timestamp: new Date().toISOString(),
+      ...(data.author ? { author: data.author } : {}),
+      ...(data.parentToolCallId ? { parentToolCallId: data.parentToolCallId } : {}),
+    };
+    if (live.messages.some((m) => m.toolCalls?.some((tc: any) => tc.id === tcId))) return live;
+    if (data.messageId) {
+      const msgIdx = live.messages.findIndex((m) => m.id === data.messageId);
+      if (msgIdx >= 0) {
+        const messages = live.messages.slice();
+        const msg = messages[msgIdx];
+        messages[msgIdx] = { ...msg, toolCalls: (msg.toolCalls ?? []).concat(tcEntry) };
+        return { ...live, messages };
+      }
+    }
+    return {
+      ...live,
+      messages: live.messages.concat({
+        id: data.messageId || crypto.randomUUID(),
+        threadId,
+        role: 'assistant' as MessageRole,
+        content: '',
+        timestamp: new Date().toISOString(),
+        toolCalls: [tcEntry],
+      }),
+    };
+  });
+
   // Drop the cached snapshot for non-active threads so the next selectThread()
   // refetches and includes this tool call.
   if (activeThread?.id !== threadId) {
@@ -298,24 +379,37 @@ export function handleWSToolOutput(
     if (selectedThreadId === threadId) bufferWSEvent(threadId, 'tool_output', data);
     // Cached snapshot would still hold the tool call without its output.
     invalidateThreadCache(threadId);
-    return;
+  } else {
+    // Find and update only the specific message containing the tool call.
+    for (let i = 0; i < activeThread.messages.length; i++) {
+      const msg = activeThread.messages[i];
+      if (!msg.toolCalls) continue;
+      const tcIdx = msg.toolCalls.findIndex((tc: any) => tc.id === data.toolCallId);
+      if (tcIdx < 0) continue;
+      const messages = activeThread.messages.slice();
+      const updatedTCs = [...msg.toolCalls];
+      updatedTCs[tcIdx] = { ...updatedTCs[tcIdx], output: data.output };
+      messages[i] = { ...msg, toolCalls: updatedTCs };
+      set({ activeThread: { ...activeThread, messages } });
+      break;
+    }
   }
 
-  // Find and update only the specific message containing the tool call.
-  // Avoid .map() which creates a new array reference even when nothing changed.
-  for (let i = 0; i < activeThread.messages.length; i++) {
-    const msg = activeThread.messages[i];
-    if (!msg.toolCalls) continue;
-    const tcIdx = msg.toolCalls.findIndex((tc: any) => tc.id === data.toolCallId);
-    if (tcIdx < 0) continue;
-    // Found — create a shallow copy of the messages array with only this message replaced
-    const messages = activeThread.messages.slice();
-    const updatedTCs = [...msg.toolCalls];
-    updatedTCs[tcIdx] = { ...updatedTCs[tcIdx], output: data.output };
-    messages[i] = { ...msg, toolCalls: updatedTCs };
-    set({ activeThread: { ...activeThread, messages } });
-    return;
-  }
+  // Update live thread
+  updateLiveThread(get, set, threadId, (live) => {
+    for (let i = 0; i < live.messages.length; i++) {
+      const msg = live.messages[i];
+      if (!msg.toolCalls) continue;
+      const tcIdx = msg.toolCalls.findIndex((tc: any) => tc.id === data.toolCallId);
+      if (tcIdx < 0) continue;
+      const messages = live.messages.slice();
+      const updatedTCs = [...msg.toolCalls];
+      updatedTCs[tcIdx] = { ...updatedTCs[tcIdx], output: data.output };
+      messages[i] = { ...msg, toolCalls: updatedTCs };
+      return { ...live, messages };
+    }
+    return live;
+  });
 }
 
 // ── Status ──────────────────────────────────────────────────────
@@ -451,6 +545,30 @@ export function handleWSStatus(
     set(stateUpdate as any);
   }
 
+  // Update live thread status
+  updateLiveThread(get, set, threadId, (live) => {
+    const newStatus = transitionThreadStatus(threadId, machineEvent, live.status, live.cost);
+    if (newStatus === 'waiting') {
+      return {
+        ...live,
+        status: newStatus,
+        waitingReason: data.waitingReason as any,
+        pendingPermission: data.permissionRequest,
+        ...(data.stage ? { stage: data.stage as any } : {}),
+        ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}),
+      };
+    }
+    return {
+      ...live,
+      status: newStatus,
+      waitingReason: undefined,
+      pendingPermission: undefined,
+      ...(newStatus === 'stopped' || newStatus === 'interrupted' ? { resultInfo: undefined } : {}),
+      ...(data.stage ? { stage: data.stage as any } : {}),
+      ...(data.permissionMode ? { permissionMode: data.permissionMode as any } : {}),
+    };
+  });
+
   if (!foundInSidebar) {
     if (activeThread?.id === threadId) {
       scheduleProjectRefresh(get, activeThread.projectId);
@@ -571,6 +689,41 @@ export function handleWSResult(get: Get, set: Set, threadId: string, data: any):
 
   set(stateUpdate as any);
 
+  // Update live thread
+  updateLiveThread(get, set, threadId, (live) => {
+    const newStatus = transitionThreadStatus(
+      threadId,
+      machineEvent,
+      live.status,
+      data.cost ?? live.cost,
+    );
+    const finalStatus = newStatus !== live.status ? newStatus : serverStatus;
+    if (finalStatus === 'waiting') {
+      return {
+        ...live,
+        status: finalStatus,
+        cost: data.cost ?? live.cost,
+        waitingReason: data.waitingReason,
+        pendingPermission: data.permissionRequest,
+        ...(data.stage ? { stage: data.stage } : {}),
+      };
+    }
+    return {
+      ...live,
+      status: finalStatus,
+      cost: data.cost ?? live.cost,
+      waitingReason: undefined,
+      pendingPermission: undefined,
+      resultInfo: {
+        status: finalStatus as 'completed' | 'failed',
+        cost: data.cost ?? live.cost,
+        duration: data.duration ?? 0,
+        error: data.error,
+      },
+      ...(data.stage ? { stage: data.stage } : {}),
+    };
+  });
+
   // If the thread the user is currently viewing just finished, mark it as read
   // so it doesn't show an unread blue dot in the sidebar.
   if (
@@ -659,6 +812,12 @@ export function handleWSQueueUpdate(
       queuedCount: String(data.queuedCount),
     });
   }
+
+  updateLiveThread(get, set, threadId, (live) => ({
+    ...live,
+    queuedCount: data.queuedCount,
+    queuedNextMessage: data.nextMessage,
+  }));
 }
 
 // ── Compact boundary ────────────────────────────────────────────
@@ -672,17 +831,19 @@ export function handleWSCompactBoundary(
   const { activeThread, selectedThreadId } = get();
   if (activeThread?.id !== threadId) {
     if (selectedThreadId === threadId) bufferWSEvent(threadId, 'compact_boundary', data);
-    return;
+  } else {
+    set({
+      activeThread: {
+        ...activeThread,
+        compactionEvents: [...(activeThread.compactionEvents ?? []), data],
+      },
+    });
   }
 
-  set({
-    activeThread: {
-      ...activeThread,
-      compactionEvents: [...(activeThread.compactionEvents ?? []), data],
-      // After compaction, the next assistant message's input_tokens will
-      // naturally reflect the post-compaction context size — no reset needed.
-    },
-  });
+  updateLiveThread(get, set, threadId, (live) => ({
+    ...live,
+    compactionEvents: [...(live.compactionEvents ?? []), data],
+  }));
 }
 
 // ── Context usage ───────────────────────────────────────────────
@@ -716,6 +877,8 @@ export function handleWSContextUsage(
   }
 
   set(updates as any);
+
+  updateLiveThread(get, set, threadId, (live) => ({ ...live, contextUsage: usage }));
 }
 
 // ── Error ────────────────────────────────────────────────────────

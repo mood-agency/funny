@@ -53,6 +53,18 @@ export type SubmitFn = (
   images?: ImageAttachment[],
 ) => Promise<boolean | void> | boolean | void;
 
+export interface ThreadOverride {
+  provider?: string | null;
+  model?: string | null;
+  permissionMode?: string | null;
+  branch?: string | null;
+  baseBranch?: string | null;
+  worktreePath?: string | null;
+  contextUsage?: { cumulativeInputTokens?: number } | null;
+  queuedCount?: number | null;
+  projectId?: string | null;
+}
+
 interface UsePromptInputStateArgs {
   onSubmit: SubmitFn;
   onContentChange?: (hasContent: boolean, text: string) => void;
@@ -64,6 +76,7 @@ interface UsePromptInputStateArgs {
   propProjectId?: string;
   threadIdProp?: string | null;
   initialPromptProp?: string;
+  threadOverride?: ThreadOverride;
 }
 
 /**
@@ -83,12 +96,19 @@ export function usePromptInputState({
   propProjectId,
   threadIdProp,
   initialPromptProp,
+  threadOverride,
 }: UsePromptInputStateArgs) {
   const { t } = useTranslation();
 
   // Read queuedCount directly from the store to avoid stale prop values.
   // The prop may lag behind when ThreadView re-renders are deferred by memo().
-  const storeQueuedCount = useThreadStore((s) => s.activeThread?.queuedCount ?? 0);
+  const storeQueuedCount = useThreadStore((s) =>
+    threadOverride
+      ? threadIdProp
+        ? (s.liveThreads[threadIdProp]?.queuedCount ?? 0)
+        : 0
+      : (s.activeThread?.queuedCount ?? 0),
+  );
   const queuedCount = storeQueuedCount > 0 ? storeQueuedCount : queuedCountProp;
 
   // ── Project defaults ──
@@ -152,16 +172,24 @@ export function usePromptInputState({
   }, [currentProvider, mode]);
 
   // ── Active thread state ──
-  const activeThreadPermissionMode = useThreadStore((s) => s.activeThread?.permissionMode);
-  const activeThreadWorktreePath = useThreadStore((s) => s.activeThread?.worktreePath);
-  const activeThreadProvider = useThreadStore((s) => s.activeThread?.provider);
-  const activeThreadModel = useThreadStore((s) => s.activeThread?.model);
-  const activeThreadBranch = useThreadStore((s) =>
-    s.activeThread ? resolveThreadBranch(s.activeThread) : undefined,
+  // When threadOverride is provided (e.g. live columns), read from liveThreads
+  // in the store so selectors stay reactive. Otherwise read from activeThread.
+  const threadSource = useCallback(
+    (s: { liveThreads: Record<string, any>; activeThread?: any }) =>
+      threadOverride && threadIdProp ? s.liveThreads[threadIdProp] : s.activeThread,
+    [threadOverride, threadIdProp],
   );
-  const activeThreadBaseBranch = useThreadStore((s) => s.activeThread?.baseBranch);
+  const activeThreadPermissionMode = useThreadStore((s) => threadSource(s)?.permissionMode);
+  const activeThreadWorktreePath = useThreadStore((s) => threadSource(s)?.worktreePath);
+  const activeThreadProvider = useThreadStore((s) => threadSource(s)?.provider);
+  const activeThreadModel = useThreadStore((s) => threadSource(s)?.model);
+  const activeThreadBranch = useThreadStore((s) => {
+    const t = threadSource(s);
+    return t ? resolveThreadBranch(t) : undefined;
+  });
+  const activeThreadBaseBranch = useThreadStore((s) => threadSource(s)?.baseBranch);
   const activeThreadContextTokens = useThreadStore(
-    (s) => s.activeThread?.contextUsage?.cumulativeInputTokens ?? 0,
+    (s) => threadSource(s)?.contextUsage?.cumulativeInputTokens ?? 0,
   );
   const contextMaxTokens =
     activeThreadProvider && activeThreadModel
@@ -358,7 +386,8 @@ export function usePromptInputState({
 
   // Fetch follow-up branches — only refetch when the project changes.
   // Branch selection is updated separately when activeThreadBaseBranch changes.
-  const selectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const storeSelectedProjectId = useProjectStore((s) => s.selectedProjectId);
+  const selectedProjectId = threadOverride?.projectId ?? storeSelectedProjectId;
   const followUpBranchCacheRef = useRef<{
     projectId: string;
     branches: string[];
@@ -564,14 +593,15 @@ export function usePromptInputState({
                 return rest;
               })();
 
+        const updates: Record<string, any> = { queuedCountByThread: updatedMap };
         if (activeThread?.id === tid) {
-          useThreadStore.setState({
-            activeThread: { ...activeThread, queuedCount: newCount },
-            queuedCountByThread: updatedMap,
-          });
-        } else {
-          useThreadStore.setState({ queuedCountByThread: updatedMap });
+          updates.activeThread = { ...activeThread, queuedCount: newCount };
         }
+        const lt = state.liveThreads[tid];
+        if (lt) {
+          updates.liveThreads = { ...state.liveThreads, [tid]: { ...lt, queuedCount: newCount } };
+        }
+        useThreadStore.setState(updates);
       } else {
         toastError(result.error);
       }

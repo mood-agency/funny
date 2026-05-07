@@ -299,20 +299,29 @@ export function App() {
           />
         )}
 
-        {/* Right panel — Review / Tasks / Activity. Kept mounted (hidden) once
-            ready so subsequent toggles are instant. */}
+        {/* Right panel — Review / Tasks / Activity. Outer takes flex width so
+            the center column compresses; inner is anchored to the right edge
+            so the content visually slides in from the right as the outer
+            expands (and slides out to the right when closing). */}
         {!isFullScreenView && (reviewPaneReady || reviewPaneOpen) && (
           <div
             className={cn(
-              'flex min-w-0 flex-shrink-0 flex-col overflow-hidden bg-sidebar',
+              'relative min-w-0 flex-shrink-0 overflow-hidden bg-sidebar',
               !resizing && 'transition-[width] duration-200 ease-linear',
             )}
             style={{ width: rightPaneVisible ? `${reviewPaneWidth}vw` : '0vw' }}
           >
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ErrorBoundary area="right-pane">
-                <Suspense>{rightPaneTab === 'review' ? <ReviewPane /> : <ActivityPane />}</Suspense>
-              </ErrorBoundary>
+            <div
+              className="absolute inset-y-0 right-0 flex"
+              style={{ width: `${reviewPaneWidth}vw` }}
+            >
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <ErrorBoundary area="right-pane">
+                  <Suspense>
+                    {rightPaneTab === 'review' ? <ReviewPane /> : <ActivityPane />}
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
             </div>
           </div>
         )}

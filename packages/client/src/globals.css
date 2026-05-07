@@ -1004,6 +1004,17 @@
     @apply bg-orange-400 text-black;
   }
 
+  /* Monaco code-view search highlights (MonacoEditorDialog) */
+  .monaco-search-match {
+    background-color: rgb(253 224 71 / 0.35);
+    border-radius: 2px;
+  }
+  .monaco-search-match-active {
+    background-color: rgb(251 146 60 / 0.85);
+    color: #000;
+    border-radius: 2px;
+  }
+
   /* Settings section header */
   .settings-section-header {
     @apply px-1 pb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground;

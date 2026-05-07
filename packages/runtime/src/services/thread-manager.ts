@@ -37,8 +37,8 @@ export const markAndListStaleThreads = (runnerId: string) =>
 // ── Messages ────────────────────────────────────────────────
 export const getThreadWithMessages = (id: string) =>
   getServices().threads.getThreadWithMessages(id);
-export const getThreadMessages = (threadId: string) =>
-  getServices().threads.getThreadMessages(threadId);
+export const getThreadMessages = (opts: { threadId: string; cursor?: string; limit: number }) =>
+  getServices().threads.getThreadMessages(opts);
 export const insertMessage = (data: {
   threadId: string;
   role: string;

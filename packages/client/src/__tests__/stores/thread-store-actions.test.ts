@@ -1,14 +1,21 @@
 import { okAsync, errAsync } from 'neverthrow';
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockSendMessage, mockStopThread, mockApproveTool, mockSearchThreadContent } = vi.hoisted(
-  () => ({
-    mockSendMessage: vi.fn(),
-    mockStopThread: vi.fn(),
-    mockApproveTool: vi.fn(),
-    mockSearchThreadContent: vi.fn(),
-  }),
-);
+const {
+  mockSendMessage,
+  mockStopThread,
+  mockApproveTool,
+  mockSearchThreadContent,
+  mockGetThread,
+  mockGetThreadEvents,
+} = vi.hoisted(() => ({
+  mockSendMessage: vi.fn(),
+  mockStopThread: vi.fn(),
+  mockApproveTool: vi.fn(),
+  mockSearchThreadContent: vi.fn(),
+  mockGetThread: vi.fn(),
+  mockGetThreadEvents: vi.fn(),
+}));
 
 vi.mock('@/lib/api/threads', () => ({
   threadsApi: {
@@ -16,8 +23,8 @@ vi.mock('@/lib/api/threads', () => ({
     stopThread: mockStopThread,
     approveTool: mockApproveTool,
     searchThreadContent: mockSearchThreadContent,
-    getThread: vi.fn(),
-    getThreadEvents: vi.fn(),
+    getThread: mockGetThread,
+    getThreadEvents: mockGetThreadEvents,
     listThreads: vi.fn(),
     updateThread: vi.fn(),
     deleteThread: vi.fn(),
@@ -175,6 +182,191 @@ describe('thread store actions', () => {
 
       expect(result).toBeNull();
       expect(mockSearchThreadContent).toHaveBeenCalledWith('bad query', undefined);
+    });
+  });
+
+  describe('refreshActiveThread (WS-disconnect resync)', () => {
+    const baseThread = {
+      id: 't1',
+      projectId: 'p1',
+      title: 'thread',
+      mode: 'local',
+      status: 'running',
+      cost: 0,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      hasMore: false,
+    };
+
+    const setActiveThread = (messages: any[]) => {
+      useThreadStore.setState({
+        activeThread: { ...(baseThread as any), messages },
+      } as any);
+    };
+
+    beforeEach(() => {
+      mockGetThreadEvents.mockReturnValue(okAsync({ events: [] }));
+    });
+
+    test('recovers messages emitted while WS was disconnected', async () => {
+      const localMessages = [
+        {
+          id: 'm1',
+          threadId: 't1',
+          role: 'user',
+          content: 'hi',
+          timestamp: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: 'm2',
+          threadId: 't1',
+          role: 'assistant',
+          content: 'hello',
+          timestamp: '2026-01-01T00:00:01.000Z',
+        },
+      ];
+      setActiveThread(localMessages);
+
+      // Server returns the local two PLUS three messages the client missed
+      // while disconnected.
+      mockGetThread.mockReturnValue(
+        okAsync({
+          ...baseThread,
+          messages: [
+            ...localMessages,
+            {
+              id: 'm3',
+              threadId: 't1',
+              role: 'assistant',
+              content: 'working',
+              timestamp: '2026-01-01T00:00:05.000Z',
+            },
+            {
+              id: 'm4',
+              threadId: 't1',
+              role: 'assistant',
+              content: 'done',
+              timestamp: '2026-01-01T00:00:10.000Z',
+            },
+            {
+              id: 'm5',
+              threadId: 't1',
+              role: 'user',
+              content: 'thx',
+              timestamp: '2026-01-01T00:00:11.000Z',
+            },
+          ],
+        }),
+      );
+
+      await useThreadStore.getState().refreshActiveThread();
+
+      const merged = useThreadStore.getState().activeThread!.messages;
+      expect(merged.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5']);
+    });
+
+    test('preserves older paginated messages not in fresh window', async () => {
+      const olderPaginated = {
+        id: 'm0',
+        threadId: 't1',
+        role: 'user',
+        content: 'older',
+        timestamp: '2025-12-31T00:00:00.000Z',
+      };
+      const recent = {
+        id: 'm1',
+        threadId: 't1',
+        role: 'assistant',
+        content: 'recent',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      };
+      setActiveThread([olderPaginated, recent]);
+
+      mockGetThread.mockReturnValue(
+        okAsync({
+          ...baseThread,
+          messages: [
+            recent,
+            {
+              id: 'm2',
+              threadId: 't1',
+              role: 'assistant',
+              content: 'new',
+              timestamp: '2026-01-01T00:00:05.000Z',
+            },
+          ],
+        }),
+      );
+
+      await useThreadStore.getState().refreshActiveThread();
+
+      const merged = useThreadStore.getState().activeThread!.messages;
+      expect(merged.map((m) => m.id)).toEqual(['m0', 'm1', 'm2']);
+    });
+
+    test('drops optimistic duplicates inside the fresh window', async () => {
+      // Local has an optimistic user message with a random UUID; the server
+      // persisted the same content under a different real ID.
+      const optimistic = {
+        id: 'optimistic-uuid',
+        threadId: 't1',
+        role: 'user',
+        content: 'sent',
+        timestamp: '2026-01-01T00:00:02.000Z',
+      };
+      setActiveThread([optimistic]);
+
+      mockGetThread.mockReturnValue(
+        okAsync({
+          ...baseThread,
+          messages: [
+            {
+              id: 'real-id',
+              threadId: 't1',
+              role: 'user',
+              content: 'sent',
+              timestamp: '2026-01-01T00:00:02.000Z',
+            },
+            {
+              id: 'reply',
+              threadId: 't1',
+              role: 'assistant',
+              content: 'ack',
+              timestamp: '2026-01-01T00:00:03.000Z',
+            },
+          ],
+        }),
+      );
+
+      await useThreadStore.getState().refreshActiveThread();
+
+      const merged = useThreadStore.getState().activeThread!.messages;
+      expect(merged.map((m) => m.id)).toEqual(['real-id', 'reply']);
+    });
+
+    test('keeps locally-newer messages added after the fresh window', async () => {
+      const fresh = {
+        id: 'm1',
+        threadId: 't1',
+        role: 'assistant',
+        content: 'old',
+        timestamp: '2026-01-01T00:00:00.000Z',
+      };
+      const localNewer = {
+        id: 'optimistic-new',
+        threadId: 't1',
+        role: 'user',
+        content: 'just sent',
+        timestamp: '2026-01-01T00:01:00.000Z',
+      };
+      setActiveThread([fresh, localNewer]);
+
+      mockGetThread.mockReturnValue(okAsync({ ...baseThread, messages: [fresh] }));
+
+      await useThreadStore.getState().refreshActiveThread();
+
+      const merged = useThreadStore.getState().activeThread!.messages;
+      expect(merged.map((m) => m.id)).toEqual(['m1', 'optimistic-new']);
     });
   });
 });

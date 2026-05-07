@@ -95,13 +95,7 @@ export function showAgentNotification(
   if (!opts.force && !useSettingsStore.getState().notificationsEnabled) {
     return { ok: false, reason: 'disabled' };
   }
-  if (
-    !opts.force &&
-    opts.skipIfViewingThreadId &&
-    typeof document !== 'undefined' &&
-    !document.hidden &&
-    isViewingThread(opts.skipIfViewingThreadId)
-  ) {
+  if (!opts.force && typeof document !== 'undefined' && !document.hidden) {
     return { ok: false, reason: 'viewing-thread' };
   }
 

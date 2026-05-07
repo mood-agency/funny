@@ -153,7 +153,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
   let hasDraftMessage = false;
   if (thread.status === 'idle' && thread.stage === 'backlog') {
     const stageUpdates: Record<string, any> = { stage: 'in_progress' };
-    if (thread.initialPrompt && params.content !== thread.initialPrompt) {
+    if (!thread.initialPrompt || params.content !== thread.initialPrompt) {
       stageUpdates.title = params.content.slice(0, 200);
       stageUpdates.initialPrompt = params.content;
     }
@@ -313,7 +313,7 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     thread.worktreePath ?? cwd,
     params.allowedTools,
   );
-  await startAgent(
+  startAgent(
     params.threadId,
     augmentedContent,
     cwd,
@@ -326,7 +326,13 @@ export async function sendMessage(params: SendMessageParams): Promise<SendMessag
     undefined,
     hasDraftMessage, // skipMessageInsert — draft already exists
     params.effort,
-  );
+  ).catch((err) => {
+    log.error('Failed to start agent in background', {
+      namespace: 'thread-service',
+      threadId: params.threadId,
+      error: String(err),
+    });
+  });
 
   return { ok: true };
 }

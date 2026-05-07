@@ -19,6 +19,9 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
+import { promises as fsp } from 'fs';
+import { homedir } from 'os';
+import path from 'path';
 import { Readable, Writable } from 'stream';
 
 import { createDebugLogger } from '../debug.js';
@@ -174,6 +177,19 @@ export class GeminiACPProcess extends BaseAgentProcess {
       args.push('--model', this.options.model);
     }
 
+    // autoEdit mode (full bypass, equivalent to Claude's `bypassPermissions`)
+    // ⇒ run gemini with `--yolo` so it auto-approves everything without ever
+    // invoking requestPermission. NOTE: this is funny's `autoEdit` mode, NOT
+    // the Claude-only `auto` mode (which is filtered out client-side and
+    // never reaches Gemini). gemini-cli silently downgrades --yolo to default
+    // when the folder is not trusted, so we mark cwd TRUST_FOLDER first.
+    const bypassMode = isAutoEditMode(this.options.originalPermissionMode);
+    if (bypassMode) {
+      await ensureTrustedFolder(this.options.cwd);
+      args.push('--yolo');
+      dlog.info('acp-timing: autoEdit (yolo) enabled', { ms: t(), cwd: this.options.cwd });
+    }
+
     // Spawn gemini subprocess with stdio pipes.
     // On Windows, shell: true is required to resolve .cmd/.bat wrappers
     // for npm-installed binaries like `gemini`.
@@ -255,17 +271,7 @@ export class GeminiACPProcess extends BaseAgentProcess {
       requestPermission: async (
         params: ACPRequestPermissionRequest,
       ): Promise<ACPRequestPermissionResponse> => {
-        const allowOption = params.options.find(
-          (opt) => opt.kind === 'allow_once' || opt.kind === 'allow_always',
-        );
-        if (allowOption) {
-          return {
-            outcome: { outcome: 'selected', optionId: allowOption.optionId },
-          };
-        }
-        return {
-          outcome: { outcome: 'selected', optionId: params.options[0]?.optionId ?? '' },
-        };
+        return this.handleRequestPermission(params);
       },
     };
 
@@ -510,6 +516,125 @@ export class GeminiACPProcess extends BaseAgentProcess {
         });
       }
     }
+  }
+
+  // ── Permission request handling ─────────────────────────────
+
+  /**
+   * Handle an ACP `session/request_permission` from gemini-cli.
+   *
+   * Mirrors the codex-acp.ts pattern so the existing UI (PermissionApprovalCard)
+   * and persisted "always allow / always deny" rules light up unchanged:
+   *
+   * 1. Consult `permissionRuleLookup` for a saved rule → auto-resolve.
+   * 2. Otherwise emit a synthetic `tool_use` + `tool_result` whose denial text
+   *    matches the regex in `agent-message-handler.ts` so the client renders
+   *    the approval card. Then PAUSE on `abortController.signal` until the
+   *    runner kills the process (user approves and the new rule takes effect
+   *    on the next run).
+   *
+   * In auto mode (--yolo) gemini-cli auto-approves internally and never calls
+   * requestPermission, so this handler is a no-op there.
+   */
+  private async handleRequestPermission(
+    params: ACPRequestPermissionRequest,
+  ): Promise<ACPRequestPermissionResponse> {
+    const { options, toolCall } = params;
+
+    const findOption = (kinds: string[]): string | undefined =>
+      options.find((opt) => kinds.includes(opt.kind))?.optionId;
+
+    const allowOptionId =
+      findOption(['allow_once']) ?? findOption(['allow_always']) ?? options[0]?.optionId ?? '';
+    const rejectOptionId =
+      findOption(['reject_once']) ?? findOption(['reject_always']) ?? options[0]?.optionId ?? '';
+
+    const acpKind = (toolCall.kind as string | undefined) ?? undefined;
+    const title = toolCall.title ?? '';
+    const toolName = inferACPToolName(acpKind, title);
+    const toolInput = buildACPToolInput(toolName, {
+      kind: acpKind,
+      title,
+      rawInput: toolCall.rawInput,
+      locations: (toolCall as any).locations,
+    });
+    const toolInputForRule = serializeToolInputForRule(toolName, toolInput);
+
+    // 1. Consult persisted rules (always allow / always deny).
+    if (this.options.permissionRuleLookup) {
+      try {
+        const match = await this.options.permissionRuleLookup({
+          toolName,
+          toolInput: toolInputForRule,
+        });
+        if (match?.decision === 'allow') {
+          dlog.info('requestPermission ALLOW via persisted rule', { toolName });
+          return { outcome: { outcome: 'selected', optionId: allowOptionId } };
+        }
+        if (match?.decision === 'deny') {
+          dlog.info('requestPermission DENY via persisted rule', { toolName });
+          return { outcome: { outcome: 'selected', optionId: rejectOptionId } };
+        }
+      } catch (err) {
+        dlog.warn('permissionRuleLookup threw — falling through', {
+          toolName,
+          error: String(err).slice(0, 200),
+        });
+      }
+    }
+
+    // 2. No rule — surface a permission request to the user via a synthetic
+    //    tool_use + tool_result. Matches the regex in agent-message-handler.ts
+    //    that drives PermissionApprovalCard.
+    const toolUseId = toolCall.toolCallId ?? randomUUID();
+    const denialText =
+      `Gemini requested permissions to use ${toolName} but the user hasn't been granted approval. ` +
+      `Waiting for user approval.`;
+
+    this.emit('message', {
+      type: 'assistant',
+      message: {
+        id: randomUUID(),
+        content: [
+          {
+            type: 'tool_use',
+            id: toolUseId,
+            name: toolName,
+            input: toolInput,
+          },
+        ],
+      },
+    } as CLIMessage);
+
+    this.emit('message', {
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: toolUseId,
+            content: denialText,
+          },
+        ],
+      },
+    } as CLIMessage);
+
+    dlog.info('requestPermission PAUSING for user approval', {
+      toolName,
+      toolCallId: toolUseId,
+    });
+
+    return await new Promise<ACPRequestPermissionResponse>((resolve) => {
+      const onAbort = () => {
+        dlog.info('requestPermission RESUMED (abort signal)', { toolName });
+        resolve({ outcome: { outcome: 'selected', optionId: rejectOptionId } });
+      };
+      if (this.abortController.signal.aborted) {
+        onAbort();
+      } else {
+        this.abortController.signal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
   }
 
   // ── Update translation ──────────────────────────────────────
@@ -769,5 +894,84 @@ export class GeminiACPProcess extends BaseAgentProcess {
 
     // 3. Default to 'gemini' in PATH (shell: true in spawn handles .cmd on Windows)
     return 'gemini';
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+/**
+ * Match the serialization Claude SDK uses for permission-rule lookup so a
+ * single rule (e.g. "Bash: git status") behaves the same regardless of
+ * provider. Bash gets the raw command; everything else gets stable JSON.
+ */
+function serializeToolInputForRule(
+  toolName: string,
+  toolInput: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!toolInput || typeof toolInput !== 'object') return undefined;
+  if (toolName === 'Bash' && typeof toolInput.command === 'string') {
+    return toolInput.command;
+  }
+  try {
+    return JSON.stringify(toolInput);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Detect funny's `autoEdit` mode — full permission bypass, equivalent to
+ * Claude's `bypassPermissions`. In this mode we run gemini with `--yolo` so
+ * it never pauses on `requestPermission`.
+ *
+ * NOTE: distinct from funny's `auto` mode (Claude-only; auto-accept low-risk
+ * ops but still prompt for risky writes). `auto` is filtered client-side and
+ * never reaches Gemini, so we don't handle it here.
+ */
+function isAutoEditMode(originalPermissionMode: string | undefined): boolean {
+  return originalPermissionMode === 'autoEdit';
+}
+
+/**
+ * Ensure the given cwd is marked TRUST_FOLDER in `~/.gemini/trustedFolders.json`.
+ *
+ * Required because gemini-cli silently downgrades `--yolo` → default approval
+ * when the cwd is not trusted (`gemini-OHH6WLHR.js:8367`). It also blocks
+ * runtime elevation to autoEdit with "Cannot enable privileged approval modes
+ * in an untrusted folder."
+ *
+ * Best-effort: errors are logged and swallowed so a transient FS issue does
+ * not block agent startup. Honors `GEMINI_CLI_TRUSTED_FOLDERS_PATH` if set
+ * (matches gemini-cli's own override).
+ */
+async function ensureTrustedFolder(cwd: string): Promise<void> {
+  const trustedPath =
+    process.env.GEMINI_CLI_TRUSTED_FOLDERS_PATH ??
+    path.join(homedir(), '.gemini', 'trustedFolders.json');
+
+  try {
+    let config: Record<string, string> = {};
+    try {
+      const raw = await fsp.readFile(trustedPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        config = parsed as Record<string, string>;
+      }
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') {
+        dlog.warn('trustedFolders.json read failed', { error: String(err).slice(0, 200) });
+      }
+    }
+
+    if (config[cwd] === 'TRUST_FOLDER' || config[cwd] === 'TRUST_PARENT') {
+      return; // already trusted
+    }
+
+    config[cwd] = 'TRUST_FOLDER';
+    await fsp.mkdir(path.dirname(trustedPath), { recursive: true });
+    await fsp.writeFile(trustedPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+    dlog.info('marked folder as TRUST_FOLDER for gemini yolo mode', { cwd, trustedPath });
+  } catch (err) {
+    dlog.warn('ensureTrustedFolder failed', { cwd, error: String(err).slice(0, 200) });
   }
 }

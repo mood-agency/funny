@@ -992,7 +992,7 @@ export const ProjectHeader = memo(function ProjectHeader() {
                   <Terminal className="icon-base" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{t('terminal.toggle', 'Toggle Terminal')}</TooltipContent>
+              <TooltipContent>{t('terminal.toggle', 'Toggle Terminal')} (Ctrl+`)</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>

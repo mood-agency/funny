@@ -41,6 +41,7 @@ import type {
 import { create } from 'zustand';
 
 import { api } from '@/lib/api';
+import { createClientLogger } from '@/lib/client-logger';
 import { loadContextUsage } from '@/lib/context-usage-storage';
 import { metric, startSpan } from '@/lib/telemetry';
 
@@ -133,6 +134,8 @@ export interface ThreadState {
   contextUsageByThread: Record<string, ContextUsage>;
   /** Queued message count keyed by threadId — survives thread switches */
   queuedCountByThread: Record<string, number>;
+  /** Thread data for threads visible in live columns — updated in real-time by WS handlers */
+  liveThreads: Record<string, ThreadWithMessages>;
 
   loadThreadsForProject: (projectId: string, includeArchived?: boolean) => Promise<void>;
   /** Load the next page of threads for a project (appends to existing list) */
@@ -184,6 +187,10 @@ export interface ThreadState {
     options?: { scope?: 'once' | 'always'; pattern?: string; toolInput?: string },
   ) => Promise<boolean>;
   searchThreadContent: (query: string, projectId?: string) => Promise<any>;
+
+  // Live thread registration (for LiveColumnsView)
+  registerLiveThread: (threadId: string) => Promise<void>;
+  unregisterLiveThread: (threadId: string) => void;
 
   // WebSocket event handlers
   handleWSInit: (threadId: string, data: AgentInitInfo) => void;
@@ -308,7 +315,41 @@ function setPrefetch(
 // to avoid piling up stale network requests during rapid thread switching.
 let _selectAbortController: AbortController | null = null;
 
+// Ref-count for live thread registrations (multiple columns could theoretically
+// show the same thread). When count drops to 0, the thread is removed from liveThreads.
+const _liveThreadRefCounts = new Map<string, number>();
+
 const _threadLoadPromises = new Map<string, Promise<void>>();
+
+const refreshLog = createClientLogger('thread-refresh');
+
+type LocalMessage = import('@funny/shared').Message & { toolCalls?: any[] };
+
+/** Merge fresh server messages into the local cache.
+ *  Fresh messages are the source of truth for their timestamp window — they
+ *  replace local copies by ID and recover anything missed while the WS was
+ *  disconnected. Older paginated messages and locally-newer optimistic
+ *  messages are preserved. */
+function mergeMessagesById(local: LocalMessage[], fresh: LocalMessage[]): LocalMessage[] {
+  if (fresh.length === 0) return local;
+
+  const freshTimes = fresh.map((m) => new Date(m.timestamp).getTime());
+  const oldest = Math.min(...freshTimes);
+  const newest = Math.max(...freshTimes);
+  const freshIds = new Set(fresh.map((m) => m.id));
+
+  const before: LocalMessage[] = [];
+  const after: LocalMessage[] = [];
+  for (const m of local) {
+    if (freshIds.has(m.id)) continue;
+    const t = new Date(m.timestamp).getTime();
+    if (t < oldest) before.push(m);
+    else if (t > newest) after.push(m);
+    // Within the fresh window but not in fresh — likely an optimistic
+    // duplicate the server has since superseded; drop it.
+  }
+  return [...before, ...fresh, ...after];
+}
 
 export const useThreadStore = create<ThreadState>((set, get) => ({
   threadsByProject: {},
@@ -318,6 +359,7 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   setupProgressByThread: {},
   contextUsageByThread: {},
   queuedCountByThread: {},
+  liveThreads: {},
 
   loadThreadsForProject: async (projectId: string, includeArchived: boolean = false) => {
     // Deduplicate concurrent loads for the same project + flag combo
@@ -956,10 +998,30 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     // Clear waitingReason/pendingPermission if server status is no longer waiting
     // (handles case where agent:result WS event was lost during disconnect)
     const isServerWaiting = thread.status === 'waiting';
+
+    // Merge messages — recovers any agent:message / agent:tool_call events that
+    // were emitted by the server while the WebSocket was disconnected. The
+    // server is source of truth for the recent window; older paginated
+    // messages already loaded by the client are preserved.
+    const freshMessages = (thread.messages ?? []) as LocalMessage[];
+    const mergedMessages = mergeMessagesById(activeThread.messages, freshMessages);
+    const recovered = mergedMessages.length - activeThread.messages.length;
+    if (recovered > 0) {
+      refreshLog.info('Recovered missed messages on resync', {
+        threadId: activeThread.id,
+        recovered,
+        local: activeThread.messages.length,
+        fresh: freshMessages.length,
+        merged: mergedMessages.length,
+      });
+      metric('thread.resync.messages_recovered', recovered, {
+        attributes: { 'thread.id': activeThread.id },
+      });
+    }
+
     set({
       activeThread: {
         ...activeThread,
-        // Update only metadata from server, preserve existing messages and pagination state
         status: thread.status,
         cost: thread.cost,
         stage: thread.stage,
@@ -973,6 +1035,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
         initInfo: activeThread.initInfo,
         resultInfo,
         threadEvents,
+        messages: mergedMessages,
+        lastUserMessage: thread.lastUserMessage ?? activeThread.lastUserMessage,
+        hasMore: thread.hasMore ?? activeThread.hasMore,
         compactionEvents:
           persistedCompaction.length > 0 ? persistedCompaction : activeThread.compactionEvents,
         contextUsage: activeThread.contextUsage,
@@ -1026,6 +1091,37 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       threadsByProject: nextThreads,
       ...(clearSelection ? { selectedThreadId: null, activeThread: null } : {}),
     });
+  },
+
+  // ── Live thread registration ─────────────────────────────────
+
+  registerLiveThread: async (threadId) => {
+    const prev = _liveThreadRefCounts.get(threadId) ?? 0;
+    _liveThreadRefCounts.set(threadId, prev + 1);
+    if (prev > 0) return; // already registered — just bump refcount
+
+    const result = await api.getThread(threadId, 50);
+    if (result.isErr()) return;
+
+    // Check refcount is still > 0 (may have been unregistered while fetching)
+    if ((_liveThreadRefCounts.get(threadId) ?? 0) <= 0) return;
+
+    const { liveThreads } = get();
+    set({ liveThreads: { ...liveThreads, [threadId]: result.value as ThreadWithMessages } });
+  },
+
+  unregisterLiveThread: (threadId) => {
+    const count = (_liveThreadRefCounts.get(threadId) ?? 1) - 1;
+    if (count > 0) {
+      _liveThreadRefCounts.set(threadId, count);
+      return;
+    }
+    _liveThreadRefCounts.delete(threadId);
+    const { liveThreads } = get();
+    if (liveThreads[threadId]) {
+      const { [threadId]: _, ...rest } = liveThreads;
+      set({ liveThreads: rest });
+    }
   },
 
   // ── WebSocket event handlers (delegated) ─────────────────────

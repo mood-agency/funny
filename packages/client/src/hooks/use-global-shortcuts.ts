@@ -57,12 +57,14 @@ export function useGlobalShortcuts(toggleCommandPalette: () => void, toggleFileS
         return;
       }
 
-      // Ctrl+` to toggle terminal (only in Tauri mode)
-      if (e.ctrlKey && e.key === '`') {
+      // Ctrl+` to toggle terminal
+      if (e.ctrlKey && (e.key === '`' || e.code === 'Backquote')) {
         e.preventDefault();
-        if (!isTauri) return;
+        log.info('shortcut.terminal_toggle');
         const store = useTerminalStore.getState();
-        const { selectedProjectId, projects } = useProjectStore.getState();
+        const { selectedProjectId: storeProjectId, projects } = useProjectStore.getState();
+        const activeThreadProjectId = useThreadStore.getState().activeThread?.projectId ?? null;
+        const selectedProjectId = storeProjectId ?? activeThreadProjectId;
         if (!selectedProjectId) return;
         const projectTabs = store.tabs.filter((t) => t.projectId === selectedProjectId);
         const isVisible = store.panelVisibleByProject[selectedProjectId] ?? false;
@@ -75,6 +77,7 @@ export function useGlobalShortcuts(toggleCommandPalette: () => void, toggleFileS
             cwd,
             alive: true,
             projectId: selectedProjectId,
+            type: isTauri ? undefined : 'pty',
           });
         } else {
           store.togglePanel(selectedProjectId);

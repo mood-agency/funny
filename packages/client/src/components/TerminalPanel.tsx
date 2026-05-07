@@ -34,6 +34,7 @@ import { Input } from '@/components/ui/input';
 import { ResizeHandle, useResizeHandle } from '@/components/ui/resize-handle';
 import { SearchBar } from '@/components/ui/search-bar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { showAgentNotification } from '@/hooks/use-notifications';
 import { useTooltipMenu } from '@/hooks/use-tooltip-menu';
 import { getActiveWS } from '@/hooks/use-ws';
 import { createAnsiConverter } from '@/lib/ansi-to-html';
@@ -537,19 +538,16 @@ function WebTerminalTabContent({
         }
       });
 
-      // Bell notification — detect \x07 and show browser notification + tab badge
+      // Bell notification — detect \x07 and set the tab badge. Desktop
+      // notification + sound are gated by the user's Settings preferences via
+      // showAgentNotification (notificationsEnabled, notificationSoundEnabled).
       const onBellDisposable = terminal.onBell(() => {
         const state = useTerminalStore.getState();
         if (state.activeTabId !== id) {
           state.setBellActive(id);
-          if (Notification.permission === 'granted') {
-            new Notification('Terminal Bell', {
-              body: `Bell in "${label || 'Terminal'}"`,
-              tag: `terminal-bell-${id}`,
-            });
-          } else if (Notification.permission === 'default') {
-            Notification.requestPermission();
-          }
+          showAgentNotification('Terminal Bell', `Bell in "${label || 'Terminal'}"`, {
+            tag: `terminal-bell-${id}`,
+          });
         }
       });
 

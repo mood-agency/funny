@@ -1,7 +1,11 @@
 import type { ImageAttachment } from '@funny/shared';
 import { memo } from 'react';
 
-import { usePromptInputState, type SubmitFn } from '@/hooks/use-prompt-input-state';
+import {
+  usePromptInputState,
+  type SubmitFn,
+  type ThreadOverride,
+} from '@/hooks/use-prompt-input-state';
 
 import { PromptInputUI } from './PromptInputUI';
 
@@ -26,6 +30,8 @@ interface PromptInputProps {
   onContentChange?: (hasContent: boolean, text: string) => void;
   /** Called when the worktree mode toggle changes */
   onWorktreeModeChange?: (enabled: boolean) => void;
+  /** Override thread data (for live columns where the thread is not the activeThread) */
+  threadOverride?: ThreadOverride;
 }
 
 export const PromptInput = memo(function PromptInput({
@@ -45,6 +51,7 @@ export const PromptInput = memo(function PromptInput({
   setPromptRef,
   onContentChange,
   onWorktreeModeChange,
+  threadOverride,
 }: PromptInputProps) {
   const state = usePromptInputState({
     onSubmit,
@@ -57,6 +64,7 @@ export const PromptInput = memo(function PromptInput({
     propProjectId,
     threadIdProp,
     initialPromptProp,
+    threadOverride,
   });
 
   return (

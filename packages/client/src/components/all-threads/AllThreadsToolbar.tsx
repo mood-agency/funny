@@ -1,6 +1,13 @@
 import type { GitSyncState, Project, ThreadStatus } from '@funny/shared';
 import { Archive, ArrowDown, ArrowUp, Check } from 'lucide-react';
-import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
+import {
+  type Dispatch,
+  type KeyboardEvent,
+  type RefObject,
+  type SetStateAction,
+  useCallback,
+  useRef,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { FilterDropdown } from '@/components/all-threads/FilterDropdown';
@@ -215,6 +222,33 @@ function SortPopover({
   setSortDir: Dispatch<SetStateAction<SortDir>>;
 }) {
   const { t } = useTranslation();
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const container = listRef.current;
+    if (!container) return;
+
+    const items = Array.from(
+      container.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]'),
+    );
+    const current = document.activeElement as HTMLElement;
+    const idx = items.indexOf(current);
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[(idx + 1) % items.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[(idx - 1 + items.length) % items.length]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      items[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      items[items.length - 1]?.focus();
+    }
+  }, []);
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -227,37 +261,52 @@ function SortPopover({
           {sortDir === 'desc' ? <ArrowDown className="icon-xs" /> : <ArrowUp className="icon-xs" />}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto min-w-[140px] p-1">
-        <SortFieldOption
-          field="updated"
-          activeField={sortField}
-          onSelect={() => setSortField('updated')}
-          label={t('allThreads.sortUpdated')}
-        />
-        <SortFieldOption
-          field="created"
-          activeField={sortField}
-          onSelect={() => setSortField('created')}
-          label={t('allThreads.sortCreated')}
-        />
-        <div className="my-1 h-px bg-border" />
-        <button
-          data-testid="all-threads-sort-direction"
-          onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground"
-        >
-          {sortDir === 'desc' ? (
-            <>
-              <ArrowDown className="icon-xs" />
-              {t('allThreads.sortDesc')}
-            </>
-          ) : (
-            <>
-              <ArrowUp className="icon-xs" />
-              {t('allThreads.sortAsc')}
-            </>
-          )}
-        </button>
+      <PopoverContent
+        align="start"
+        className="w-auto min-w-[140px] p-1"
+        onKeyDown={handleKeyDown}
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          const first = listRef.current?.querySelector<HTMLElement>(
+            '[role="menuitemradio"], [role="menuitem"]',
+          );
+          first?.focus();
+        }}
+      >
+        <div ref={listRef} role="menu">
+          <SortFieldOption
+            field="updated"
+            activeField={sortField}
+            onSelect={() => setSortField('updated')}
+            label={t('allThreads.sortUpdated')}
+          />
+          <SortFieldOption
+            field="created"
+            activeField={sortField}
+            onSelect={() => setSortField('created')}
+            label={t('allThreads.sortCreated')}
+          />
+          <div className="my-1 h-px bg-border" />
+          <button
+            role="menuitem"
+            tabIndex={-1}
+            data-testid="all-threads-sort-direction"
+            onClick={() => setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
+          >
+            {sortDir === 'desc' ? (
+              <>
+                <ArrowDown className="icon-xs" />
+                {t('allThreads.sortDesc')}
+              </>
+            ) : (
+              <>
+                <ArrowUp className="icon-xs" />
+                {t('allThreads.sortAsc')}
+              </>
+            )}
+          </button>
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -277,10 +326,14 @@ function SortFieldOption({
   const isActive = field === activeField;
   return (
     <button
+      role="menuitemradio"
+      aria-checked={isActive}
+      tabIndex={-1}
       onClick={onSelect}
       className={cn(
         'flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-sm transition-colors text-left',
         'hover:bg-accent hover:text-accent-foreground',
+        'focus:bg-accent focus:text-accent-foreground focus:outline-none',
       )}
     >
       <span

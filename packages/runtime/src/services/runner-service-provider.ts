@@ -59,8 +59,9 @@ export function createRunnerServiceProvider(): RuntimeServiceProvider {
       async markAndListStaleThreads() {
         return [];
       },
-      async getThreadMessages() {
-        return [];
+      async getThreadMessages(opts) {
+        const { remoteGetThreadMessages } = await import('./team-client.js');
+        return remoteGetThreadMessages(opts);
       },
       async insertMessage(data) {
         const { remoteInsertMessage } = await import('./team-client.js');

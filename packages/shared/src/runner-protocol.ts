@@ -347,6 +347,7 @@ export interface DataAck {
 export type RunnerDataQuery =
   | DataGetThread
   | DataGetThreadWithMessages
+  | DataGetThreadMessages
   | DataGetToolCall
   | DataFindToolCall;
 
@@ -363,6 +364,16 @@ export interface DataGetThreadWithMessages {
   requestId: string;
   threadId: string;
   messageLimit?: number;
+}
+
+/** Runner → Server: get paginated messages for a thread.
+ *  Mirrors `messageRepo.getThreadMessages({ threadId, cursor?, limit })`. */
+export interface DataGetThreadMessages {
+  type: 'data:get_thread_messages';
+  requestId: string;
+  threadId: string;
+  cursor?: string;
+  limit: number;
 }
 
 /** Runner → Server: get tool call by ID */
@@ -387,6 +398,7 @@ export interface DataFindToolCall {
 export type ServerDataQueryResponse =
   | DataGetThreadResponse
   | DataGetThreadWithMessagesResponse
+  | DataGetThreadMessagesResponse
   | DataGetToolCallResponse
   | DataFindToolCallResponse;
 
@@ -400,6 +412,13 @@ export interface DataGetThreadWithMessagesResponse {
   type: 'data:get_thread_with_messages_response';
   requestId: string;
   thread: Record<string, any> | null;
+}
+
+export interface DataGetThreadMessagesResponse {
+  type: 'data:get_thread_messages_response';
+  requestId: string;
+  messages: Array<Record<string, any>>;
+  hasMore: boolean;
 }
 
 export interface DataGetToolCallResponse {

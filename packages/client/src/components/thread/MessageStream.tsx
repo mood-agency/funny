@@ -487,8 +487,8 @@ export const MessageStream = forwardRef<MessageStreamHandle, MessageStreamProps>
         <div
           ref={contentStackRef}
           className={cn(
-            'w-full space-y-4 px-4 py-4',
-            compact ? 'space-y-2 px-2 py-2' : 'mx-auto min-w-[320px] max-w-3xl',
+            'mx-auto w-full min-w-0 max-w-3xl space-y-4 px-4 py-4',
+            compact && 'space-y-2 px-2 py-2',
           )}
         >
           {/* Loading indicator (pagination) */}

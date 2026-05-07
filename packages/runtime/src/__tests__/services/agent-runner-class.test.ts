@@ -179,7 +179,7 @@ function createMockServiceProvider(
       markStaleThreadsInterrupted: () => Promise.resolve(),
       markStaleExternalThreadsStopped: () => Promise.resolve(),
       markAndListStaleThreads: () => Promise.resolve([]),
-      getThreadMessages: () => Promise.resolve([]),
+      getThreadMessages: () => Promise.resolve({ messages: [], hasMore: false }),
       insertComment: () => Promise.resolve({}),
       listComments: () => Promise.resolve([]),
       deleteComment: () => Promise.resolve(),

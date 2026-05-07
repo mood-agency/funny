@@ -6,13 +6,11 @@ import {
   EyeOff,
   BookOpen,
   Check,
-  ChevronDown,
-  ChevronUp,
   Code,
   Copy,
   FileCode,
-  X,
 } from 'lucide-react';
+import type { editor as monacoEditor } from 'monaco-editor';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,8 +27,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { SearchBar } from '@/components/ui/search-bar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { api } from '@/lib/api';
@@ -44,6 +42,8 @@ interface MonacoEditorDialogProps {
   filePath: string;
   initialContent: string | null;
 }
+
+const MONACO_WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/? \t\n';
 
 export function MonacoEditorDialog({
   open,
@@ -72,28 +72,35 @@ export function MonacoEditorDialog({
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
-  // Markdown preview search state
+  // Unified search state — used by both markdown preview and Monaco code view.
   const previewContainerRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const matchElementsRef = useRef<HTMLElement[]>([]);
+  const monacoMatchesRef = useRef<monacoEditor.FindMatch[]>([]);
+  const monacoDecorationsRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [matchCount, setMatchCount] = useState(0);
-  const [currentMatch, setCurrentMatch] = useState(0);
+  // 0-based index of the currently focused match. `-1` means no active match.
+  const [currentMatch, setCurrentMatch] = useState(-1);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [regex, setRegex] = useState(false);
 
-  // Debounce typing so the (expensive) DOM walk runs after a short pause.
+  // Debounce typing so the (expensive) DOM walk / findMatches runs after a short pause.
   useEffect(() => {
     const id = setTimeout(() => setDebouncedQuery(searchQuery), 200);
     return () => clearTimeout(id);
   }, [searchQuery]);
 
   const isDirty = content !== originalContent;
+  const inCodeView = !(showPreview && isMarkdown);
 
   // Derive Monaco theme — monochrome (light) uses VS, everything else is dark-based
   const monacoTheme = resolvedTheme === 'monochrome' ? 'vs' : 'funny-dark';
 
-  // Define custom dark theme and disable TS/JS diagnostics (no tsconfig / node_modules in browser)
   const handleBeforeMount: BeforeMount = (monaco) => {
     monaco.editor.defineTheme('funny-dark', {
       base: 'vs-dark',
@@ -103,21 +110,10 @@ export function MonacoEditorDialog({
         'editor.background': '#000000',
         'editorGutter.background': '#000000',
         'minimap.background': '#0a0a0a',
-        // Find widget
-        'editorWidget.background': '#1e1e1e',
-        'editorWidget.border': '#454545',
-        'editorWidget.foreground': '#cccccc',
-        'input.background': '#2a2a2a',
-        'input.foreground': '#cccccc',
-        'input.border': '#454545',
-        'inputOption.activeBorder': '#007acc',
-        'inputOption.activeBackground': '#007acc44',
-        'inputOption.activeForeground': '#ffffff',
         focusBorder: '#007acc',
       },
     });
 
-    // Configure compiler to understand JSX — must come before diagnostics
     const compilerOptions: import('monaco-editor').typescript.CompilerOptions = {
       jsx: monaco.languages.typescript.JsxEmit.React,
       jsxFactory: 'React.createElement',
@@ -132,7 +128,6 @@ export function MonacoEditorDialog({
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions(compilerOptions);
     monaco.languages.typescript.javascriptDefaults.setCompilerOptions(compilerOptions);
 
-    // Keep syntax validation (good highlighting) but disable semantic (unresolved imports, types)
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
       noSemanticValidation: true,
       noSyntaxValidation: false,
@@ -175,100 +170,170 @@ export function MonacoEditorDialog({
 
   const handleEditorMount: OnMount = useCallback((editor) => {
     editorRef.current = editor;
+    // The decorations collection is bound to the previous editor instance — drop it
+    // so the next search effect creates a fresh one on this model.
+    monacoDecorationsRef.current = null;
   }, []);
-
-  // Ctrl+F → open Monaco find widget in code view, or inline search bar in markdown preview.
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'f') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (showPreview && isMarkdown) {
-          setSearchOpen(true);
-          // Focus the search input on next tick (after render).
-          requestAnimationFrame(() => {
-            searchInputRef.current?.focus();
-            searchInputRef.current?.select();
-          });
-          return;
-        }
-        const editor = editorRef.current;
-        if (editor) {
-          editor.focus();
-          editor.getAction('actions.find')?.run();
-        }
-      }
-    };
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [open, showPreview, isMarkdown]);
-
-  // Reset search when leaving preview, closing dialog, or switching files.
-  useEffect(() => {
-    if (!open || !showPreview || !isMarkdown) {
-      setSearchOpen(false);
-      setSearchQuery('');
-    }
-  }, [open, showPreview, isMarkdown, filePath]);
-
-  // After ReactMarkdown renders with the rehype plugin, collect the produced
-  // <mark> elements so we can navigate (next/prev) and scroll to active.
-  // No DOM mutation — the plugin baked the highlights into the AST.
-  useEffect(() => {
-    const container = previewContainerRef.current;
-    if (!container) {
-      matchElementsRef.current = [];
-      setMatchCount(0);
-      setCurrentMatch(0);
-      return;
-    }
-    const query = searchOpen ? debouncedQuery.trim() : '';
-    if (!query) {
-      matchElementsRef.current = [];
-      setMatchCount(0);
-      setCurrentMatch(0);
-      return;
-    }
-    const marks = Array.from(container.querySelectorAll<HTMLElement>('mark.md-search-match'));
-    matchElementsRef.current = marks;
-    setMatchCount(marks.length);
-    setCurrentMatch(marks.length > 0 ? 1 : 0);
-  }, [debouncedQuery, searchOpen, content, showPreview, isMarkdown]);
-
-  // Style + scroll the active match.
-  useEffect(() => {
-    const marks = matchElementsRef.current;
-    marks.forEach((m, i) => {
-      if (i === currentMatch - 1) {
-        m.dataset.active = 'true';
-      } else {
-        delete m.dataset.active;
-      }
-    });
-    const active = marks[currentMatch - 1];
-    if (active) {
-      active.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
-  }, [currentMatch, matchCount]);
-
-  const goToNextMatch = useCallback(() => {
-    setCurrentMatch((prev) => (matchCount === 0 ? 0 : (prev % matchCount) + 1));
-  }, [matchCount]);
-
-  const goToPrevMatch = useCallback(() => {
-    setCurrentMatch((prev) => (matchCount === 0 ? 0 : prev <= 1 ? matchCount : prev - 1));
-  }, [matchCount]);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setSearchQuery('');
   }, []);
 
+  // Ctrl+F → open the unified search bar (both code and markdown views).
+  // Capture phase + preventDefault prevents Monaco's built-in find widget from opening.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSearchOpen(true);
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        });
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [open]);
+
+  // Reset search when the dialog closes or the file changes.
+  useEffect(() => {
+    if (!open) {
+      setSearchOpen(false);
+      setSearchQuery('');
+    }
+  }, [open, filePath]);
+
+  // ── Markdown preview search ─────────────────────────────────────────────────
+  // Collect <mark> elements produced by the rehype plugin so we can navigate.
+  useEffect(() => {
+    if (inCodeView) return;
+    const container = previewContainerRef.current;
+    if (!container) {
+      matchElementsRef.current = [];
+      setMatchCount(0);
+      setCurrentMatch(-1);
+      return;
+    }
+    const query = searchOpen ? debouncedQuery.trim() : '';
+    if (!query) {
+      matchElementsRef.current = [];
+      setMatchCount(0);
+      setCurrentMatch(-1);
+      return;
+    }
+    const marks = Array.from(container.querySelectorAll<HTMLElement>('mark.md-search-match'));
+    matchElementsRef.current = marks;
+    setMatchCount(marks.length);
+    setCurrentMatch(marks.length > 0 ? 0 : -1);
+  }, [debouncedQuery, searchOpen, content, inCodeView]);
+
+  // Style + scroll the active markdown match.
+  useEffect(() => {
+    if (inCodeView) return;
+    const marks = matchElementsRef.current;
+    marks.forEach((m, i) => {
+      if (i === currentMatch) m.dataset.active = 'true';
+      else delete m.dataset.active;
+    });
+    const active = marks[currentMatch];
+    if (active) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [currentMatch, matchCount, inCodeView]);
+
+  // ── Monaco code view search ─────────────────────────────────────────────────
+  // Run findMatches when the query / options / open state change.
+  useEffect(() => {
+    if (!inCodeView) return;
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!editor || !model) return;
+
+    const query = searchOpen ? debouncedQuery : '';
+    if (!query) {
+      monacoDecorationsRef.current?.clear();
+      monacoMatchesRef.current = [];
+      setMatchCount(0);
+      setCurrentMatch(-1);
+      return;
+    }
+
+    let matches: monacoEditor.FindMatch[] = [];
+    try {
+      matches = model.findMatches(
+        query,
+        false,
+        regex,
+        caseSensitive,
+        wholeWord ? MONACO_WORD_SEPARATORS : null,
+        false,
+      );
+    } catch {
+      // Invalid regex — treat as no matches.
+      matches = [];
+    }
+    monacoMatchesRef.current = matches;
+    setMatchCount(matches.length);
+    setCurrentMatch(matches.length > 0 ? 0 : -1);
+  }, [debouncedQuery, regex, caseSensitive, wholeWord, searchOpen, content, inCodeView]);
+
+  // Apply / update Monaco decorations and scroll to the active match.
+  useEffect(() => {
+    if (!inCodeView) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const matches = monacoMatchesRef.current;
+
+    const decorations: monacoEditor.IModelDeltaDecoration[] = matches.map((m, i) => ({
+      range: m.range,
+      options: {
+        inlineClassName: i === currentMatch ? 'monaco-search-match-active' : 'monaco-search-match',
+      },
+    }));
+
+    if (!monacoDecorationsRef.current) {
+      monacoDecorationsRef.current = editor.createDecorationsCollection(decorations);
+    } else {
+      monacoDecorationsRef.current.set(decorations);
+    }
+
+    const active = matches[currentMatch];
+    if (active) {
+      editor.revealRangeInCenterIfOutsideViewport(active.range);
+    }
+  }, [currentMatch, matchCount, inCodeView]);
+
+  // Switching between preview / code: clear the other view's decorations.
+  useEffect(() => {
+    if (inCodeView) {
+      matchElementsRef.current.forEach((m) => delete m.dataset.active);
+      matchElementsRef.current = [];
+    } else {
+      monacoDecorationsRef.current?.clear();
+      monacoMatchesRef.current = [];
+    }
+    // Re-trigger the appropriate effect by nudging state.
+    if (searchOpen && debouncedQuery) {
+      setMatchCount(0);
+      setCurrentMatch(-1);
+    }
+    // Intentionally only react to view changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inCodeView]);
+
+  const goToNextMatch = useCallback(() => {
+    setCurrentMatch((prev) => (matchCount === 0 ? -1 : (prev + 1) % matchCount));
+  }, [matchCount]);
+
+  const goToPrevMatch = useCallback(() => {
+    setCurrentMatch((prev) => (matchCount === 0 ? -1 : (prev - 1 + matchCount) % matchCount));
+  }, [matchCount]);
+
   // Memoize the rendered markdown. Re-renders only when content or the (debounced)
-  // search query changes — the rehype plugin bakes <mark> elements into the AST,
-  // so React reconciles normally without imperative DOM mutation.
-  const activeQuery = searchOpen ? debouncedQuery.trim() : '';
+  // search query changes — the rehype plugin bakes <mark> elements into the AST.
+  const activeQuery = searchOpen && !inCodeView ? debouncedQuery.trim() : '';
   const renderedMarkdown = useMemo(
     () => (
       <ReactMarkdown
@@ -281,6 +346,10 @@ export function MonacoEditorDialog({
     ),
     [content, activeQuery],
   );
+
+  // Markdown highlighting only does case-insensitive substring matches; hide
+  // the toggles in preview mode where they wouldn't take effect.
+  const showAdvancedToggles = inCodeView;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -303,7 +372,6 @@ export function MonacoEditorDialog({
               {filePath}
             </span>
           </DialogTitle>
-          {/* Copy file contents */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -320,7 +388,6 @@ export function MonacoEditorDialog({
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('editor.copy', 'Copy')}</TooltipContent>
           </Tooltip>
-          {/* Markdown preview toggle */}
           {isMarkdown && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -345,7 +412,6 @@ export function MonacoEditorDialog({
               </TooltipContent>
             </Tooltip>
           )}
-          {/* Minimap toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -362,7 +428,6 @@ export function MonacoEditorDialog({
               {showMinimap ? t('editor.hideMinimap') : t('editor.showMinimap')}
             </TooltipContent>
           </Tooltip>
-          {/* Fullscreen toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -388,75 +453,36 @@ export function MonacoEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          {searchOpen && (
+            <SearchBar
+              query={searchQuery}
+              onQueryChange={setSearchQuery}
+              totalMatches={matchCount}
+              currentIndex={currentMatch}
+              onNext={goToNextMatch}
+              onPrev={goToPrevMatch}
+              onClose={closeSearch}
+              placeholder={t('editor.searchPlaceholder', 'Find')}
+              showIcon={false}
+              autoFocus
+              inputRef={searchInputRef}
+              caseSensitive={showAdvancedToggles ? caseSensitive : undefined}
+              onCaseSensitiveChange={showAdvancedToggles ? setCaseSensitive : undefined}
+              wholeWord={showAdvancedToggles ? wholeWord : undefined}
+              onWholeWordChange={showAdvancedToggles ? setWholeWord : undefined}
+              regex={showAdvancedToggles ? regex : undefined}
+              onRegexChange={showAdvancedToggles ? setRegex : undefined}
+              testIdPrefix="editor-search"
+              className="absolute right-4 top-3 z-10 rounded-md border border-border bg-popover px-2 py-1 shadow-md"
+            />
+          )}
           {showPreview && isMarkdown ? (
-            <div className="relative h-full">
-              {searchOpen && (
-                <div
-                  className="absolute right-4 top-3 z-10 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-md"
-                  data-testid="markdown-search-bar"
-                >
-                  <Input
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        e.preventDefault();
-                        closeSearch();
-                      } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (e.shiftKey) goToPrevMatch();
-                        else goToNextMatch();
-                      }
-                    }}
-                    placeholder={t('editor.searchPlaceholder', 'Find')}
-                    className="h-7 w-48 text-xs"
-                    data-testid="markdown-search-input"
-                  />
-                  <span
-                    className="min-w-[3rem] px-1 text-center text-xs tabular-nums text-muted-foreground"
-                    data-testid="markdown-search-count"
-                  >
-                    {matchCount === 0 ? '0/0' : `${currentMatch}/${matchCount}`}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={goToPrevMatch}
-                    disabled={matchCount === 0}
-                    data-testid="markdown-search-prev"
-                    aria-label={t('editor.searchPrev', 'Previous match')}
-                  >
-                    <ChevronUp className="icon-base" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={goToNextMatch}
-                    disabled={matchCount === 0}
-                    data-testid="markdown-search-next"
-                    aria-label={t('editor.searchNext', 'Next match')}
-                  >
-                    <ChevronDown className="icon-base" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={closeSearch}
-                    data-testid="markdown-search-close"
-                    aria-label={t('editor.searchClose', 'Close search')}
-                  >
-                    <X className="icon-base" />
-                  </Button>
-                </div>
-              )}
-              <ScrollArea className="h-full">
-                <div ref={previewContainerRef} className="prose prose-sm max-w-none px-8 py-6">
-                  {renderedMarkdown}
-                </div>
-              </ScrollArea>
-            </div>
+            <ScrollArea className="h-full">
+              <div ref={previewContainerRef} className="prose prose-sm max-w-none px-8 py-6">
+                {renderedMarkdown}
+              </div>
+            </ScrollArea>
           ) : (
             <Editor
               height="100%"
@@ -484,9 +510,6 @@ export function MonacoEditorDialog({
   );
 }
 
-/**
- * Custom markdown components with Mermaid support
- */
 const markdownPreviewComponents: Components = {
   code({ className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || '');
@@ -496,7 +519,6 @@ const markdownPreviewComponents: Components = {
       return <MermaidBlock chart={String(children).trim()} />;
     }
 
-    // Block code (inside <pre>)
     if (className) {
       return (
         <code className={cn('text-xs', className)} {...props}>
@@ -505,7 +527,6 @@ const markdownPreviewComponents: Components = {
       );
     }
 
-    // Inline code
     return (
       <code className="rounded bg-muted px-1.5 py-0.5 text-xs" {...props}>
         {children}
@@ -517,16 +538,10 @@ const markdownPreviewComponents: Components = {
   },
 };
 
-/**
- * Extract file name from path
- */
 function getFileName(filePath: string): string {
   return filePath.split(/[/\\]/).pop() || filePath;
 }
 
-/**
- * Extract file extension from path
- */
 function getFileExtension(filePath: string): string {
   const lastDot = filePath.lastIndexOf('.');
   const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
@@ -536,9 +551,6 @@ function getFileExtension(filePath: string): string {
   return '';
 }
 
-/**
- * Map file extension to Monaco language identifier
- */
 function getMonacoLanguage(ext: string): string {
   const langMap: Record<string, string> = {
     ts: 'typescript',

@@ -68,6 +68,10 @@ export interface ThreadState {
   contextUsageByThread: Record<string, ContextUsage>;
   queuedCountByThread: Record<string, number>;
 
+  /** Thread data for threads visible in live columns — keyed by threadId.
+   *  Updated in real-time by WS handlers so columns don't need to poll. */
+  liveThreads: Record<string, ThreadWithMessages>;
+
   loadThreadsForProject: (projectId: string) => Promise<void>;
   loadMoreThreads: (projectId: string) => Promise<void>;
   selectThread: (threadId: string | null) => Promise<void>;
@@ -110,6 +114,9 @@ export interface ThreadState {
     options?: { scope?: 'once' | 'always'; pattern?: string; toolInput?: string },
   ) => Promise<boolean>;
   searchThreadContent: (query: string, projectId?: string) => Promise<any>;
+
+  registerLiveThread: (threadId: string) => Promise<void>;
+  unregisterLiveThread: (threadId: string) => void;
 
   handleWSInit: (threadId: string, data: AgentInitInfo) => void;
   handleWSMessage: (

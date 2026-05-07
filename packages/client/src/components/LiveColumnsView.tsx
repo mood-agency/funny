@@ -181,9 +181,23 @@ export function LiveColumnsView() {
           const cellIndex = targetData.cellIndex as number;
           setGridCells((prev) => {
             const updated = { ...prev };
+
+            // Find the source cell index if it was already in the grid
+            let sourceKey: string | undefined;
             for (const [key, val] of Object.entries(updated)) {
-              if (val === threadId) delete updated[key];
+              if (val === threadId) {
+                sourceKey = key;
+                delete updated[key];
+              }
             }
+
+            // If the target cell already has a thread, and we are dragging from within the grid,
+            // swap them. Otherwise, just overwrite/place.
+            const existingThreadId = updated[String(cellIndex)];
+            if (existingThreadId && sourceKey) {
+              updated[sourceKey] = existingThreadId;
+            }
+
             updated[String(cellIndex)] = threadId;
             localStorage.setItem('funny:grid-cells', JSON.stringify(updated));
             return updated;

@@ -180,6 +180,9 @@ export function SearchBar({
         className,
       )}
       onAnimationEnd={handleAnimationEnd}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) internalInputRef.current?.focus();
+      }}
       data-testid={`${testIdPrefix}-bar`}
     >
       {showIcon && <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />}

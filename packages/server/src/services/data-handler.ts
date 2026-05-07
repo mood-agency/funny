@@ -338,6 +338,19 @@ export async function handleDataMessageWithAck(
         );
         return { type: 'data:get_thread_with_messages_response', thread: thread ?? null };
       }
+      case 'data:get_thread_messages': {
+        const messageRepo = getMessageRepo();
+        const result = await messageRepo.getThreadMessages({
+          threadId: data.threadId,
+          cursor: typeof data.cursor === 'string' ? data.cursor : undefined,
+          limit: typeof data.limit === 'number' ? data.limit : 50,
+        });
+        return {
+          type: 'data:get_thread_messages_response',
+          messages: result.messages,
+          hasMore: result.hasMore,
+        };
+      }
       case 'data:get_tool_call': {
         const toolCallRepo = getToolCallRepo();
         const toolCall = await toolCallRepo.getToolCall(data.toolCallId);

@@ -1007,6 +1007,27 @@ export async function remoteGetThreadWithMessages(
   return response?.thread ?? null;
 }
 
+/**
+ * Get paginated messages for a thread from the server.
+ * Mirrors `messageRepo.getThreadMessages({ threadId, cursor?, limit })`.
+ * Returns oldest-first messages and a hasMore flag.
+ */
+export async function remoteGetThreadMessages(opts: {
+  threadId: string;
+  cursor?: string;
+  limit: number;
+}): Promise<{ messages: any[]; hasMore: boolean }> {
+  const response = await sendDataMessage('data:get_thread_messages', {
+    threadId: opts.threadId,
+    limit: opts.limit,
+    ...(opts.cursor !== undefined ? { cursor: opts.cursor } : {}),
+  });
+  return {
+    messages: Array.isArray(response?.messages) ? response.messages : [],
+    hasMore: !!response?.hasMore,
+  };
+}
+
 /** Get an agent template from the server by ID */
 export async function remoteGetAgentTemplate(templateId: string): Promise<any> {
   const response = await sendDataMessage('data:get_agent_template', { templateId });
